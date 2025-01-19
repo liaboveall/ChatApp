@@ -2,26 +2,28 @@ version: '3.8'
 
 services:
   web:
-    build: .
     image: abovealll/chatapp:latest
+    restart: always
     command: python manage.py runserver 0.0.0.0:8000
-    volumes:
-      - .:/app
     ports:
       - "8000:8000"
     environment:
-      - DEBUG=1
+      - DEBUG=${DEBUG}
+      - POSTGRES_DB=${POSTGRES_DB}
+      - POSTGRES_USER=${POSTGRES_USER}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
     depends_on:
       - db
   
   db:
     image: postgres:13
+    restart: always
     volumes:
       - postgres_data:/var/lib/postgresql/data/
     environment:
-      - POSTGRES_DB=chatapp
-      - POSTGRES_USER=postgres
-      - POSTGRES_PASSWORD=postgres
+      - POSTGRES_DB=${POSTGRES_DB}
+      - POSTGRES_USER=${POSTGRES_USER}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
 
 volumes:
   postgres_data:
