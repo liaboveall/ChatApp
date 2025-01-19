@@ -10,7 +10,7 @@ services:
     ports:
       - "8000:8000"
     environment:
-      - DEBUG=0
+      - DEBUG=1
     depends_on:
       - db
   
