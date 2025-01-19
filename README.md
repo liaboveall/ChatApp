@@ -16,3 +16,5 @@ docker pull abovealll/chatapp:latest
 ```shell
 docker-compose up -d
 ```
+
+4. 访问 http://localhost:8000
