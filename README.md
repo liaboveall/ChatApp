@@ -17,4 +17,7 @@ docker pull abovealll/chatapp:latest
 docker-compose up -d
 ```
 
-4. 访问 http://localhost:8000
+4. 访问聊天界面
+```shell
+http://localhost:8000
+```
