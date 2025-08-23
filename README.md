@@ -1,87 +1,88 @@
 # ChatApp
 
-一个基于 Django + Channels 的聊天应用，支持公共聊天室、私聊、在线用户、文件/图片/视频消息，以及可选的 AI 助手。
+[![English](https://img.shields.io/badge/lang-English-blue.svg)](README.md)
+[![中文](https://img.shields.io/badge/语言-中文-red.svg)](README_ZN.md)
 
-## 运行方式（两种）
+A chat application built with Django + Channels. It supports public chat rooms, private chats, online user presence, file/image/video messages, and an optional AI assistant.
 
-你可以选择以下任意一种方式启动项目：
+## How to Run (two options)
 
-### 方式一：本地直接运行（推荐用于开发）
+Choose either of the following ways to start the project:
 
-前置要求：已安装 Python 3.10+。
+### Option 1: Run locally 
+Prerequisites: Python 3.10+ installed.
 
-1) 克隆仓库
+1) Clone the repository
 
 ```powershell
 git clone https://github.com/liaboveall/ChatApp.git
 cd ChatApp
 ```
 
-
-2) 安装依赖
+2) Install dependencies
 
 ```powershell
 python -m pip install -r requirements.txt
 ```
 
-3) 迁移数据库并启动
+3) Migrate the database and start the server
 
 ```powershell
 python manage.py migrate
 python manage.py runserver
 ```
 
-4) 打开浏览器
+4) Open in browser
 
 ```
 http://127.0.0.1:8000
 ```
 
-可选（使用 Redis 作为 Channels 层、或使用 Postgres）：
+Optional (use Redis as Channels layer, or Postgres):
 
-- Redis：设置环境变量并在生产/多进程下使用
-	- `CHANNEL_BACKEND=redis`
-	- `CHANNEL_REDIS_URL=redis://localhost:6379/0`
-- Postgres：
-	- `USE_POSTGRES=1`
-	- `POSTGRES_DB/POSTGRES_USER/POSTGRES_PASSWORD/POSTGRES_HOST/POSTGRES_PORT`
+- Redis: set environment variables and use in production/multi-process scenarios
+  - `CHANNEL_BACKEND=redis`
+  - `CHANNEL_REDIS_URL=redis://localhost:6379/0`
+- Postgres:
+  - `USE_POSTGRES=1`
+  - `POSTGRES_DB/POSTGRES_USER/POSTGRES_PASSWORD/POSTGRES_HOST/POSTGRES_PORT`
 
-### 方式二：使用 Docker（含 docker-compose）
+### Option 2: Use Docker (with docker-compose)
 
-1) 克隆仓库
+1) Clone the repository
 
 ```powershell
 git clone https://github.com/liaboveall/ChatApp.git
 cd ChatApp
 ```
 
-2) 直接启动（默认使用 SQLite）
+2) Start directly (uses SQLite by default)
 
 ```powershell
 docker compose up --build -d
 ```
 
-3) 打开浏览器
+3) Open in browser
 
 ```
 http://127.0.0.1:8000
 ```
 
-可选：使用 Postgres + Redis（生产/多副本推荐）
+Optional: Postgres + Redis (recommended for production/scaled replicas)
 
-- 在 `docker-compose.yml` 中为 `web` 服务添加环境变量 `USE_POSTGRES=1`，并配置 `POSTGRES_*`；
-- 添加/启用 Redis 服务，并设置 `CHANNEL_BACKEND=redis` 与 `CHANNEL_REDIS_URL=redis://redis:6379/0`；
-- 首次启动后在容器中执行迁移：`docker compose exec web python manage.py migrate`。
+- In `docker-compose.yml`, add `USE_POSTGRES=1` to the `web` service and configure the `POSTGRES_*` values.
+- Add/enable the Redis service and set `CHANNEL_BACKEND=redis` and `CHANNEL_REDIS_URL=redis://redis:6379/0`.
+- After the first start, run migrations in the container: `docker compose exec web python manage.py migrate`.
 
-## 致谢与来源
+## Acknowledgements & Origin
 
-本项目基于上游开源项目进行改造与扩展，原项目使用 MIT 许可证发布。在功能（私聊、在线用户、AI 聊天、文件消息等）、结构与部署方面进行了较大调整与重构。
+This project adapts and extends an upstream open-source project originally released under the MIT License. Significant changes were made in features (private chat, online users, AI chat, file messages, etc.), structure, and deployment.
 
-- 上游项目：Django-ChatApp（rustyxlol）https://github.com/rustyxlol/Django-ChatApp
-- 许可证：MIT（保留原版权与许可声明）。
+- Upstream project: Django-ChatApp (rustyxlol) https://github.com/rustyxlol/Django-ChatApp
+- License: MIT (original copyright and license notice retained).
 
-如果你是该上游项目的作者，欢迎提出建议或请求在此补充更准确的署名信息。
+If you are the author of the upstream project, feel free to open an issue/PR for more accurate attribution details.
 
 ## License
 
-本项目遵循 MIT License 发布，详见根目录 `LICENSE` 文件。
+Released under the MIT License. See the `LICENSE` file at the project root for details.
