@@ -17,36 +17,21 @@ git clone https://github.com/liaboveall/ChatApp.git
 cd ChatApp
 ```
 
-2) 创建并激活虚拟环境
 
-Windows PowerShell：
-
-```powershell
-py -m venv .venv
-./.venv/Scripts/Activate.ps1
-```
-
-macOS/Linux：
-
-```bash
-python3 -m venv .venv
-source .venv/bin/activate
-```
-
-3) 安装依赖
+2) 安装依赖
 
 ```powershell
 python -m pip install -r requirements.txt
 ```
 
-4) 迁移数据库并启动
+3) 迁移数据库并启动
 
 ```powershell
 python manage.py migrate
 python manage.py runserver
 ```
 
-5) 打开浏览器
+4) 打开浏览器
 
 ```
 http://127.0.0.1:8000
