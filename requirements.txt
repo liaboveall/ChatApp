@@ -1,0 +1,18 @@
+asgiref==3.5.2
+certifi==2022.5.18.1
+charset-normalizer==2.0.12
+# Pin Django to a version compatible with channels==3.0.5 and existing migrations
+Django==4.1.13
+docopt==0.6.2
+idna==3.3
+requests==2.27.1
+sqlparse==0.4.2
+urllib3==1.26.9
+yarg==0.1.9
+channels==3.0.5
+# Optional: enable Redis channel layer in production
+# channels-redis==4.1.0
+django-crispy-forms
+Pillow
+crispy-bootstrap4
+openai>=1.0.0

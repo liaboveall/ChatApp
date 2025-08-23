@@ -1,0 +1,92 @@
+{% extends "chat/base.html" %}
+{% load crispy_forms_tags %}
+
+{% block content %}
+<div class="content-section">
+    <form method="POST" enctype="multipart/form-data">
+        {% csrf_token %}
+        <fieldset class="form-group">
+            <legend class="border-bottom mb-4">创建新聊天室</legend>
+            {{ form|crispy }}
+        </fieldset>
+        <div class="form-group">
+            <button class="btn btn-outline-info" type="submit" id="submit-btn">创建</button>
+        </div>
+    </form>
+</div>
+
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    const nameInput = document.querySelector('input[name="name"]');
+    const typeInput = document.querySelector('select[name="room_type"]');
+    const submitBtn = document.getElementById('submit-btn');
+    let checkTimeout;
+    let feedbackDiv = null;  // 保存提示元素的引用
+
+    function checkRoomName() {
+        clearTimeout(checkTimeout);
+        const roomName = nameInput.value.trim();
+        const roomType = typeInput.value;
+        
+        // 如果提示元素不存在，创建一个新的
+        if (!feedbackDiv) {
+            feedbackDiv = document.createElement('div');
+            nameInput.parentElement.appendChild(feedbackDiv);
+        }
+        
+        if (roomName === '') {
+            feedbackDiv.textContent = '请输入聊天室名称';
+            feedbackDiv.className = 'invalid-feedback';
+            nameInput.classList.add('is-invalid');
+            nameInput.classList.remove('is-valid');
+            submitBtn.disabled = true;
+            return;
+        }
+
+        // 设置延时，避免频繁请求
+        checkTimeout = setTimeout(() => {
+            fetch(`/check-room-name/?name=${encodeURIComponent(roomName)}&type=${roomType}`)
+                .then(response => response.json())
+                .then(data => {
+                    if (data.exists) {
+                        feedbackDiv.textContent = data.message;
+                        feedbackDiv.className = 'invalid-feedback';
+                        nameInput.classList.add('is-invalid');
+                        nameInput.classList.remove('is-valid');
+                        submitBtn.disabled = true;
+                    } else {
+                        feedbackDiv.textContent = data.message;
+                        feedbackDiv.className = 'valid-feedback';
+                        nameInput.classList.remove('is-invalid');
+                        nameInput.classList.add('is-valid');
+                        submitBtn.disabled = false;
+                    }
+                });
+        }, 500);
+    }
+
+    // 监听输入变化
+    nameInput.addEventListener('input', checkRoomName);
+    typeInput.addEventListener('change', checkRoomName);
+});
+</script>
+
+<style>
+.invalid-feedback, .valid-feedback {
+    display: block;
+    margin-top: 0.25rem;
+}
+
+.valid-feedback {
+    color: #28a745;
+}
+
+.is-valid {
+    border-color: #28a745 !important;
+}
+
+.is-invalid {
+    border-color: #dc3545 !important;
+}
+</style>
+{% endblock content %} 

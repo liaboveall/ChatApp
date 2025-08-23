@@ -1,0 +1,8 @@
+{% extends "chat/base.html" %} {% block content %}
+<h2>您已登出</h2>
+<div class="border-top pt-3">
+  <small class="text-muted">
+    <a href="{% url 'login' %}">再次登录</a>
+  </small>
+</div>
+{% endblock content %}

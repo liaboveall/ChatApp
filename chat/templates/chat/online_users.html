@@ -1,0 +1,235 @@
+{% extends "chat/base.html" %}
+{% load static %}
+{% block content %}
+<div class="content-section">
+    <h3>在线用户</h3>
+    <div class="input-group mb-3">
+        <input type="text" id="user-search" class="form-control" placeholder="搜索用户...">
+    </div>
+    <div class="online-users-container">
+        <div class="list-group">
+            {% for user in online_users %}
+                {% if user.is_ai %}
+                    <!-- AI 助手 -->
+                    <a href="{% url 'ai-chat' %}" class="list-group-item list-group-item-action ai-assistant">
+                        <img src="{{ user.profile_pic }}" class="rounded-circle mr-2" style="width: 32px; height: 32px;">
+                        <span class="user-name">{{ user.username }}</span>
+                        <span class="badge badge-success float-right">AI助手</span>
+                    </a>
+                {% else %}
+                    <!-- 普通用户 -->
+                    <div class="list-group-item user-card" data-username="{{ user.username }}">
+                        <div class="d-flex align-items-center">
+                            {% if user.profile_pic %}
+                                <img src="{{ user.profile_pic }}" class="rounded-circle mr-2" style="width: 32px; height: 32px;">
+                            {% endif %}
+                            <div class="user-info flex-grow-1">
+                                <h5 class="mb-0">{{ user.username }}</h5>
+                                {% if not user.is_current %}
+                                    <button class="btn btn-sm btn-primary start-chat" 
+                                            data-user-id="{{ user.id }}">
+                                        发起私聊
+                                    </button>
+                                {% else %}
+                                    <span class="badge badge-success">当前用户</span>
+                                {% endif %}
+                            </div>
+                        </div>
+                    </div>
+                {% endif %}
+            {% endfor %}
+        </div>
+    </div>
+</div>
+
+{{ request.user.username|json_script:"user-name" }}
+
+<style>
+.ai-assistant {
+    background-color: #f8f9fa;
+    border-left: 4px solid #28a745;
+}
+
+.ai-assistant:hover {
+    background-color: #e9ecef;
+}
+
+.user-card {
+    transition: all 0.3s ease;
+}
+
+.user-card:hover {
+    background-color: #f8f9fa;
+}
+
+.user-info {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+
+.badge {
+    font-size: 0.8rem;
+}
+</style>
+
+<script>
+const userName = JSON.parse(document.getElementById('user-name').textContent);
+let onlineSocket = null;
+
+function connectWebSocket() {
+    if (onlineSocket && onlineSocket.readyState !== WebSocket.CLOSED) {
+        console.log('WebSocket is already connected');
+        return;
+    }
+
+    onlineSocket = new WebSocket(
+        'ws://' + window.location.host + '/ws/chat/online-users/'
+    );
+
+    onlineSocket.onopen = function(e) {
+        console.log('Online status connection established');
+    };
+
+    onlineSocket.onmessage = function(e) {
+        const data = JSON.parse(e.data);
+        console.log('Received WebSocket message:', data);
+        
+        if (data.type === 'user_status') {
+            updateOnlineUsers(data.online_users);
+        } else if (data.type === 'chat_request') {
+            // 处理收到的私聊请求
+            console.log('Received chat request:', data);
+            handleChatRequest(data);
+        } else if (data.type === 'error') {
+            // 显示错误消息
+            console.error('Error:', data.message);
+            alert(data.message);
+        }
+    };
+
+    onlineSocket.onerror = function(error) {
+        console.error('WebSocket Error:', error);
+    };
+
+    onlineSocket.onclose = function(e) {
+        console.log('WebSocket Connection Closed:', e.code, e.reason);
+        setTimeout(connectWebSocket, 1000);
+    };
+}
+
+// 初始连接
+connectWebSocket();
+
+// 页面关闭时清理连接
+window.addEventListener('beforeunload', function() {
+    if (onlineSocket) {
+        onlineSocket.close();
+    }
+});
+
+function updateOnlineUsers(users) {
+    const container = document.querySelector('.online-users-container');
+    if (!container) return;
+
+    // 保持 AI 助手在列表中
+    const aiAssistant = {
+        username: 'AI助手',
+        id: 'ai',
+        is_ai: true,
+        profile_pic: '/media/ai_avatar/ai_avatar.png'
+    };
+    
+    // 将 AI 助手添加到用户列表开头
+    users = [aiAssistant, ...users];
+    
+    let html = '<div class="list-group">';
+    
+    users.forEach(user => {
+        if (user.is_ai) {
+            html += `
+                <a href="/ai-chat/" class="list-group-item list-group-item-action ai-assistant">
+                    <img src="${user.profile_pic}" class="rounded-circle mr-2" style="width: 32px; height: 32px;">
+                    <span class="user-name">${user.username}</span>
+                    <span class="badge badge-success float-right">AI助手</span>
+                </a>
+            `;
+        } else {
+            const isCurrentUser = user.username === userName;
+            html += `
+                <div class="list-group-item user-card" data-username="${user.username}">
+                    <div class="d-flex align-items-center">
+                        ${user.profile_pic ? `
+                            <img src="${user.profile_pic}" class="rounded-circle mr-2" style="width: 32px; height: 32px;">
+                        ` : ''}
+                        <div class="user-info flex-grow-1">
+                            <h5 class="mb-0">${user.username}</h5>
+                            ${!isCurrentUser ? `
+                                <button class="btn btn-sm btn-primary start-chat" 
+                                        data-user-id="${user.id}">
+                                    发起私聊
+                                </button>
+                            ` : '<span class="badge badge-success">当前用户</span>'}
+                        </div>
+                    </div>
+                </div>
+            `;
+        }
+    });
+    
+    html += '</div>';
+    container.innerHTML = html;
+    
+    // 重新绑定事件
+    bindChatEvents();
+}
+
+// 搜索功能
+document.getElementById('user-search').addEventListener('input', function(e) {
+    const searchTerm = e.target.value.toLowerCase();
+    document.querySelectorAll('.user-card').forEach(card => {
+        const username = card.dataset.username.toLowerCase();
+        card.style.display = username.includes(searchTerm) ? 'flex' : 'none';
+    });
+});
+
+function bindChatEvents() {
+    // 发起私聊
+    document.querySelectorAll('.start-chat').forEach(btn => {
+        btn.addEventListener('click', function() {
+            const userId = this.dataset.userId;
+            console.log('Sending chat request to user:', userId);
+            
+            // 发送私聊请求
+            onlineSocket.send(JSON.stringify({
+                'type': 'chat_request',
+                'receiver_id': parseInt(userId)
+            }));
+        });
+    });
+}
+
+// 处理收到的私聊请求
+function handleChatRequest(data) {
+    const { sender, chat_id, is_initiator } = data;
+    console.log('Received chat request:', data);
+    
+    if (is_initiator) {
+        // 如果是发起者，直接跳转
+        console.log('Initiator redirecting to chat:', chat_id);
+        window.location.href = `/chat/private-chat/${chat_id}/`;
+    } else {
+        // 如果是接收者，显示确认对话框
+        console.log('Receiver showing confirmation dialog');
+        if (confirm(`用户 ${sender} 想要和您私聊，是否接受？`)) {
+            console.log('Receiver accepted, redirecting to chat:', chat_id);
+            window.location.href = `/chat/private-chat/${chat_id}/`;
+        } else {
+            console.log('Receiver declined chat request');
+        }
+    }
+}
+
+bindChatEvents();
+</script>
+{% endblock %}

@@ -1,0 +1,17 @@
+{% extends "chat/base.html" %} {% load crispy_forms_tags %} {% block content %}
+<div class="content-section">
+  <form method="POST">
+    {% csrf_token %}
+    <fieldset class="form-group">
+      <legend class="border-bottom mb-4">登录</legend>
+      {{ form|crispy }}
+    </fieldset>
+    <div class="form-group">
+      <button class="btn btn-outline-info" type="submit">登录</button>
+      <small class="text-muted ml-2">
+        <a href="{% url 'register' %}">还没有账号?立即注册</a>
+      </small>
+    </div>
+  </form>
+</div>
+{% endblock content %}

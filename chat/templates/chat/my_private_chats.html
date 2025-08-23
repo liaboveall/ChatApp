@@ -1,0 +1,71 @@
+{% extends "chat/base.html" %}
+{% block content %}
+<div class="content-section">
+    <h3>我的私聊</h3>
+    <div class="private-chats-list">
+        {% for chat in private_chats %}
+            <div class="chat-card">
+                <div class="chat-info">
+                    <h5>
+                        {% if chat.initiator == request.user %}
+                            与 {{ chat.receiver.username }} 的对话
+                        {% else %}
+                            与 {{ chat.initiator.username }} 的对话
+                        {% endif %}
+                    </h5>
+                    <small class="text-muted">创建于: {{ chat.created_at|date:"Y-m-d H:i" }}</small>
+                    <div class="chat-status">
+                        {% if chat.accepted %}
+                            <span class="badge badge-success">已接受</span>
+                        {% else %}
+                            <span class="badge badge-warning">等待接受</span>
+                        {% endif %}
+                    </div>
+                </div>
+                <div class="chat-actions">
+                    <a href="{% url 'private-chat' chat.id %}" class="btn btn-primary">
+                        进入聊天
+                    </a>
+                </div>
+            </div>
+        {% empty %}
+            <p class="text-muted">暂无私聊记录</p>
+        {% endfor %}
+    </div>
+</div>
+
+<style>
+.private-chats-list {
+    display: flex;
+    flex-direction: column;
+    gap: 1rem;
+}
+
+.chat-card {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 1rem;
+    border: 1px solid #ddd;
+    border-radius: 8px;
+    background: white;
+}
+
+.chat-info {
+    flex: 1;
+}
+
+.chat-info h5 {
+    margin: 0;
+    margin-bottom: 0.5rem;
+}
+
+.chat-status {
+    margin-top: 0.5rem;
+}
+
+.chat-actions {
+    margin-left: 1rem;
+}
+</style>
+{% endblock %} 

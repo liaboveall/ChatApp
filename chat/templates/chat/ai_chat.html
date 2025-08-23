@@ -1,0 +1,301 @@
+{% extends "chat/base.html" %}
+{% block content %}
+<div class="content-section">
+    <div class="chat-header">
+        <h3>AI 助手</h3>
+    </div>
+    
+    <div class="chat-messages" id="chat-messages">
+        {% for message in messages %}
+        <div class="message {% if message.username == request.user.username %}sent{% else %}received{% endif %}" 
+             data-message-id="{{ message.id }}">
+            <div class="message-content">
+                <div class="message-header">
+                    <small class="text-muted">{{ message.username }}</small>
+                    <small class="text-muted">{{ message.date_added|date:"Y-m-d H:i:s" }}</small>
+                </div>
+                
+                {% if message.is_recalled %}
+                    <p class="text-muted"><i>消息已撤回</i></p>
+                {% elif message.is_deleted %}
+                    <p class="text-muted"><i>消息已删除</i></p>
+                {% else %}
+                    <p class="article-content">{{ message.message_content }}</p>
+                    {% if message.username == request.user.username %}
+                        <div class="message-actions">
+                            {% if message.date_added|timesince < "2分钟" %}
+                                <button class="btn btn-sm btn-warning recall-message" 
+                                        onclick="recallMessage({{ message.id }})">
+                                    <i class="material-icons">undo</i> 撤回
+                                </button>
+                            {% endif %}
+                            <button class="btn btn-sm btn-danger delete-message" 
+                                    onclick="deleteMessage({{ message.id }})">
+                                <i class="material-icons">delete</i> 删除
+                            </button>
+                        </div>
+                    {% endif %}
+                {% endif %}
+            </div>
+        </div>
+        {% endfor %}
+    </div>
+
+    <div class="chat-input">
+        <input class="form-control" id="chat-message-input" type="text" placeholder="输入消息..." />
+        <button class="btn btn-primary mt-2" id="chat-message-submit">
+            <span class="material-icons">send</span> 发送
+        </button>
+    </div>
+</div>
+
+{{ request.user.username|json_script:"user-name" }}
+{{ room_name|json_script:"room-name" }}
+{{ request.user.profile.image.url|json_script:"profile-pic" }}
+
+<script>
+// WebSocket 连接代码
+const roomName = JSON.parse(document.getElementById('room-name').textContent);
+const userName = JSON.parse(document.getElementById('user-name').textContent);
+const profilePic = JSON.parse(document.getElementById('profile-pic').textContent);
+
+let chatSocket = null;
+
+function connectWebSocket() {
+    if (chatSocket && chatSocket.readyState !== WebSocket.CLOSED) {
+        console.log('WebSocket is already connected');
+        return;
+    }
+
+    chatSocket = new WebSocket(
+        'ws://' + window.location.host + '/ws/ai-chat/' + roomName + '/'
+    );
+
+    chatSocket.onopen = function(e) {
+        console.log('AI chat connection established');
+    };
+
+    chatSocket.onmessage = function(e) {
+        const data = JSON.parse(e.data);
+        console.log('Received message:', data);
+
+        if (data.type === 'message_deleted') {
+            handleMessageDeleted(data.message_id);
+        } else if (data.type === 'message_recalled') {
+            handleMessageRecalled(data.message_id);
+        } else if (data.type === 'error') {
+            console.error('Error:', data.message);
+            alert(data.message);
+        } else {
+            appendMessage(data);
+        }
+    };
+
+    chatSocket.onclose = function(e) {
+        console.log('Chat socket closed unexpectedly');
+        setTimeout(connectWebSocket, 1000);
+    };
+
+    chatSocket.onerror = function(error) {
+        console.error('WebSocket Error:', error);
+    };
+}
+
+// 初始连接
+connectWebSocket();
+
+// 发送消息
+document.querySelector('#chat-message-input').onkeyup = function(e) {
+    if (e.keyCode === 13) {  // enter, return
+        document.querySelector('#chat-message-submit').click();
+    }
+};
+
+document.querySelector('#chat-message-submit').onclick = function(e) {
+    const messageInputDom = document.querySelector('#chat-message-input');
+    const message = messageInputDom.value;
+    if (message.trim()) {
+        // 立即显示用户消息
+        appendMessage({
+            type: 'text',
+            message: message,
+            username: userName,
+            profile_pic: profilePic,
+            message_id: 'temp_' + new Date().getTime(),  // 临时ID
+            is_user: true
+        });
+
+        // 发送到服务器
+        chatSocket.send(JSON.stringify({
+            'type': 'text',
+            'message': message,
+            'username': userName,
+            'profile_pic': profilePic,
+            'room': roomName
+        }));
+        
+        messageInputDom.value = '';
+    }
+};
+
+function appendMessage(data) {
+    const messagesContainer = document.querySelector('#chat-messages');
+    if (!messagesContainer) {
+        console.error('Messages container not found');
+        return;
+    }
+
+    const isCurrentUser = data.username === userName || data.is_user;
+    
+    const html = `
+        <div class="message ${isCurrentUser ? 'sent' : 'received'}" data-message-id="${data.message_id}">
+            <div class="message-content">
+                <div class="message-header">
+                    <small class="text-muted">${data.username}</small>
+                    <small class="text-muted">${new Date().toLocaleString()}</small>
+                </div>
+                <p class="article-content">${data.message}</p>
+                ${isCurrentUser && !data.message_id.toString().startsWith('temp_') ? `
+                    <div class="message-actions">
+                        <button class="btn btn-sm btn-warning recall-message" 
+                                onclick="recallMessage(${data.message_id})">
+                            <i class="material-icons">undo</i> 撤回
+                        </button>
+                        <button class="btn btn-sm btn-danger delete-message" 
+                                onclick="deleteMessage(${data.message_id})">
+                            <i class="material-icons">delete</i> 删除
+                        </button>
+                    </div>
+                ` : ''}
+            </div>
+        </div>
+    `;
+
+    messagesContainer.insertAdjacentHTML('beforeend', html);
+    messagesContainer.scrollTop = messagesContainer.scrollHeight;
+}
+
+function handleMessageDeleted(messageId) {
+    const messageElement = document.querySelector(`[data-message-id="${messageId}"]`);
+    if (messageElement) {
+        const content = messageElement.querySelector('.article-content');
+        if (content) {
+            content.innerHTML = '<i class="text-muted">消息已删除</i>';
+            const actions = messageElement.querySelector('.message-actions');
+            if (actions) actions.remove();
+        }
+    }
+}
+
+function handleMessageRecalled(messageId) {
+    const messageElement = document.querySelector(`[data-message-id="${messageId}"]`);
+    if (messageElement) {
+        const content = messageElement.querySelector('.article-content');
+        if (content) {
+            content.innerHTML = '<i class="text-muted">消息已撤回</i>';
+            const actions = messageElement.querySelector('.message-actions');
+            if (actions) actions.remove();
+        }
+    }
+}
+
+function deleteMessage(messageId) {
+    if (confirm('确定要删除这条消息吗？')) {
+        chatSocket.send(JSON.stringify({
+            'type': 'delete_message',
+            'message_id': messageId
+        }));
+    }
+}
+
+function recallMessage(messageId) {
+    if (confirm('确定要撤回这条消息吗？')) {
+        chatSocket.send(JSON.stringify({
+            'type': 'recall_message',
+            'message_id': messageId
+        }));
+    }
+}
+
+// 页面关闭时清理连接
+window.addEventListener('beforeunload', function() {
+    if (chatSocket) {
+        chatSocket.close();
+    }
+});
+</script>
+
+<style>
+.chat-messages {
+    height: 400px;
+    overflow-y: auto;
+    padding: 15px;
+    background: #f8f9fa;
+    border-radius: 5px;
+    margin-bottom: 15px;
+}
+
+.message {
+    margin-bottom: 15px;
+    max-width: 70%;
+}
+
+.message.received {
+    margin-right: auto;
+}
+
+.message.sent {
+    margin-left: auto;
+}
+
+.message-content {
+    padding: 10px;
+    border-radius: 10px;
+    background: white;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+}
+
+.message.sent .message-content {
+    background: #007bff;
+    color: white;
+}
+
+.message.sent .message-content .text-muted {
+    color: #e9ecef !important;
+}
+
+.chat-input {
+    margin-top: 15px;
+}
+
+.message-actions {
+    display: flex;
+    gap: 0.5rem;
+    margin-top: 0.5rem;
+    opacity: 0;
+    transition: opacity 0.2s;
+}
+
+.message:hover .message-actions {
+    opacity: 1;
+}
+
+.message-actions button {
+    display: flex;
+    align-items: center;
+    gap: 0.25rem;
+    font-size: 0.8rem;
+    padding: 0.2rem 0.5rem;
+}
+
+.message-actions button i {
+    font-size: 1rem;
+}
+
+.message-header {
+    display: flex;
+    justify-content: space-between;
+    margin-bottom: 0.5rem;
+}
+</style>
+{% endblock %} 
