@@ -1,88 +1,40 @@
 # ChatApp
 
-[![English](https://img.shields.io/badge/lang-English-blue.svg)](README.md)
-[![中文](https://img.shields.io/badge/语言-中文-red.svg)](README_ZN.md)
+一个**邀请制**的实时聊天应用，内置可以调用工具的 **Agent**，界面采用 Apple Liquid Glass 风格，桌面优先。
 
-A chat application built with Django + Channels. It supports public chat rooms, private chats, online user presence, file/image/video messages, and an optional AI assistant.
+> **状态：v2 重写中。** 旧版（Django + Channels）保存在标签 [`v1-legacy`](../../tree/v1-legacy)。当前进度见 [docs/PROGRESS.md](docs/PROGRESS.md)。
 
-## How to Run (two options)
+*An invite-only real-time chat app with a built-in tool-using Agent and an Apple Liquid Glass–style desktop UI. v2 is a ground-up rewrite in progress; the legacy Django version lives at the `v1-legacy` tag.*
 
-Choose either of the following ways to start the project:
+## 计划中的功能
 
-### Option 1: Run locally 
-Prerequisites: Python 3.10+ installed.
+- 频道、私有群组、一对一私信；消息的回复、编辑、撤回、@提及；支持图片、视频和文件
+- 即时送达，显示"正在输入"、在线状态和未读数，断线后自动补发，多端同步
+- Agent：总结未读、搜索和翻译消息、起草回复、看图；代发消息、建群、设置提醒等操作需要你批准后才执行
+- 可以安装成桌面应用（PWA），支持浏览器推送、深色模式、中英双语
 
-1) Clone the repository
+## 技术栈
 
-```powershell
-git clone https://github.com/liaboveall/ChatApp.git
-cd ChatApp
+TypeScript 7 · Bun · Hono · zod · Drizzle · PostgreSQL 18（pgvector）· Valkey · BullMQ · Garage（S3）· Better Auth · AI SDK（DeepSeek）· React 19 · Vite 8 · TanStack Router/Query · Tailwind CSS 4 · Base UI
+
+## 本地开发
+
+需要 [Bun](https://bun.sh) 1.4 和 Docker Desktop。
+
+```bash
+bun install
+bun run setup            # 生成 .env.local 和本地密钥（不会打印出来）
+bun run infra:up         # 启动 Postgres、Valkey、Garage、Mailpit
+bun run infra:bootstrap  # 初始化 Garage 的存储桶和访问密钥
+bun run doctor           # 检查各项服务是否正常
 ```
 
-2) Install dependencies
+详见 [docs/09-local-dev.md](docs/09-local-dev.md)。应用本身的代码还在开发中，路线图见 [docs/11-roadmap.md](docs/11-roadmap.md)。
 
-```powershell
-python -m pip install -r requirements.txt
-```
+## 文档
 
-3) Migrate the database and start the server
+从 [docs/00-overview.md](docs/00-overview.md) 开始阅读。
 
-```powershell
-python manage.py migrate
-python manage.py runserver
-```
+## 许可证与来源
 
-4) Open in browser
-
-```
-http://127.0.0.1:8000
-```
-
-Optional (use Redis as Channels layer, or Postgres):
-
-- Redis: set environment variables and use in production/multi-process scenarios
-  - `CHANNEL_BACKEND=redis`
-  - `CHANNEL_REDIS_URL=redis://localhost:6379/0`
-- Postgres:
-  - `USE_POSTGRES=1`
-  - `POSTGRES_DB/POSTGRES_USER/POSTGRES_PASSWORD/POSTGRES_HOST/POSTGRES_PORT`
-
-### Option 2: Use Docker (with docker-compose)
-
-1) Clone the repository
-
-```powershell
-git clone https://github.com/liaboveall/ChatApp.git
-cd ChatApp
-```
-
-2) Start directly (uses SQLite by default)
-
-```powershell
-docker compose up --build -d
-```
-
-3) Open in browser
-
-```
-http://127.0.0.1:8000
-```
-
-Optional: Postgres + Redis (recommended for production/scaled replicas)
-
-- In `docker-compose.yml`, add `USE_POSTGRES=1` to the `web` service and configure the `POSTGRES_*` values.
-- Add/enable the Redis service and set `CHANNEL_BACKEND=redis` and `CHANNEL_REDIS_URL=redis://redis:6379/0`.
-- After the first start, run migrations in the container: `docker compose exec web python manage.py migrate`.
-
-## Acknowledgements & Origin
-
-This project adapts and extends an upstream open-source project originally released under the MIT License. Significant changes were made in features (private chat, online users, AI chat, file messages, etc.), structure, and deployment.
-
-- Upstream project: Django-ChatApp (rustyxlol) https://github.com/rustyxlol/Django-ChatApp
-- License: MIT (original copyright and license notice retained).
-
-If you are the author of the upstream project, feel free to open an issue/PR for more accurate attribution details.
-
-## License
-
-Released under the MIT License. See the `LICENSE` file at the project root for details.
+采用 [MIT](LICENSE) 许可证。v1 改编自 [rustyxlol/Django-ChatApp](https://github.com/rustyxlol/Django-ChatApp)（MIT），原作者的版权声明保留在 LICENSE 中。
