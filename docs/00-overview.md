@@ -1,6 +1,6 @@
 # ChatApp v2 总览
 
-> 状态：规划定稿（M0），尚未开始编码。进度见 [PROGRESS.md](PROGRESS.md)。
+> 状态：规划定稿（M0），并于同日完成规划审查修订（D-033 到 D-055）；尚未开始编写应用代码。进度见 [PROGRESS.md](PROGRESS.md)。
 > 最后更新：2026-09-30
 
 ## 一句话
@@ -21,14 +21,15 @@
 
 | 类别 | 决定 |
 |---|---|
-| 用户拍板 | 邀请制注册；AI 先用 DeepSeek；先做桌面端；本地优先，最后上线；Apple 风格；技术栈只选"最新、最好"，不考虑熟悉程度 |
+| 用户拍板 | 邀请制注册；AI 先用 DeepSeek；先做桌面端；本地优先，最后上线；Apple 风格；技术栈只选"最新、最好"，不考虑熟悉程度；内存只要不超过服务器总量；新成员看不到加入前的历史；"重新生成"替换原回复；站点 key 的 Agent 运行内容管理员可查看，鼓励用户自带 key |
 | 语言与运行时 | TypeScript 7 全栈；后端 Bun 1.4 + Hono 4 |
 | 数据 | PostgreSQL 18（含 pgvector）+ Drizzle ORM；Valkey 9.1（事件总线、在线状态、限流、BullMQ 队列）；Garage（自托管 S3） |
 | 认证 | Better Auth 1.7：邮箱密码 + Passkey，凭邀请码注册 |
-| AI / Agent | AI SDK 7 的 `ToolLoopAgent`；按用户指定，目前只用 `deepseek-flash`（V4.1-Flash）：快速模式关闭思考，深度模式开启思考 |
+| AI / Agent | AI SDK 7 的 `ToolLoopAgent`；按用户指定，目前只用 `deepseek-flash`（V4.1-Flash）：快速模式关闭思考，深度模式开启思考。可以用站点 key，也可以用户自带 key（M5a）；副作用工具恰好执行一次 |
 | 前端 | React 19.3 + React Compiler、Vite 8、TanStack Router/Query、Tailwind 4、Base UI、react-virtuoso |
-| 实时 | 写操作走 HTTP（带幂等键），WebSocket 只负责推送；每个会话维护序号（seq），断线后按序号补发 |
-| 权限 | 一个 `authorize()`，HTTP、WebSocket、附件下载统一走它；身份只从服务端会话获取 |
+| 实时 | 写操作走 HTTP（带幂等键），WebSocket 只负责推送；每个会话维护序号（seq），断线后按序号补发，连接未断时按跳号自动补齐；WebSocket 连接与登录会话绑定 |
+| 权限 | 一个 `authorize()` 加一个可见性判断（成员，且消息在自己加入之后），HTTP、WebSocket、搜索、Agent、附件下载统一走它；身份只从服务端会话获取 |
+| 数据 | 数据库是唯一的事实来源，Valkey 里的东西丢了都能重建；保留期和隐私说明见 04 第 10 节、01 第 4.11 节 |
 
 ## 文档地图
 
@@ -63,7 +64,10 @@
 | 成员关系（membership） | 用户与会话的关系，带会话内角色：群主 `owner`、管理员 `admin`、成员 `member` |
 | 站点角色 | 站点管理员或普通成员，数据库字段 `users.role` 分别取值 `'admin'` / `'user'`（Better Auth admin 插件的默认值） |
 | `seq` | 会话内消息序号，新消息创建时 +1，永不改变，用于排序和计算未读 |
-| `change_seq` | 会话内变更序号，任何消息的新增、编辑、撤回、删除都 +1，用于断线补发 |
+| `change_seq` | 会话内变更序号，任何消息的新增、编辑、撤回、删除都 +1，用于断线补发和跳号检测 |
+| `visible_from_seq` | 成员加入时会话的 `last_seq`。成员只能看到 seq 比它大的消息，即加入之后的消息 |
+| 会话封禁 | 被"移出并封禁"的人不能再以任何方式加入这个会话，直到解除封禁 |
+| 站点 key / 自带 key | 站点提供的 DeepSeek key / 用户在设置里填写的自己的 key。前者的运行内容管理员可查看，后者不可以 |
 | 注册邀请码 | 注册账号必需的一次性码，由站点管理员或成员生成 |
 | 群邀请链接 | 加入某个群组的链接，只有已注册用户能用 |
 | Agent / 助手 | 内置的 AI 机器人用户（`is_bot = true`），界面名称可配置，默认"助手" |

@@ -1,12 +1,22 @@
 /**
  * Repository guard rails, run by `bun run check`, the pre-commit hook and CI:
  * - no raw-HTML sinks in app code (SEC-05); a line may opt out with `guard-allow: <reason>`
- * - no env files or rendered secrets tracked by git
+ * - no env files (.env, .env.*, *.env) or rendered secrets tracked by git
  */
 import { $, Glob } from 'bun'
 
-const SINK =
-  /\b(innerHTML|outerHTML|insertAdjacentHTML|dangerouslySetInnerHTML)\b|document\.write\(/
+const SINK_NAMES = [
+  'innerHTML',
+  'outerHTML',
+  'insertAdjacentHTML',
+  'dangerouslySetInnerHTML',
+  'setHTMLUnsafe',
+  'createContextualFragment',
+  'srcdoc',
+  'srcDoc',
+]
+const SINK = new RegExp(`\\b(${SINK_NAMES.join('|')})\\b|document\\.write\\(`)
+const ENV_FILE = /(^|\/)\.env(\.[^/]+)?$|\.env$/
 const SOURCES = new Glob('{apps,packages}/**/*.{ts,tsx,js,jsx,mjs,cjs}')
 const problems: string[] = []
 
@@ -23,7 +33,7 @@ for await (const raw of SOURCES.scan({ cwd: '.', onlyFiles: true })) {
 
 const tracked = (await $`git ls-files`.quiet().text()).split('\n').filter(Boolean)
 for (const file of tracked) {
-  const isEnvFile = /(^|\/)\.env(\.[^/]+)?$/.test(file) && !file.endsWith('.env.example')
+  const isEnvFile = ENV_FILE.test(file) && !file.endsWith('.env.example')
   if (isEnvFile || file === 'infra/garage/garage.toml') {
     problems.push(`${file}: secrets file is tracked by git`)
   }

@@ -15,6 +15,11 @@
 ## 已定方向（细节见 docs/12）
 
 - 邀请制注册；AI 使用 DeepSeek；桌面优先；Apple Liquid Glass 风格；先在本地完成，上线放在最后（M8）。
+- 2026-09-30 规划审查后，用户又定了四项（D-033 到 D-036）：
+  - 内存只要不超过服务器总量；
+  - 新成员看不到加入前的历史；
+  - "重新生成"会替换原回复；
+  - 使用站点 key 的 Agent 运行内容，管理员可以查看；鼓励用户自带 key，但鼓励文案只讲好处，不提管理员能看到内容。
 - 技术选型只看"最新、最好"，不考虑熟悉程度。新增依赖时，先到 registry 核对最新稳定版，锁定精确版本，不用 beta 或 RC（例外须记录在 12）。
 - 技术栈：TypeScript 7；后端 Bun + Hono + zod + Drizzle + PostgreSQL 18（pgvector）+ Valkey + BullMQ + Garage + Better Auth；AI 用 AI SDK 7；前端 React 19 + Vite 8 + TanStack Router/Query + Tailwind 4 + Base UI。
 
@@ -23,9 +28,16 @@
 **安全**（完整要求见 docs/07）
 - 用户身份**只**从服务端会话获取；请求体和 WebSocket 消息里声称"我是谁"的字段一律忽略。
 - 所有与会话相关的读写都必须经过 `authorize()`；对无权访问的私有资源返回 404。
+- 消息可见性只有一个判断：是会话成员，而且消息的 `seq` 大于自己的 `visible_from_seq`。广播更新时，不能把新成员看不到的内容发出去（INV-12）。
+- WebSocket 连接与登录会话绑定，会话失效就断开。Better Auth 的原生接口不能绕过应用规则，比如邀请码和改名限制（D-038、D-039）。
+- 隐私说明（01 第 4.11 节）必须与实际行为一致；改动数据保留期或管理员能看到的内容时，同步修改说明。
 - 前端禁止用 `innerHTML` 或 `dangerouslySetInnerHTML` 渲染用户内容；Markdown 不允许原始 HTML。
 - 写操作走 HTTP，并带幂等键；WebSocket 只负责推送事件和瞬时信号。
-- Agent 以调用者本人的权限执行；输出到共享会话时只能读取当前会话；影响他人的操作必须经过用户审批（docs/06）。
+- Agent 的规则（docs/06）：
+  - 以调用者本人的权限执行；
+  - 输出到共享会话时，只能读取当前会话；面板和 ⌘K 默认也只读当前会话；
+  - 影响他人的操作必须经过用户审批；
+  - 有副作用的步骤恰好执行一次（`agent_effects`）。
 
 **代码**
 - TS 严格模式。不引入新的 `any`、`@ts-ignore`，不跳过测试；确有必要时写明原因。
@@ -59,7 +71,11 @@
 ## 常用命令
 
 - **已经可用**：`bun run setup` · `doctor`（加 `--ai` 可以检查 DeepSeek key）· `infra:up` / `infra:down` / `infra:ps` / `infra:logs` · `infra:bootstrap` · `infra:reset --yes`（会删除全部本地数据，执行前先征得用户同意）· `lint` / `lint:fix` · `typecheck` · `guard` · `check`
-- **M1 才会创建，在那之前不要假定它们存在**：`db:*` · `dev` · `test:*` · `eval` · `storybook` · `build` · `admin:create`
+- **以下命令到对应的里程碑才会创建，在那之前不要假定它们存在**：
+  - M1a：`db:*` · `dev:api` · `dev:worker` · `test` / `test:unit` / `test:integration` · `admin:create` · `admin:verify-email`
+  - M1b：`dev` · `dev:web` · `test:e2e` · `test:visual` · `storybook` · `build`
+  - M2b：`edge:up` / `edge:down`
+  - M4：`eval`
 - lefthook 的 pre-commit 钩子会运行 Biome 和 guard，提交时 PATH 里必须能找到 `bun`。
 
 ## 部署
