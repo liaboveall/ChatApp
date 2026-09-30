@@ -265,7 +265,7 @@ Valkey 必须设置 `maxmemory-policy noeviction`，这是 BullMQ 的要求，�
 | `BETTER_AUTH_SECRET` | 由 setup 脚本生成 | ≥ 32 字节随机值 |
 | `SMTP_HOST` / `SMTP_PORT` / `SMTP_USER` / `SMTP_PASS` / `MAIL_FROM` | `localhost` / `2525` / 空 / 空 / `ChatApp <noreply@chatapp.localhost>` | |
 | `DEEPSEEK_API_KEY` | **用户自己填写** | 不能出现在聊天记录和日志里 |
-| `AI_MODEL_FAST` / `AI_MODEL_DEEP` | `deepseek-flash` / `deepseek-v4-pro` | 模型名做成可配置项 |
+| `AI_MODEL_FAST` / `AI_MODEL_DEEP` | `deepseek-flash` / `deepseek-flash` | 模型名做成可配置项。当前两种模式都用 V4.1-Flash，深度模式开启思考（D-031） |
 | `AI_USER_DAILY_TOKENS` / `AI_MONTHLY_BUDGET_USD` | `500000` / `20` | 只是初始值，之后以后台设置为准 |
 | `AI_PRICE_*` | 按 DeepSeek 当前价格填写 | 用于估算费用 |
 | `PRODUCT_NAME` / `AGENT_DISPLAY_NAME` / `AGENT_USERNAME` | `ChatApp` / `助手` / `assistant` | |

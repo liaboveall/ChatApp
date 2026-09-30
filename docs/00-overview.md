@@ -25,7 +25,7 @@
 | 语言与运行时 | TypeScript 7 全栈；后端 Bun 1.4 + Hono 4 |
 | 数据 | PostgreSQL 18（含 pgvector）+ Drizzle ORM；Valkey 9.1（事件总线、在线状态、限流、BullMQ 队列）；Garage（自托管 S3） |
 | 认证 | Better Auth 1.7：邮箱密码 + Passkey，凭邀请码注册 |
-| AI / Agent | AI SDK 7 的 `ToolLoopAgent`；默认模型 `deepseek-flash`，复杂任务用 `deepseek-v4-pro` 并开启思考模式 |
+| AI / Agent | AI SDK 7 的 `ToolLoopAgent`；按用户指定，目前只用 `deepseek-flash`（V4.1-Flash）：快速模式关闭思考，深度模式开启思考 |
 | 前端 | React 19.3 + React Compiler、Vite 8、TanStack Router/Query、Tailwind 4、Base UI、react-virtuoso |
 | 实时 | 写操作走 HTTP（带幂等键），WebSocket 只负责推送；每个会话维护序号（seq），断线后按序号补发 |
 | 权限 | 一个 `authorize()`，HTTP、WebSocket、附件下载统一走它；身份只从服务端会话获取 |

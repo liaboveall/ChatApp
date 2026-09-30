@@ -119,6 +119,7 @@ Base UI 提供无障碍的交互原语（菜单、弹窗、焦点管理等）；
 - 快速模式用 `deepseek-flash`（V4.1-Flash），关闭思考，可以看图。
 - 深度模式用 `deepseek-v4-pro`，开启思考。
 - 模型名写在配置里，因为 DeepSeek 会退役旧名字：旧版代码里的 `deepseek-chat` 已经不在当前的模型列表中。
+- ↪ 模型分工已被 **D-031** 取代：目前两种模式都用 flash。
 
 **D-013 只有一个 Agent 运行时，基于 AI SDK 7 的 `ToolLoopAgent`**
 - 聊天里的"AI 助手"就是只带只读工具的 Agent，不另外做一套。
@@ -164,6 +165,12 @@ Base UI 提供无障碍的交互原语（菜单、弹窗、焦点管理等）；
 - key id 为 `GK` 加 24 位十六进制，secret 为 64 位十六进制，由 `bun run setup` 生成，再用 `garage key import` 导入。
 - 这样做的好处：初始化脚本可以反复执行，结果不变；重置数据卷后，密钥保持不变；密钥也不会出现在命令输出里。
 - 已实测：用 Bun 自带的 `S3Client` 对 Garage v2.4.1 读、写、删都正常。Bun 自带的 `SQL` 连接 PostgreSQL 18.6、`RedisClient` 连接 Valkey 9.1 也都实测可用。这为 D-003（选用 Bun）提供了实际依据。
+
+**D-031 目前只用 V4.1-Flash（用户，2026-09-30；取代 D-011 中的模型分工）**
+- 快速和深度两种模式都用 `deepseek-flash`；快速模式关闭思考，深度模式开启思考。`deepseek-v4-pro` 暂不使用，以后要换只需改配置。
+- `/models` 接口没有可以锁定版本的 ID，所以 `deepseek-flash` 会随着 DeepSeek 升级而变化。M4 起在 `agent_runs.model` 中记录每次调用实际使用的模型。
+- 费用按 Flash 的价格估算（`AI_PRICE_DEEP_*` 与 `AI_PRICE_FAST_*` 取值相同）。
+- 已在 2026-09-30 验证用户填写的 key 可用（`bun run doctor --ai`）。
 
 ## 待验证事项（结论出来后补成新的决策记录）
 
