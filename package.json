@@ -1,0 +1,36 @@
+{
+  "name": "chatapp",
+  "private": true,
+  "type": "module",
+  "packageManager": "bun@1.4.2",
+  "engines": {
+    "bun": ">=1.4.2"
+  },
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "scripts": {
+    "prepare": "lefthook install",
+    "setup": "bun scripts/setup.ts",
+    "doctor": "bun scripts/doctor.ts",
+    "infra:up": "docker compose -f infra/compose.dev.yml --env-file .env.local up -d --wait",
+    "infra:down": "docker compose -f infra/compose.dev.yml --env-file .env.local down",
+    "infra:ps": "docker compose -f infra/compose.dev.yml --env-file .env.local ps",
+    "infra:logs": "docker compose -f infra/compose.dev.yml --env-file .env.local logs -f --tail=100",
+    "infra:bootstrap": "bun scripts/bootstrap-garage.ts",
+    "infra:reset": "bun scripts/infra-reset.ts",
+    "lint": "biome check .",
+    "lint:fix": "biome check --write .",
+    "format": "biome format --write .",
+    "typecheck": "tsc -p tsconfig.json",
+    "guard": "bun scripts/guard.ts",
+    "check": "bun run lint && bun run typecheck && bun run guard"
+  },
+  "devDependencies": {
+    "@biomejs/biome": "2.5.14",
+    "@types/bun": "1.4.2",
+    "lefthook": "2.1.15",
+    "typescript": "7.0.2"
+  }
+}

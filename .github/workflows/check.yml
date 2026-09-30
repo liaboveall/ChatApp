@@ -1,0 +1,29 @@
+name: check
+
+on:
+  push:
+    branches: [main, v2]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: check-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  check:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version-file: package.json
+      - run: bun install --frozen-lockfile
+      - run: bun run check
+      - name: Validate dev compose file
+        run: docker compose -f infra/compose.dev.yml config --quiet
+        env:
+          POSTGRES_PASSWORD: ci-only

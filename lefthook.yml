@@ -1,0 +1,10 @@
+# Git hooks (installed by `bun install` via the root "prepare" script)
+pre-commit:
+  parallel: true
+  jobs:
+    - name: biome
+      glob: "*.{js,jsx,ts,tsx,mjs,cjs,json,jsonc,css}"
+      run: bun x biome check --write --no-errors-on-unmatched --files-ignore-unknown=true {staged_files}
+      stage_fixed: true
+    - name: guard
+      run: bun scripts/guard.ts
