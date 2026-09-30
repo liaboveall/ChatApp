@@ -118,12 +118,17 @@ running ─▶ failed        (任意状态可 cancel ─▶ cancelled)
 
 | 模型 | 版本 | 能力 | 用途 |
 |---|---|---|---|
-| `deepseek-flash` | DeepSeek-V4.1-Flash | 100 万 token 上下文、工具调用、JSON 输出、**看图**、思考模式（默认开启） | **快速模式**：关闭思考，追求低延迟 |
-| `deepseek-v4-pro` | DeepSeek-V4-Pro-0813 | 100 万 token 上下文、工具调用、JSON 输出、思考模式，**不能看图** | **深度模式**：开启思考，用于复杂的多步任务 |
+| `deepseek-flash` | DeepSeek-V4.1-Flash | 100 万 token 上下文、工具调用、JSON 输出、**看图**、思考模式（默认开启） | **当前两种模式都用它**：快速模式关闭思考，深度模式开启思考 |
+| `deepseek-v4-pro` | DeepSeek-V4-Pro-0813 | 100 万 token 上下文、工具调用、JSON 输出、思考模式，**不能看图** | 暂不使用。以后如果深度模式的效果不够，再考虑切换，只需改配置 |
+
+**当前配置（D-031，用户指定）**：
+- `AI_MODEL_FAST` 和 `AI_MODEL_DEEP` 都设为 `deepseek-flash`，两种模式的区别只在于是否开启思考。
+- 2026-09-30 用你的 key 调用 `/models` 接口，只返回了 `deepseek-flash` 和 `deepseek-v4-pro` 两个 ID，**没有可以锁定具体版本的 ID**。因此"指定 V4.1-Flash"实际上就是使用 `deepseek-flash` 这个名字：DeepSeek 以后升级 Flash 时，它会自动指向新版本。
+- M4 开始后，要把每次调用实际返回的模型信息记进 `agent_runs.model`，这样如果发生了版本变化，能及时发现。
 
 - **接入**：用 `@ai-sdk/deepseek`，OpenAI 兼容的地址是 `https://api.deepseek.com`。思考模式由参数 `thinking: {type: "enabled"}` 控制，通过 AI SDK 的 `providerOptions` 传入。
 - **模型名只写在配置里**：`AI_MODEL_FAST`、`AI_MODEL_DEEP`。DeepSeek 会退役旧型号名，比如 `deepseek-chat` 已不在当前列表中，换型号只需要改配置。
-- **深度模式遇到图片**：pro 不能看图，所以先用 flash 把图片描述成文字，再交给 pro。
+- **深度模式遇到图片**：按照当前配置（D-031），深度模式也用 flash，可以直接看图。只有将来改用 pro 时，才需要先让 flash 把图片描述成文字，再交给 pro。
 - **两种模式的上限**：
 
 | 模式 | 最多步数 | 最长时长 | 每次调用最多输出 | 输入上下文上限 |
