@@ -1,0 +1,73 @@
+# Local development infrastructure. Use the root scripts:
+#   bun run setup        -> creates .env.local and infra/garage/garage.toml
+#   bun run infra:up     -> starts everything and waits for health checks
+#   bun run infra:bootstrap -> configures Garage (layout, key, buckets)
+# All ports bind to 127.0.0.1 only.
+name: chatapp-dev
+
+services:
+  postgres:
+    image: pgvector/pgvector:0.8.6-pg18
+    environment:
+      POSTGRES_USER: chatapp
+      POSTGRES_DB: chatapp
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?run `bun run setup` first}
+    ports:
+      - "127.0.0.1:5434:5432" # 5432 on the host is taken by a native PostgreSQL
+    volumes:
+      - pg:/var/lib/postgresql # PostgreSQL 18 images keep PGDATA under /var/lib/postgresql/18/docker
+      - ./postgres/init:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U chatapp -d chatapp"]
+      interval: 5s
+      timeout: 3s
+      retries: 30
+    restart: unless-stopped
+
+  valkey:
+    image: valkey/valkey:9.1-alpine
+    command: ["valkey-server", "--appendonly", "yes", "--maxmemory-policy", "noeviction"]
+    ports:
+      - "127.0.0.1:6379:6379"
+    volumes:
+      - valkey:/data
+    healthcheck:
+      test: ["CMD", "valkey-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 30
+    restart: unless-stopped
+
+  garage:
+    image: dxflrs/garage:v2.4.1
+    ports:
+      - "127.0.0.1:3900:3900" # S3 API
+      - "127.0.0.1:3903:3903" # admin API
+    volumes:
+      - ./garage/garage.toml:/etc/garage.toml:ro
+      - garage-meta:/var/lib/garage/meta
+      - garage-data:/var/lib/garage/data
+    healthcheck:
+      test: ["CMD", "/garage", "status"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+    restart: unless-stopped
+
+  mailpit:
+    image: axllent/mailpit:v1.31.3
+    ports:
+      - "127.0.0.1:2525:1025" # SMTP (host 1025 is taken by the Cisco VPN agent)
+      - "127.0.0.1:8025:8025" # web UI
+    healthcheck:
+      test: ["CMD", "/mailpit", "readyz"]
+      interval: 5s
+      timeout: 3s
+      retries: 30
+    restart: unless-stopped
+
+volumes:
+  pg:
+  valkey:
+  garage-meta:
+  garage-data:
