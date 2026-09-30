@@ -11,6 +11,7 @@ storybook-static/
 # env and secrets (never commit)
 .env
 .env.*
+*.env
 !.env.example
 /infra/garage/garage.toml
 

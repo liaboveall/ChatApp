@@ -1,6 +1,6 @@
 # 02 设计规范（Apple Liquid Glass 风格，桌面优先）
 
-> 设计阶段 D 会定稿本文件的第 4 节（设计令牌），并产出可点击原型。M1 把组件落到 Storybook。
+> 设计阶段 D 会定稿本文件的第 4 节（设计令牌），并产出可点击原型。M1b 起把组件落到 Storybook。
 > 下面的数值是**初稿**，以 D 阶段定稿为准。
 
 ## 1. 风格来源
@@ -32,7 +32,7 @@
 | 清透 | 45% | 20px | 最有玻璃感 |
 | 标准（默认） | 62% | 24px | |
 | 着色 | 80% | 28px | 叠加强调色调 |
-| 不透明 | 100% | 无 | 系统开启"减少透明度"（`prefers-reduced-transparency: reduce`）时强制使用 |
+| 不透明 | 100% | 无 | 浏览器报告系统开启了"减少透明度"（`prefers-reduced-transparency: reduce`）时强制使用。不支持这个媒体查询的浏览器，由用户在设置里手动选择 |
 
 - **边缘处理**（参照 2026 年的修正）：外侧 1px 加深描边，内侧顶部 1px 高光，再加柔和的投影。
 - **性能**：`backdrop-filter` 最多在同一屏同时出现 4 处；折射类的 SVG 滤镜特效只用于少数装饰位置，而且要能关掉。
@@ -59,7 +59,8 @@
 - 最上面是搜索框（提示 ⌘K）。
 - 下面依次是：置顶、频道、群组、私信、助手（Agent 会话）。
 - 每一项显示：头像或图标、名称、最后一条消息预览（可以切换为紧凑模式不显示）、时间、未读徽标（强调色胶囊）、@提及标记、免打扰图标。
-- 最底部是当前用户卡片：头像带在线状态点，旁边是设置按钮。
+- 最底部是当前用户卡片：头像带在线状态点，旁边是通知铃铛（M6，带未读数）和设置按钮。
+- 分组末尾的"更多"菜单里有"已归档"，列出我是群主的已归档会话，可以在那里恢复。
 
 **工具栏**
 - 左侧是会话头像和名称；副标题在群组里显示成员数，在私信里显示对方的在线状态。
@@ -70,10 +71,12 @@
 **输入栏**
 - 悬浮在底部的玻璃胶囊，距离边缘 16px。输入内容变多时自动长高，最高占窗口的 40%。
 - 按钮依次是：附件、emoji、@助手（✦ 图标）、发送。发送键是强调色圆形按钮，输入为空时禁用。
+- 输入法组字期间，回车只确认候选词，不发送；组字结束后按回车才发送（D-050）。
 
 **Inspector（右侧面板）**
 - 顶部是分段控件 [详情 | 助手]。
-- 详情页显示：成员列表、共享文件（M3 起）、会话设置。
+- 详情页显示：成员列表、共享文件（M3 起）、会话设置；管理员还能看到封禁名单。
+- 开启了助手的会话，在设置里显示一行提示："@助手 时，最近的消息会发送给 AI 服务处理。"
 - 助手页就是 Agent 面板，见第 6 节。
 
 **宽度适配**
@@ -121,7 +124,12 @@
 
 - **正文字体栈**：`system-ui, -apple-system, BlinkMacSystemFont, "PingFang SC", "Segoe UI Variable Text", "Segoe UI", "Microsoft YaHei UI", "Noto Sans SC", sans-serif`
 - **等宽字体栈**：`ui-monospace, "SF Mono", "Cascadia Code", Menlo, Consolas, monospace`
-- 以上都是引用设备本地字体，**不下载任何字体文件**。
+- 以上都是引用设备本地字体，默认**不下载任何字体文件**。
+- Windows 上没有 SF 字体，界面的苹果味会打折扣。D1 阶段在 Windows 上比较两种方案：
+  - 系统字体（Segoe UI Variable）；
+  - 自托管 Inter（OFL 协议，只含拉丁字符）。它排在 Apple 系统字体之后，所以 Apple 设备上仍然用 SF。
+
+  结论写回本节。中文始终用系统字体。
 
 **字号**（桌面端，单位 px，写作"字号/行高"）：
 
@@ -170,6 +178,10 @@
 - **回复**：气泡上方显示引用条，写着对方名字和原文摘要。点击后跳到原消息，原消息高亮 1 秒。
 - **@提及**：提及显示为高亮胶囊。@我的消息整条带淡淡的强调色背景。
 - **系统消息、撤回、删除**：居中的小号灰字。
+- **机器人徽标**：Agent 的名字旁边有醒目的"机器人"标签，防止有人用"助手"之类的显示名冒充；显示名本身也不能使用保留名。
+- **加入前的历史**：
+  - 新成员的时间线顶部显示"你于某时加入，之前的消息不可见"；
+  - 引用了加入前消息的回复，引用条显示"原消息不可见"。
 - **正在输入**：一个带三个跳动圆点的灰色气泡。
 - **分隔条**："以下为新消息"用强调色细线加文字；日期分隔用居中胶囊显示。
 - **右键菜单**：回复、复制、编辑、撤回、删除（仅自己）、举报、交给助手（把这条消息带进助手面板）。
@@ -187,14 +199,26 @@
 - **审批卡片**
   - 一张玻璃卡片，写明要做什么、做在哪里（比如"发送到 #项目组"），并完整预览将要发送的内容。
   - 三个按钮：批准（强调色）、修改、拒绝；卡片上显示剩余有效时间。
+  - 运行暂停等待审批时，Agent 当前的回复先收尾：流光描边停止，末尾显示"等待 @某人 批准"。批准后，接下来的输出显示为一条新回复。
   - 通知中心和推送会同步提醒（M6）。
+- **重新生成**（D-036）：
+  - 悬停工具条上的"重新生成"会**替换**原回复，原内容不保留。
+  - 只对发起人显示：
+    - Agent 会话和面板里，只出现在最近一条回复上；
+    - 群里 24 小时内可用；
+    - 执行过需要审批的操作的回复，不显示这个按钮。
 - **助手面板（Inspector 的"助手"页）**
   - 顶部是快捷操作：总结未读、总结这段讨论、找消息、起草回复、翻译选中内容。
+  - 快捷操作上方有读取范围开关："只看当前会话"（默认）/"我的全部会话"。切换到后者时，给出一句简短说明（D-051）。
   - 下面是与 Agent 的对话流，和当前会话绑定，只有自己可见。
   - 起草的结果带"插入输入框"按钮，**不会**直接发出。
 - **⌘K 命令面板**：居中的玻璃弹层。可以在这里跳转会话、执行命令（如 `/总结`、`/翻译`、`/提醒我 …`），或直接向 Agent 提问。
 - **记忆**：Agent 记住一件事时，会出现"已记住：…"的小标签，可以撤销。所有记忆在设置里统一管理。
-- **用量**：助手面板底部用一行小字显示今日用量，比如"今日已用 12%"。
+- **用量**：助手面板底部用一行小字显示今日用量，比如"今日已用 12%"；使用自带 key 时显示"正在使用你的 API key"。
+- **自带 key**（M5，设置 → 助手）：
+  - 界面：一个输入框（保存后只显示末 4 位）、"验证并保存"和"删除"两个按钮；key 失效时显示原因。
+  - 文案只讲好处：不占每日额度，全站额度用完时也能照常使用（D-034）。
+  - 额度用完的提示里，可以附上"使用自己的 API key"的入口。
 
 ## 7. 可访问性与键盘
 
@@ -202,15 +226,17 @@
 - **焦点**：`:focus-visible` 时显示 2px 强调色焦点环，外扩 2px。可点击区域不小于 28×28px。
 - **读屏**
   - 列表用"漫游 tabindex"方式做键盘导航（方向键在项目间移动）。
-  - 新消息通过 `aria-live="polite"` 播报。
+  - 新消息通过 `aria-live="polite"` 播报。只播报当前打开的会话；短时间内的多条消息合并成一次播报，避免在热闹的频道里刷屏。
   - 虚拟列表为每一项补上 `aria-setsize` 和 `aria-posinset`。
   - 所有图标按钮都要有 `aria-label`。
 - **快捷键**（Windows 上 ⌘ 对应 Ctrl）：
+  - 不使用浏览器保留的组合键，比如 ⌘N、⌘T、⌘W：网页在 Chrome、Edge 的标签页里拦截不到它们（D-052）。
+  - 每个快捷键都要在 Chrome、Edge、Safari、Firefox 里实测（V-16）。
+  - 所有功能都能在 ⌘K 里找到，快捷键只是捷径。
 
 | 快捷键 | 动作 |
 |---|---|
-| ⌘K | 命令面板 |
-| ⌘N | 新建会话 |
+| ⌘K | 命令面板，也用来新建会话、搜索消息、打开设置 |
 | ⌘J | 打开或关闭助手面板 |
 | ⌥↑ / ⌥↓ | 切换到上一个 / 下一个会话 |
 | ⌥⇧↑ / ⌥⇧↓ | 切换到上一个 / 下一个未读会话 |
@@ -218,16 +244,21 @@
 | Enter / ⇧Enter | 发送 / 换行 |
 | Esc | 关闭弹层，取消编辑或回复 |
 | ⌘/ | 快捷键帮助 |
-| ⌘, | 设置 |
+| ⌘, | 设置（浏览器不拦截时有效；否则在 ⌘K 里输入"设置"） |
 
-## 8. 组件清单（M1 起在 Storybook 中逐个实现）
+新建会话用 ⌘K 或侧边栏的"+"按钮。安装为 PWA 后，如果浏览器允许，再给新建会话绑定 ⌘N（M6 实测）。
+
+## 8. 组件清单（M1b 起在 Storybook 中逐个实现）
 
 每个组件都要展示以下状态：默认、悬停、按下、聚焦、禁用、加载、空、错误、长内容、深色模式。
 
+M1b 只实现 M1b 页面用到的组件，主要是"基础"和"布局"两组中的一部分。其余组件在用到它们的里程碑再实现（D-053）。
+
 - **基础**：Button（filled、tinted、plain、glass 四种样式）、IconButton、TextField、SearchField、TextArea、Switch、Checkbox、SegmentedControl、Slider、Badge、Avatar（带在线状态点）、Tooltip、Menu、ContextMenu、Popover、Dialog、Sheet、Toast、Skeleton、EmptyState、ErrorState
 - **布局**：AppShell、Sidebar、SidebarSection、SidebarItem、Toolbar、Inspector、SplitView（可拖动分栏）
-- **聊天**：Timeline（基于 react-virtuoso）、MessageGroup、MessageBubble、SystemMessage、RecalledMessage、DateSeparator、UnreadDivider、TypingIndicator、ReplyPreview、MentionPill、AttachmentImageGrid、AttachmentVideo、AttachmentAudio、AttachmentFile、UploadProgress、Composer、MentionPopover、EmojiPicker、JumpToLatest
-- **Agent**：AgentMessage（带流光描边）、ToolCallCard、ApprovalCard、AssistantPanel、QuickActions、MemoryChip、UsageMeter、CommandPalette
+- **聊天**：Timeline（基于 react-virtuoso）、MessageGroup、MessageBubble、SystemMessage、RecalledMessage、DateSeparator、UnreadDivider、HistoryBoundary、TypingIndicator、ReplyPreview、MentionPill、BotBadge、AttachmentImageGrid、AttachmentVideo、AttachmentAudio、AttachmentFile、UploadProgress、Composer、MentionPopover、EmojiPicker、JumpToLatest
+- **Agent**：AgentMessage（带流光描边和"等待批准"状态）、ToolCallCard、ApprovalCard、AssistantPanel、ScopeToggle、QuickActions、MemoryChip、UsageMeter、ApiKeyField、CommandPalette
+- **通知**（M6）：NotificationBell、NotificationList
 - **页面**：LoginPage、RegisterPage（邀请码）、VerifyEmailPage、ResetPasswordPage、SettingsWindow（外观、通知、账号、邀请、助手）、AdminConsole（M7）
 
 **实现方式**
@@ -243,7 +274,7 @@
 | D2 令牌定稿 | 本文件第 4 节定稿，包括浅色、深色和 8 个强调色 | 对比度自查通过 |
 | D3 可点击原型 | 网页原型（以 Artifact 发布），界面清单见下 | 各主要流程都能点通 |
 | D4 评审迭代 | 修改记录 | **用户确认视觉和交互** |
-| D5 组件落地 | 在 M1 中完成 Storybook 组件库 | 组件清单第一批完成 |
+| D5 组件落地 | 在 M1b 中完成第一批 Storybook 组件 | M1b 页面用到的组件完成 |
 
 **D3 原型要包含的界面**
 - 登录页、带邀请码的注册页；
@@ -255,5 +286,12 @@
 - 审批卡片；
 - ⌘K 命令面板；
 - 设置 → 外观（透明度、强调色）；
+- 设置 → 助手（用量、自带 key）；
+- 新成员视角：时间线顶部的历史边界提示；
+- Agent 回复"等待批准"的状态；
+- 通知中心（铃铛和列表）；
 - 空状态；
+- 应用图标草案；
 - 以上全部都要有深色模式版本。
+
+**评审平台**：Windows 的 Chrome 和 Edge、macOS 的 Safari 都要看，并在 Windows 上完成字体方案的比较（第 4.3 节）。
