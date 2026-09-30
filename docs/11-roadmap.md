@@ -28,16 +28,27 @@ M0 规格 ─▶ D 设计原型 ─▶ M1 本地骨架 ─▶ M2 核心聊天 �
 3. 如果有决策变动，写进 `docs/12-decisions.md`。
 4. 提议提交（提交和推送前征得用户同意），并告诉用户下一个会话从哪里开始。
 
-## M0 规格定稿 ✅ 文档已写（2026-09-30），等待用户确认
+## M0 规格定稿 ✅ 完成（2026-09-30）
 
 - [x] 分析旧版，写成 13-legacy-analysis。
 - [x] 写 00 到 13 号文档，以及 PROGRESS 和 CLAUDE.md。
-- [ ] 用户审阅文档。
-- [ ] 在 `v2` 分支提交文档（需要用户同意）。
-- [ ] 给旧代码打 `v1-legacy` 标签并推送（推送会改动公开仓库，需要单独确认）。
-- [ ] 用户处理 DeepSeek 旧 key 和 Docker Hub 上的公开镜像（见 PROGRESS 中的"用户待办"）。
+- [x] 用户审阅通过，并要求开始开发准备。
+- [x] 文档已在 `v2` 分支提交（`f5e9012`）。
+- [x] 在本地给旧代码 `99056e7` 打上 `v1-legacy` 标签。**推送到 GitHub 需要等用户确认。**
+- [x] 用户已删除 Docker Hub 上的公开镜像，并更换了 DeepSeek key。
 
-**验收**：用户确认文档，文档已提交。
+## 开发准备 ✅ 完成（2026-09-30）
+
+M1 的前三步提前做完了，都在 `v2` 分支上：
+- [x] 仓库整理（`694b5d7`）：移除旧代码；LICENSE 保留上游版权；重写 README；新增 `.gitignore`、`.gitattributes`（LF）、`.editorconfig`。
+- [x] 工具链（`1c409e6`）：
+  - Bun 1.4.2 workspace；TS 7 严格模式；Biome 2.5；lefthook pre-commit；Renovate 配置；CI `check` 工作流；
+  - `guard` 脚本：禁止 raw HTML 写法，禁止跟踪 env 文件。
+- [x] 本地基础设施（`3540ac7`）：
+  - `infra/compose.dev.yml`：Postgres 18 + pgvector、Valkey 9.1、Garage 2.4、Mailpit；
+  - 脚本：`setup`、`infra:*`、`infra:bootstrap`、`doctor`、`infra:reset`；
+  - `.env.example`。
+- [x] 环境：已安装 Bun，基础设施已启动并初始化，`bun run doctor` 全部通过（证据见 PROGRESS）。
 
 ## D 设计原型
 
@@ -50,16 +61,9 @@ M0 规格 ─▶ D 设计原型 ─▶ M1 本地骨架 ─▶ M2 核心聊天 �
 
 ## M1 本地骨架
 
-1. **整理仓库**（在 `v2` 分支上）：
-   - 从工作区删除旧的 Django 代码（旧代码保留在 `v1-legacy` 标签和 main 的历史里）；
-   - 在 LICENSE 中补上上游版权行 `Copyright (c) 2022 rustyxlol`；
-   - 重写 README（中英文）；
-   - 更新 `.gitignore`，新增 `.gitattributes`。
-2. **工具链**：
-   - 安装 Bun（需征得用户同意），配置 workspaces 和 `packageManager` 版本锁定；
-   - TS 7 严格模式、Biome、lefthook、Renovate 配置；
-   - 开工当天从 npm 等源重新核对依赖版本（03 第 2 节）；如果 Drizzle 1.0 已正式发布，就用 1.0。
-3. **基础设施**：`infra/compose.dev.yml`，以及 `setup`、`infra:bootstrap` 脚本，`.env.example`，用 zod 校验配置。
+1. ~~**整理仓库**~~ ✅ 已在"开发准备"中完成。
+2. **工具链**：Bun、TS 7、Biome、lefthook、Renovate ✅ 已完成。M1 开工当天要做的是：从 npm 等源重新核对应用依赖的版本（03 第 2 节），如果 Drizzle 1.0 已正式发布就用 1.0；再把 `typecheck` 和 `check` 扩展到所有工作区包，并在 `check` 中加入测试。
+3. **基础设施**：compose、`setup`、`infra:bootstrap`、`doctor` ✅ 已完成。M1 还要在 `apps/server/src/config/` 中用 zod 校验环境变量。
 4. **数据层**：
    - `packages/db`：Drizzle 配置；Better Auth 的表加上扩展字段；`username_reservations`、`registration_invites`（含 `_uses`）、`app_settings`、`audit_logs` 表；第一批迁移（含 `vector` 和 `pg_trgm` 扩展）；种子数据；
    - 验证 Better Auth 能否使用 uuid 主键。

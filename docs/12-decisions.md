@@ -149,6 +149,22 @@ Base UI 提供无障碍的交互原语（菜单、弹窗、焦点管理等）；
 - 邮件服务用 Resend。
 - 由 CI 在 GitHub 的 `ubuntu-24.04-arm` 机器上构建镜像，推送到 GHCR；在服务器上构建作为备选方案。
 
+**D-028 代码风格（开发准备，2026-09-30）**
+- 统一使用 Biome 2.5 的默认规则集（`preset: recommended`），另外加几条更严格的：
+  - `noExplicitAny` 设为 error；
+  - 禁止 `dangerouslySetInnerHTML`；
+  - 强制用 `import type` 导入类型。
+- 格式：2 空格缩进；单引号；不写分号（Biome 的 `asNeeded` 模式）；多行列表末尾都加逗号；每行最长 100 字符；换行符用 LF。
+- TypeScript 7：开启 `strict`、`noUncheckedIndexedAccess`、`verbatimModuleSyntax`；`module` 设为 `Preserve`，`moduleResolution` 设为 `Bundler`。
+
+**D-029 Mailpit 的 SMTP 在宿主机上用 2525 端口（开发准备）**
+开发机的 1025 端口被 Cisco VPN（`vpnagent`）占用，所以改用 2525，容器内部仍然是 1025。只影响本地开发，生产环境不部署 Mailpit。
+
+**D-030 Garage 的访问密钥由 setup 生成，再导入 Garage（开发准备）**
+- key id 为 `GK` 加 24 位十六进制，secret 为 64 位十六进制，由 `bun run setup` 生成，再用 `garage key import` 导入。
+- 这样做的好处：初始化脚本可以反复执行，结果不变；重置数据卷后，密钥保持不变；密钥也不会出现在命令输出里。
+- 已实测：用 Bun 自带的 `S3Client` 对 Garage v2.4.1 读、写、删都正常。Bun 自带的 `SQL` 连接 PostgreSQL 18.6、`RedisClient` 连接 Valkey 9.1 也都实测可用。这为 D-003（选用 Bun）提供了实际依据。
+
 ## 待验证事项（结论出来后补成新的决策记录）
 
 | 编号 | 事项 | 在哪个里程碑验证 |
