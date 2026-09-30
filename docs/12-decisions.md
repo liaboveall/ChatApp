@@ -172,6 +172,20 @@ Base UI 提供无障碍的交互原语（菜单、弹窗、焦点管理等）；
 - 费用按 Flash 的价格估算（`AI_PRICE_DEEP_*` 与 `AI_PRICE_FAST_*` 取值相同）。
 - 已在 2026-09-30 验证用户填写的 key 可用（`bun run doctor --ai`）。
 
+**D-032 清理 git 历史中的用户上传文件（用户确认，2026-09-30；执行了 D-019 中待确认的那一步）**
+- **删除范围**：所有历史中的 `media/chat_files/`、`media/room_icons/`，以及 `media/profile_pics/` 下除 `default.jpg` 以外的文件，共 96 个路径、约 41 MB。
+- **保留**：3 个应用素材（`media/default.jpg`、`media/profile_pics/default.jpg`、`media/ai_avatar/ai_avatar.png`），这样 `v1-legacy` 仍然是完整的旧版代码。`.env` 只含默认配置，也不删。
+- **做法**：在 `--no-local` 的镜像克隆里执行 `git filter-repo --invert-paths`（通过 `uvx` 运行）。推送前逐项核对：
+  - 提交数量不变；
+  - v2 最新提交的内容与改写前逐字节相同；
+  - main 只少了 `media/` 下的文件；
+  - 标签正确指向改写后的 main；
+  - 仓库打包大小从约 35 MB 降到 264 KB。
+- **推送**：以原子方式推送，main 使用 `--force-with-lease`（仅当远程仍是旧提交时才覆盖）。之后本地仓库也同步到了改写后的历史。
+- **残留风险**：
+  - GitHub 上已经没有任何分支或标签引用旧提交，但在 GitHub 做垃圾回收之前，知道旧提交号的人仍可能直接访问到它。如需彻底清除，要联系 GitHub Support。
+  - 本地的 reflog 中还保留着旧提交，大约 30 天后会自动清掉，也可以手动执行 `git reflog expire --expire=now --all && git gc --prune=now` 立即清除。
+
 ## 待验证事项（结论出来后补成新的决策记录）
 
 | 编号 | 事项 | 在哪个里程碑验证 |
