@@ -33,22 +33,24 @@ M0 规格 ─▶ D 设计原型 ─▶ M1 本地骨架 ─▶ M2 核心聊天 �
 - [x] 分析旧版，写成 13-legacy-analysis。
 - [x] 写 00 到 13 号文档，以及 PROGRESS 和 CLAUDE.md。
 - [x] 用户审阅通过，并要求开始开发准备。
-- [x] 文档已在 `v2` 分支提交（`f5e9012`）。
-- [x] 在本地给旧代码 `99056e7` 打上 `v1-legacy` 标签。**推送到 GitHub 需要等用户确认。**
+- [x] 文档已在 `v2` 分支提交（`35f3547`）。
+- [x] 给旧代码打上 `v1-legacy` 标签，并已推送到 GitHub（2026-09-30）。历史清理后，它指向 `9841352`。
 - [x] 用户已删除 Docker Hub 上的公开镜像，并更换了 DeepSeek key。
 
 ## 开发准备 ✅ 完成（2026-09-30）
 
 M1 的前三步提前做完了，都在 `v2` 分支上：
-- [x] 仓库整理（`694b5d7`）：移除旧代码；LICENSE 保留上游版权；重写 README；新增 `.gitignore`、`.gitattributes`（LF）、`.editorconfig`。
-- [x] 工具链（`1c409e6`）：
+- [x] 仓库整理（`8b74b5c`）：移除旧代码；LICENSE 保留上游版权；重写 README；新增 `.gitignore`、`.gitattributes`（LF）、`.editorconfig`。
+- [x] 工具链（`b28dbbe`）：
   - Bun 1.4.2 workspace；TS 7 严格模式；Biome 2.5；lefthook pre-commit；Renovate 配置；CI `check` 工作流；
   - `guard` 脚本：禁止 raw HTML 写法，禁止跟踪 env 文件。
-- [x] 本地基础设施（`3540ac7`）：
+- [x] 本地基础设施（`a8f1456`）：
   - `infra/compose.dev.yml`：Postgres 18 + pgvector、Valkey 9.1、Garage 2.4、Mailpit；
   - 脚本：`setup`、`infra:*`、`infra:bootstrap`、`doctor`、`infra:reset`；
   - `.env.example`。
 - [x] 环境：已安装 Bun，基础设施已启动并初始化，`bun run doctor` 全部通过（证据见 PROGRESS）。
+- [x] 模型指定为 V4.1-Flash（D-031，`d723d7b`）；DeepSeek key 验证可用。
+- [x] 清理 git 历史中用户上传的文件（D-032），并推送 `main`、`v2` 和 `v1-legacy` 到 GitHub；CI `check` 首次运行通过。
 
 ## D 设计原型
 
