@@ -92,7 +92,7 @@ Events: api/worker ──publish──▶ Valkey channel "events" ──▶ ever
 | PostgreSQL 18 + pgvector | `pgvector/pgvector:0.8.6-pg18` |
 | Valkey | `valkey/valkey:9.1-alpine` |
 | 对象存储 | `dxflrs/garage:v2.4.1` |
-| 本地邮件接收（仅开发） | `axllent/mailpit` |
+| 本地邮件接收（仅开发） | `axllent/mailpit:v1.31.3` |
 | 应用运行（生产） | `oven/bun:1.4-alpine`，或 `oven/bun:1.4-distroless` |
 | 本地 HTTPS 彩排（M7） | `caddy:2`（官方镜像） |
 
@@ -159,7 +159,7 @@ Events: api/worker ──publish──▶ Valkey channel "events" ──▶ ever
 | postgres | 容器，宿主机端口 **5434**（本机 5432 已被原生 PostgreSQL 占用） | 仅容器内网 |
 | valkey | 容器，宿主机端口 6379 | 仅容器内网 |
 | garage | 容器，S3 接口 :3900，管理接口 :3903 | 仅容器内网 |
-| mailpit | 容器，SMTP :1025，网页界面 :8025 | 不部署，改用 Resend |
+| mailpit | 容器；SMTP 用宿主机 **2525** 端口（映射到容器内 1025，因为本机 1025 被 VPN 占用），网页界面 :8025 | 不部署，改用 Resend |
 
 ## 5. 关键流程
 
@@ -263,7 +263,7 @@ Valkey 必须设置 `maxmemory-policy noeviction`，这是 BullMQ 的要求，�
 | `S3_ENDPOINT` / `S3_REGION` / `S3_BUCKET` | `http://localhost:3900` / `garage` / `chatapp` | |
 | `S3_ACCESS_KEY_ID` / `S3_SECRET_ACCESS_KEY` | 由 bootstrap 脚本生成 | |
 | `BETTER_AUTH_SECRET` | 由 setup 脚本生成 | ≥ 32 字节随机值 |
-| `SMTP_HOST` / `SMTP_PORT` / `SMTP_USER` / `SMTP_PASS` / `MAIL_FROM` | `localhost` / `1025` / 空 / 空 / `ChatApp <noreply@localhost>` | |
+| `SMTP_HOST` / `SMTP_PORT` / `SMTP_USER` / `SMTP_PASS` / `MAIL_FROM` | `localhost` / `2525` / 空 / 空 / `ChatApp <noreply@chatapp.localhost>` | |
 | `DEEPSEEK_API_KEY` | **用户自己填写** | 不能出现在聊天记录和日志里 |
 | `AI_MODEL_FAST` / `AI_MODEL_DEEP` | `deepseek-flash` / `deepseek-v4-pro` | 模型名做成可配置项 |
 | `AI_USER_DAILY_TOKENS` / `AI_MONTHLY_BUDGET_USD` | `500000` / `20` | 只是初始值，之后以后台设置为准 |

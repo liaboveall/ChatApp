@@ -42,16 +42,25 @@
 - API key 和各种密钥都不能出现在聊天、日志和提交里。
 - `.env.local` 不提交；`DEEPSEEK_API_KEY` 由用户自己填写。
 
-## 本机环境（2026-09-30）
+## 本机环境（2026-09-30 已搭好，详见 docs/09）
 
-- Windows 11；Node 26 已安装；**Bun 尚未安装**。
-- Docker Desktop 需要先手动启动。
-- **5432 端口被原生 PostgreSQL 占用，不能停掉它**；开发用的 Postgres 映射到 **5434**。
-- 其他端口：web 5173、api 3100、Valkey 6379、Garage 3900 和 3903、Mailpit 1025 和 8025（docs/09）。
+- Windows 11，Node 26，Docker 29.8.1。
+- Bun 1.4.2 安装在 `%USERPROFILE%\.bun\bin`。如果当前 shell 找不到 `bun`，先把这个目录加到 PATH 前面：
+  - Git Bash：`export PATH="$HOME/.bun/bin:$PATH"`
+  - PowerShell：`$env:Path = "$env:USERPROFILE\.bun\bin;$env:Path"`
+- **端口冲突，两个占用方都不能停**：
+  - 5432 被原生的 PostgreSQL 占用，所以开发库用 **5434**；
+  - 1025 被 Cisco VPN（`vpnagent`）占用，所以 Mailpit 的 SMTP 在宿主机上用 **2525**。
+- 其他端口：web 5173、api 3100、Valkey 6379、Garage 3900 和 3903、Mailpit 网页 8025。
+- 在 Git Bash 里手动执行 `docker compose exec garage /garage …` 时，要加 `MSYS_NO_PATHCONV=1`，否则路径会被改写。
+- `.env.local` 由 `bun run setup` 生成，已被 git 忽略，**不要在输出中打印其中的值**。
+- 本仓库的 git 提交身份在仓库级配置：`liaboveall <2628370933@qq.com>`。
 
-## 常用命令（M1 创建后才能使用；创建之前不要假定它们存在）
+## 常用命令
 
-`bun run setup` · `infra:up` · `infra:bootstrap` · `db:migrate` · `db:seed` · `dev` · `check` · `test:e2e` · `eval` · `storybook`
+- **已经可用**：`bun run setup` · `doctor`（加 `--ai` 可以检查 DeepSeek key）· `infra:up` / `infra:down` / `infra:ps` / `infra:logs` · `infra:bootstrap` · `infra:reset --yes`（会删除全部本地数据，执行前先征得用户同意）· `lint` / `lint:fix` · `typecheck` · `guard` · `check`
+- **M1 才会创建，在那之前不要假定它们存在**：`db:*` · `dev` · `test:*` · `eval` · `storybook` · `build` · `admin:create`
+- lefthook 的 pre-commit 钩子会运行 Biome 和 guard，提交时 PATH 里必须能找到 `bun`。
 
 ## 部署
 
