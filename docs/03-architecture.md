@@ -24,11 +24,11 @@ Events: api/worker ──publish──▶ Valkey channel "events:{APP_ENV}" ─�
 
 核心原则：
 1. **写操作走 HTTP，推送走 WebSocket。** 所有改变状态的操作（发送、编辑、撤回、加入等）都是带幂等键的 HTTP 请求。WebSocket 只负责服务端推送事件，以及"正在输入""在线状态""当前查看的会话"这类瞬时信号。
-2. **只有 domain 层有业务逻辑。** HTTP 路由、WebSocket 网关、Agent 工具、后台任务都只是很薄的一层，直接调用 domain 里的服务。权限检查只在 `authorize()` 里做。
-3. **事件在事务提交之后发布**（`after commit`），不用 outbox 表。发布失败时，由客户端兜底：按会话检测 `changeSeq` 是否跳号，缺号就调用补发接口；重连时也会整体补发（D-025、D-043）。
+2. **只有 domain 层有业务逻辑。** HTTP 路由、WebSocket 网关、Agent 工具、后台任务都只是很薄的一层，直接调用 domain 里的服务。权限策略集中在 `authorize()`；事务内的调用持有业务锁，查询和投影也必须复用策略。
+3. **业务与工作意图同事务持久化**（D-056）：写业务、同步日志、`work_items` 后再由 dispatcher 派发。Pub/Sub 仅作唤醒；队列可重建；消费者业务去重；前台每 30 秒对账补尾事件。
 4. **慢活交给 worker。** AI、图片和视频处理、推送、邮件、定时任务都在 worker 里跑，不阻塞 api。
-5. **数据库是唯一的事实来源。** Valkey 里的东西（队列、在线状态、限流计数、缓存）丢了都可以重建。需要持久的状态，比如定时消息、提醒、审批、run，都以数据库为准，由对账任务补回（D-044）。
-6. **消息可见性只有一个判断：** 是会话成员，并且消息的 `seq` 大于自己的 `visible_from_seq`（D-035）。HTTP、WebSocket、搜索、Agent 工具、附件下载都调用同一个 domain 函数。
+5. **Postgres 保存所有持久业务事实。** 队列和缓存可由工作表/业务状态重建；在线状态重新汇总，丢失的历史限流计数以收紧准入处理，不声称能精确恢复瞬态数据（D-056）。
+6. **基础消息可见性统一：** 当前成员且 seq > visible_from_seq；有效 session、账号状态、删除状态另外检查。引用和预览逐项投影；共享 Agent 采用全体成员共同可见范围。HTTP、WS、搜索、工具、附件复用 domain 策略。
 
 ## 2. 技术栈与版本
 
@@ -131,14 +131,14 @@ Events: api/worker ──publish──▶ Valkey channel "events:{APP_ENV}" ─�
 │     ├─ src/jobs/               processors: agent, media, push, email, cleanup, scheduled,
 │     │                          reconcile, embeddings
 │     ├─ src/storage/            BlobStore interface + S3 (Garage) implementation
-│     ├─ src/auth/               Better Auth config, invite gate hook, field guards, reserved names
+│     ├─ src/auth/               Better Auth config, route allowlist, registration adapter/state, field guards
 │     ├─ src/config/             env schema (zod), fail-fast loading
 │     ├─ src/lib/                logger, errors, ids, time (injectable clock), rate-limit, client-ip
 │     ├─ evals/                  Agent eval datasets + runner
 │     └─ test/                   integration, realtime, security regression, factories
 ├─ packages/
 │  ├─ contracts/                 zod schemas: REST DTOs, WS events, error codes, limits, reserved names
-│  └─ db/                        Drizzle schema, migrations, seed, client factory
+│  └─ db/                        Drizzle schema, migrations, bootstrap, dev seed, client factory
 ├─ infra/
 │  ├─ compose.dev.yml            postgres, valkey, garage, mailpit
 │  ├─ compose.edge.yml           (M2b) Nginx container serving a production build with the real site config
@@ -157,7 +157,7 @@ Events: api/worker ──publish──▶ Valkey channel "events:{APP_ENV}" ─�
 - `apps/web` **不得**导入 `packages/db` 和 `apps/server` 的任何代码。
 - 在 `apps/server` 内部：
   - `http/`、`realtime/`、`agent/tools/`、`jobs/` 只能调用 `domain/`，不能直接操作数据库表（查询也通过 domain 里的函数）。
-  - `domain/` 不知道 HTTP 和 WebSocket 的存在，只接收"当前用户 + 参数"，返回结果和待发布的事件，或抛出领域错误。
+  - `domain/` 不知道 HTTP 和 WebSocket 的存在，只接收“当前用户 + 参数”，在事务中写业务、日志和工作意图后返回结果，或抛出领域错误；不把必须持久的待派发工作仅放在返回值中。
 - **Bun 专有 API 的边界**（D-055）：Bun 专有的 API 只能出现在三处：`packages/db` 的客户端工厂、`realtime/hub`、`storage/`。
 - **检查方式**：用 Biome 的 `noRestrictedImports`（按目录覆盖配置），或在 `guard` 脚本里检查，不引入依赖 TypeScript 编程接口的工具。
 
@@ -172,86 +172,49 @@ Events: api/worker ──publish──▶ Valkey channel "events:{APP_ENV}" ─�
 | postgres | 容器，宿主机端口 **5434**（本机 5432 已被原生 PostgreSQL 占用） | 仅容器内网 |
 | valkey | 容器，宿主机端口 6379 | 仅容器内网 |
 | garage | 容器，S3 接口 :3900，管理接口 :3903 | 仅容器内网 |
-| mailpit | 容器；SMTP 用宿主机 **2525** 端口（映射到容器内 1025，因为本机 1025 被 VPN 占用），网页界面 :8025 | 不部署，改用 Resend |
+| mailpit | 容器；SMTP 从 `SMTP_PORT` 读取（默认 2525，本机 12525），映射到容器内 1025；网页 :8025 | 不部署，改用 Resend |
 
 ## 5. 关键流程
 
-### 5.1 发送消息
-1. 客户端生成一个 `clientId`（UUIDv7），先把消息以"发送中"的状态显示出来。
-2. 客户端调用 `POST /api/conversations/:id/messages`，请求体为 `{clientId, body, attachmentIds, replyToId}`。
-3. api 依次检查：
-   - 校验会话、限流；
-   - 调用 `authorize(user, conv, 'message.send')`：是否为成员、是否被禁言、会话是否已归档；
-   - 用 zod 校验正文长度和附件归属；
-   - 被回复的消息必须在同一会话，而且发送者能看到它。
-4. 在一个事务里依次完成：
-   - `UPDATE conversations SET last_seq = last_seq + 1, last_change_seq = last_change_seq + 1, last_message_at = now() WHERE id = $1 RETURNING last_seq, last_change_seq`；
-   - 插入消息，`seq` 和 `change_seq` 取上一步返回的值；
-   - 把附件绑定到这条消息；
-   - 写入 @提及；
-   - 把发送者的 `last_read_seq` 推进到这个 seq。
-5. 如果 `(sender_id, client_id)` 发生唯一约束冲突，说明是重试，直接返回已有的那条消息，状态码 200。
-6. 事务提交后发布 `message.created` 事件，频道是 `conv:{id}`。新消息的 seq 比所有现有成员的 `visible_from_seq` 都大，所以总是带完整内容。
-7. 如果消息 @了 Agent，就创建一个 agent run 并放入队列；M6 起还要给相关用户排推送任务（跳过正在看这个会话的用户）。
-8. 返回 201 和消息内容。客户端用 `clientId` 把"发送中"的那条替换成正式消息。
+### 5.1 发送消息及事务边界
+1. 客户端生成稳定 clientId 并乐观显示。API 做格式、会话、限流检查，这些不是最终授权。
+2. 事务按统一顺序锁定所涉及的用户（UUID 排序）、session、会话（UUID 排序），再锁成员和业务行；封禁、注销、成员变更、消息/Agent 写入都遵守此顺序。死锁/序列化失败有限重试，不能先返回成功。
+3. 在锁内重新校验 session、账号激活、成员、禁言、归档、回复可见性、附件归属及配额。分配 seq/change_seq，插入消息和提及、绑定附件、推进发送者已读，追加 conversation_changes 和必要的 user_changes。
+4. 同一事务插入去重的 work_items（实时提示、通知派生、向量处理）；@Agent 时同事务创建 queued run 或可解释的 failed run 以及工作意图。额度不足不回滚用户消息，失败原因只给调用者。M3/M4/M6 各阶段启用对应工作类型。
+5. clientId 冲突时核对发送者、目标会话和请求哈希；相同请求重新鉴权后返回原消息，不同请求 409。事务提交才返回 201；dispatcher 后续发不含正文的 message.changed。
 
-编辑消息不会重新触发 Agent，也不产生新的通知。
+编辑不再次触发 Agent 或通知，但必须产生版本、同步日志、向量更新意图，并使引用和预览重新投影。
 
-### 5.2 补发与跳号检测
-1. **重连后**：WebSocket 重连成功，服务端发来 `hello`。客户端立刻调用 `GET /api/conversations`，拿到每个会话的 `lastSeq`、`lastChangeSeq`、`visibleFromSeq` 和未读数。
-2. **拉取变化**：对当前打开的会话，以及本地有缓存的会话，调用 `GET /api/conversations/:id/changes?sinceChangeSeq=X&hiddenSince=T`，分页拉取以下内容，逐条合并到本地缓存：
-   - 所有 `change_seq > X`、而且我能看到的消息（新消息和被修改的都包括在内）；
-   - 这段时间里我隐藏的消息 id。
-3. **缺口太大**：接口返回 `resetRequired`（缺口超过 1000 条变更）时，丢弃这个会话的缓存，重新加载最新的一页。
-4. **合并规则**：补发期间收到的实时事件先放进缓冲区。所有合并都按消息 `id` 进行，并且只接受 `change_seq` 更大的版本，重复或乱序都不影响结果。
-5. **没有缓存的会话**：等用户打开时再加载，不在重连时拉取。
-6. **连接没断时的跳号检测**（D-043）：
-   - 客户端为每个会话记住已知的最大 `changeSeq`。
-   - 收到的事件如果跳号，1 秒后仍未补上，就对这个会话执行第 2 步。
-   - 收到 `message.changed` 时，随机延迟 0–2 秒后执行第 2 步，同一会话的多次通知合并成一次。
-7. **回到前台时**：页面重新回到前台，做一次轻量对账（`GET /api/conversations`）。
+### 5.2 补发、固定上界与尾事件对账
+- Postgres 的 conversation_changes 是只含实体 id、操作和 change_seq 的追加日志；user_changes 记录成员增删、隐藏、已读、设置、通知等个人状态变更。日志保留 7 天，不保存旧正文。
+- 客户端分别记录 observed（收到提示的最大值）和 synced（已完整消费日志的水位）。收到提示只调度补拉，不能把 observed 直接当作 synced。
+- 首次请求固定 through 水位，分页游标绑定 actor、conversation、membership_id、after、through 和过期时间，并签名防篡改。按日志序号扫描，过滤不可见项后即使结果为空也推进 scannedThrough；只有 nextCursor=null 才把 synced 提到 through。
+- 每页读取实体的当前授权投影，允许返回比 through 更新的实体版本；它不推进日志水位。实体合并只接收更新版本，流式另比较 streamRevision。不存在/已删实体返回墓碑，引用不可见时不带 sender、seq、摘要或附件。
+- 日志已过期、成员世代变化、缺口超过 1000 条时返回 resetRequired。客户端清掉对应缓存，使用一致性读取的会话详情、最新页及 baseline 水位重建，再从 baseline 补变化；禁止先取水位后用不一致旧快照覆盖。
+- 重连、回前台立即对账；前台每 30 秒查询轻量 sync-heads（带抖动）。当前会话和有缓存的会话补拉；无缓存的按需加载。正常依赖下尾事件丢失 35 秒内收敛；后台节流/离线不计入此目标，显示离线或未同步。
+- 新提示合并，补拉并发最多 2，同一会话最多 1；补拉期间的更高 observed 留待下一轮，不因旧请求完成而倒退水位。
 
 ### 5.3 编辑、撤回、删除
-- **编辑和撤回**：在同一个事务里给 `last_change_seq` 加 1，更新消息，并把消息的 `change_seq` 设为新值。提交后按以下规则广播：
-  - 消息的 `seq > conversations.last_join_seq`：发布带内容的 `message.updated`；
-  - 否则：只发布不含内容的 `message.changed`，因为有成员看不到这条消息（INV-12）。
-- **撤回的额外处理**：
-  - 服务端判断时限时留 5 秒宽限；
-  - 把 `body` 置空，删除 @提及，把附件标记为待删除，并在同一事务里减回存储用量；
-  - worker 随后删除存储里的文件，并清除这条消息的向量。
-- **仅自己删除**：只写入 `message_hidden` 表，并通过 `user:{me}` 同步到我的其他设备，其他人不受影响。离线的设备在补发时拿到。
-- **客户端连带更新**：更新本地所有引用这条消息的回复，以及会话列表的预览。
+- 编辑使用 expectedChangeSeq；事务内重新授权，冲突返回 409，不静默覆盖他人的更新。正文变化增加 content_version 和 change_seq。
+- 撤回/管理删除在同事务清空正文、提及和向量，附件进入 deleting，释放用户计费字节，写同步日志和对象删除工作。API 立即拒绝附件读取，物理删除目标 1 小时、最长 24 小时；不在请求事务里等待 S3。
+- 仅自己删除写 message_hidden 与 user_changes；这是视图偏好，不撤销该用户已有内容授权。离线恢复用个人序号，不用 hiddenSince 时间戳。
+- DTO 每次重建 replyTo、会话预览；客户端使被引用项和最后消息预览失效后补拉。所有副本与清理截止规则见 04 第 10 节。
 
-### 5.4 上传
-1. 客户端用 XHR 调用 `POST /api/uploads`（multipart，单个文件），这样能显示上传进度。
-2. api 边接收边处理：
-   - 按请求大小先原子地占用存储空间（`UPDATE users … WHERE storage_used_bytes + $size <= 配额`），超出直接拒绝；
-   - 边接收边校验大小，把流写入存储；
-   - 用文件开头的字节判断真实类型，再计算 sha256。
-3. 创建 `attachments` 记录，状态为 `processing`。
-4. worker 的 `media` 队列处理：
-   - **图片**：按方向信息旋转 → 重新编码去除 EXIF → 生成缩略图和预览图 → 计算 thumbhash；
-   - **视频**：用 `ffmpeg -map_metadata -1 -c copy` 重新封装，去掉位置等元数据；失败时改为 `file` 类型，只能下载；
-   - **其他类型**：直接就是 `ready`；
-   - 处理完成后，把状态改为 `ready`。
-5. 处理完成后，通过 `user:{uploader}` 推送 `attachment.updated`。
-6. 发送消息时带上 `attachmentIds`。服务端会检查：附件属于发送者本人、还没有绑定到其他消息、状态是 `ready`。
-7. **下载**：按 `purpose` 鉴权（INV-09）：
-   - 消息附件：跟随消息的可见性；
-   - 用户头像：所有登录成员都能下载；
-   - 会话头像：跟随会话的可见性。
+### 5.4 上传与对象恢复
+1. 客户端先 POST /uploads/reservations，带 purpose、声明大小和 Idempotency-Key；无可靠长度时预占该类型上限。事务插入 attachments(uploading)、upload_reservations 和临时 object 记录。用户预占主文件上限，站点另外预占处理峰值（原始输入 + 输出上限 + 衍生图上限，衍生图默认合计不超过 10 MiB），不能把一份用户计费空间当成原始与处理后对象同时存在的磁盘空间。没有持久身份不接收大流。
+2. PUT /uploads/:id/content 接收单文件流，令牌/归属、实际字节、魔数、截止时间均校验。实际接收不得超过 reservation.maxBytes/已预占字节，声明偏小则中止，不能继续写入未预占空间；续租和写入代次也必须有效。写随机且不可覆盖的 staging key；中断、取消、重复请求都定位到同一 reservation。重复已完整上传直接返回状态，内容哈希不同返回 409。
+3. 完成后条件更新 uploaded → processing，并同事务写 media 工作。worker 读取固定 generation，在受限子进程中处理；输出写入该 generation 的新 key，校验成功后才在事务内切换附件对象引用为 ready。旧 generation 不能发布。
+4. 记录 raw_size_bytes、size_bytes（处理后主文件）、charged_bytes（等于主文件大小）、各衍生对象大小/hash。输出增大需补占配额，失败则失败清理；成功把 reserved 转为 used。衍生文件不计用户额度，但计全站实际容量。
+5. 绑定前检查 ready、用途、上传者和未被占用；头像必须在所属用户/会话字段中成为当前有效绑定。消息删除不会把附件变成“未发送、上传者又可读”，deleting 状态优先拒绝。
+6. 独立对账扫描过期 reservation、对象账本、失败 generation 和未完成删除；物理删除成功后才释放全站实际字节。未知孤儿 key 经两次清单扫描和 24 小时宽限删除，备份屏障期间暂停。不能以数据库回滚代替对象补偿。
+
+媒体默认并发 1；静态图最多 40MP、单边 16384px；动画最多 200 帧且累计 100MP；音视频元数据解析最多 30 分钟时长；每任务 60 秒、子进程内存 512 MiB、输出主文件仍受该类型上限。无网络、非 root、临时目录 256 MiB，超时/OOM 杀进程且失败回收，不无限重试恶意样例。视频元数据清理失败不内嵌，下载时明确“元数据未清理”。参数在 M3 的真实样例和 ARM 实验中收紧或有据调整。
 
 ### 5.5 Agent 运行
-详见 [06-agent.md](06-agent.md)，这里只列骨架：
-1. 触发 run 有四种方式：`POST /api/agent/runs`、消息里 @Agent、定时提醒、重新生成。
-2. api 先检查并发和预算（预算只针对站点 key），然后在 `agent_runs` 里插入一条状态为 `queued` 的记录，放入 `agent` 队列。
-3. worker 选定 key，把 run 标记为 `running`，构建上下文，再用 `ToolLoopAgent` 流式执行：
-   - 文本增量合并后通过 `agent.delta` 推给前端；
-   - 每一步写入 `agent_steps`（摘要）和 `agent_run_states`（完整内容），并推送 `agent.step` 事件；
-   - 副作用工具通过 `agent_effects` 保证恰好执行一次；
-   - 遇到需要审批的工具时，把当前消息收尾，状态存进数据库，run 改为 `awaiting_approval`，推送审批请求，本次任务到此结束；
-   - 用户批准后，放入一个新任务，从 `agent_run_states` 恢复，输出写进一条新消息。
-4. 对账任务负责把卡住的 run 重新放入队列（06 第 5.2 节第 9 步）。
+- run、resume_seq、执行租约、取消、审批和预算均以 Postgres 为准；06 第 5、7、8 节定义状态转换、上下文和调用预占。
+- 工作 id 区分续跑和重新投递，业务效果 id 保持稳定；创建每段输出与 run_outputs 的唯一键同事务。
+- 每步和每次流式发布都复核当前 lease_epoch、取消及来源版本，旧 worker 不得覆盖新状态。共享输出在成员变化后立即停止继续提交；已生成内容的读取仍按该输出消息的 seq 授权。
+- 不声称模型、邮件和外部推送恰好执行一次；未知模型调用保守计费并暂停自动续跑，避免无界重试。
 
 ### 5.6 在线状态
 1. **建立连接**：WebSocket 建立后，在 Valkey 中写入两份数据：
@@ -267,71 +230,48 @@ Events: api/worker ──publish──▶ Valkey channel "events:{APP_ENV}" ─�
 5. **最后在线时间**：用户的最后一个连接消失时，写入 `users.last_seen_at`。
 6. **订阅**：客户端通过 `presence.watch` 声明自己关心哪些用户。服务端把这个连接订阅到那些用户的频道上，并立即回一条 `presence.snapshot`。
 
-### 5.7 加入会话
-事务内容见 04 第 2 节"加入会话"：
-1. 检查封禁；
-2. 把 `last_join_seq` 设为当前的 `last_seq`；
-3. 新成员的 `visible_from_seq` 和 `last_read_seq` 也取这个值。
-
-提交后：
-- 向新成员的 `user:*` 发 `conversation.created`；
-- 向 `conv:*` 发 `member.joined`；
-- 网关把新成员的连接订阅到这个会话。
+### 5.7 加入、退出与授权世代
+- 加入持有会话锁，检查封禁并原子设置 visible_from_seq、last_read_seq、随机 membership_id；推进 conversations.membership_version。重复加入不重置可见水位。
+- 成员增加、移出、重新加入、角色/禁言变化、归档均推进权限版本，取消受影响的共享 Agent run，写 user_changes、成员提示和撤权 work_items。
+- 退订事件用于迅速刷新 UI，不承担最终授权。网关每批内容派发查询当前 session 和成员，查询失败停止派发；事件总线重连先重新读取本机连接的授权。
 
 ### 5.8 登录会话失效
-1. 以下操作完成后，发布内部事件 `session.revoked`，内容为 `{sessionIds}` 或 `{userId}`：
-   - 退出登录；
-   - 注销其他设备；
-   - 修改密码：同时注销其他所有会话；
-   - 通过邮件重置密码：注销全部会话；
-   - 账号被封禁。
-2. 每个 api 实例查本机的连接表，把属于这些会话的连接以 4401 关闭，并删除这些会话的推送订阅（M6）。
-3. 兜底：网关每 5 分钟复核一次每个连接的会话是否仍然有效（D-038）。
-4. 不开启 Better Auth 的 `cookieCache`。开启后，已注销的会话在缓存有效期内，仍能通过 HTTP 接口的校验。
+- 退出、注销设备、封禁、修改密码/重置密码通过 domain/认证适配层修改 Postgres 会话与用户 auth_epoch，并持久记录撤销工作；同事务删除关联推送订阅。若认证库内部提交不能共享事务，独立扫描也必须能从 sessions 缺失/auth_epoch 变化得出撤销，不依赖 hook 成功。
+- 不开启 cookieCache。普通 HTTP 每次查当前有效 session；授权查询开始在撤权提交之后时不得返回敏感内容。
+- 网关收到撤销即 4401 关闭，兜底每 5 秒复核一次；查询超时或依赖不可用时停止敏感帧并以 1013 关闭。目标 5 秒内停止连接授权，调度容差在测试中明确为额外 1 秒。
+- 已经授权并进入网络的响应无法收回；客户端缓存清理也不能当成服务端保障。
 
 ## 6. 实时设计
 
-**频道（topic）**
-- `user:{userId}`：发给个人的事件。包括会话列表变化、成员变化、已读同步、隐藏消息、审批请求、run 状态、通知。
-- `conv:{conversationId}`：会话内的事件。包括消息的新增和变更、正在输入、Agent 流式输出、成员变化。
-- `presence:{userId}`：某个用户的在线状态。
+- topic 仍分 user、conv、presence；连接只能由服务端依据当前关系订阅。topic 是路由，不是授权凭证。
+- 普通消息一律 message.changed，不携带消息正文、引用、发送者资料或附件地址。客户端合并通知后通过 HTTP 获取按本人权限投影的数据，消除“先提交后加入再广播”的竞态。
+- user 事件中的 run、步骤、审批、附件等改为 id/版本提示；通过对应接口读取。成员变化与会话变化同样发失效提示，内容不直接复用给全部成员。
+- Agent 文本增量是唯一敏感实时正文：每 50–100ms 合并一次，由 hub 批量查询当前 session、membership_id、消息可见性、run lease_epoch、context_epoch、源会话 membership_version 后逐连接发送；不使用 server.publish 盲播正文。每次真正 drain 发送前重查，丢弃过期授权队列。所有引用来源在运行中按 06 检验。
+- 撤权提交前已完成授权的在途帧可能到达；不得把这种情况扩大成依赖“之后总会收到移出事件”。撤权后新授权批次一律拒绝。
+- api/worker 通过 events:{APP_ENV} 发布工作提示；Pub/Sub 中断不损坏数据，恢复由数据库日志和工作表承担。typing、presence 可丢弃，不写 outbox，派发前也检查当前会话/登录权限。
+- 25 秒心跳，60 秒无 pong 关闭；每用户最多 10 连接。每连接缓冲最多 256 KiB，慢连接以 1013 断开后补发，不积压敏感正文。focus 只抑制通知，不用于授权。
 
-**订阅规则**
-- 连接建立时，服务端查询该用户的全部成员关系，把连接订阅到 `user:{me}` 和每一个 `conv:{id}`。
-- 之后成员关系变化时（加入、被移出、被封禁），由 `user:{me}` 上的事件触发动态订阅或退订。
-- 客户端**不能**自己订阅会话频道。
-- **已知并接受的窗口**：成员被移出后，网关收到事件再退订，中间有毫秒级的间隔。这段时间里发布的事件，仍可能送到被移出者的连接。之后的补发和读取都会按新的成员关系拒绝。
+## 7. 后台任务与恢复
 
-**不泄露加入前的内容**（INV-12）
-- 新消息对所有现有成员都可见，可以直接广播内容。
-- 更新和流式增量只在消息的 `seq > last_join_seq` 时才带内容；否则只广播 `message.changed`，客户端通过 HTTP 按自己的权限补拉。
+work_items 唯一 dedupe_key 与业务事务关联；payload 只存 id、版本和非敏感参数，不复制正文或凭据。需要邮件令牌时从受保护的认证记录即时读取，过期就作废。
 
-**事件总线**
-- api 和 worker 把事件 `{topic, event}` 发布到 Valkey 的 `events:{APP_ENV}` 频道。频道名里带环境，是因为 Valkey 的 pub/sub 不区分 db 编号（D-044）。
-- 每个 api 实例都订阅这个频道，收到后通过 `realtime/hub` 转发给本机订阅了该 topic 的连接。hub 底层使用 Bun 的 `server.publish(topic, payload)`。
-- 这样天然支持多个 api 实例同时运行。
+| 类型 | 并发 | 恢复与去重 |
+|---|---|---|
+| realtime | 1 个 dispatcher 批处理 | 发布可重复；客户端靠版本合并，30 秒对账兜底 |
+| agent | 最多 4、每用户最多 2 | 06 的租约和 attempt；awaiting_approval 不占 worker，但每用户未结束 run 总数最多 20 |
+| media | 默认 1 | generation、对象账本及资源闸门；永久格式错误不重试 |
+| push | 8 | 发送前复核权限，404/410 删除订阅；同通知/订阅唯一任务，网络未知可重复投递 |
+| email | 2 | 最多 5 次，稳定 Message-ID；不承诺邮件仅投递一次；令牌过期作废 |
+| scheduled | 2 | 锁定实体与权限，发送消息/写 sent/效果账本同事务 |
+| embeddings | 1 | content_version + model_version 条件写回，旧结果丢弃 |
+| cleanup | 1 | 以 durable cursor 和实体状态推进，失败重试并监测截止时间 |
 
-**连接管理**
-- 心跳：服务端每 25 秒发一次 ping；60 秒收不到 pong 就断开连接，关闭码 4408。
-- 每个用户最多 10 个连接，超出时关闭最早的那个。
-- 每个连接记下 sessionId 和最近一次 `focus` 上报。推送任务据此判断"用户是否正在前台查看这个会话"。
-
-## 7. 后台任务（BullMQ 队列）
-
-| 队列 | 任务 | 并发 | 重试 |
-|---|---|---|---|
-| `agent` | Agent 运行和续跑 | 4 | 模型调用出错时指数退避重试 2 次；副作用由 `agent_effects` 保证恰好一次 |
-| `media` | 图片处理、视频重新封装、头像裁剪 | 2（服务器只有 2 个 CPU 核心） | 3 次 |
-| `push`（M6） | Web Push 推送 | 8 | 3 次；推送地址返回 410 时删除该订阅 |
-| `email` | 验证邮件、重置密码邮件 | 2 | 5 次 |
-| `cleanup` | 每小时：孤儿附件、已撤回消息的文件、过期的邀请占用；每天：未验证账号（7 天）、Agent 运行内容（30 天）、通知（90 天） | 1 | 定时执行 |
-| `reconcile` | 每分钟：把即将到点的定时消息和提醒放入队列（以实体 id 作为任务 id 去重）、处理过期审批、重新放入卡住的 run；worker 另每 30 秒清理过期的在线连接 | 1 | 定时执行 |
-| `scheduled`（M5a） | 执行到点的定时提醒、定时消息 | 2 | 3 次；发送前再检查权限 |
-| `embeddings`（M5b） | 为消息和记忆计算向量 | 1 | 3 次 |
-
-- **Valkey 配置**：必须设置 `maxmemory-policy noeviction`，这是 BullMQ 的要求，否则内存满时队列数据会被淘汰；同时开启 AOF 持久化。
-- **任务保留**：所有队列统一设置——已完成的任务保留 1 天或最近 1000 条，失败的保留 7 天。
-- **内存告警**：Valkey 内存用到 `maxmemory` 的 80% 时，通知站点管理员（D-044）。
+- 正常路径在提交后 best-effort 唤醒 dispatcher，立即领取和派发；唤醒不保存业务事实，丢失时由每秒扫描兜底，不能让正常收发固定等待一秒。dispatcher 用 FOR UPDATE SKIP LOCKED 领取短租约；BullMQ jobId 为 workId-deliverySeq（无冒号）。派发不等于完成，消费者提交业务状态后才标 done。入队后崩溃可重复投递。
+- 独立 worker 定时循环每分钟直接扫描 Postgres，修复过期租约、丢队列任务、过期注册/审批和到期调度；每次重投增加 delivery_seq，避免已保留的 completed job 阻止新投递。业务去重依靠表约束，而不是 BullMQ 的保留时间。
+- 暂时故障最多按类型退避重试，达到上限进入 dead 并告警；人工重投保留原业务标识。运行结果未知的外部调用进入 uncertain，不无限重试。
+- 准入上限初值：未执行 Agent 工作 100、媒体 1000、所有未完成 work_items 50000；达到类型上限拒绝该类新任务（503/Retry-After），达到总上限拒绝会新增可靠工作的写操作，读取、注销和清理仍保留。M7 用积压/恢复实测调整，不能任队列无限增长。
+- Valkey 设置 noeviction、AOF；80% 内存告警。限流数据丢失时临时收紧准入，不能声称历史限流计数可精确恢复。业务任务、预算、权限均能从 Postgres 恢复。
+- 队列只保留无正文标识：完成 1 天/1000 条，失败 7 天；数据库终态工作元数据保留 7 天，业务唯一键按其生命周期保留。清理不得删除仍用于防重复外部效果的待核对记录。
 
 ## 8. 配置（环境变量）
 
@@ -351,7 +291,7 @@ Events: api/worker ──publish──▶ Valkey channel "events:{APP_ENV}" ─�
 | `S3_ENDPOINT` / `S3_REGION` / `S3_BUCKET` | `http://localhost:3900` / `garage` / `chatapp` | |
 | `S3_ACCESS_KEY_ID` / `S3_SECRET_ACCESS_KEY` | 由 setup 脚本生成 | |
 | `BETTER_AUTH_SECRET` | 由 setup 脚本生成 | ≥ 32 字节随机值 |
-| `SMTP_HOST` / `SMTP_PORT` / `SMTP_USER` / `SMTP_PASS` / `MAIL_FROM` | `localhost` / `2525` / 空 / 空 / `ChatApp <noreply@chatapp.localhost>` | |
+| `SMTP_HOST` / `SMTP_PORT` / `SMTP_USER` / `SMTP_PASS` / `MAIL_FROM` | `localhost` / `12525`（模板默认 2525）/ 空 / 空 / `ChatApp <noreply@chatapp.localhost>` | |
 | `DEEPSEEK_API_KEY` | **用户自己填写** | 站点 key；不能出现在聊天记录和日志里 |
 | `AI_PROVIDER` | `deepseek` | `deepseek` 或 `mock`；测试时用 `mock`（M4 新增） |
 | `AI_MODEL_FAST` / `AI_MODEL_DEEP` | `deepseek-flash` / `deepseek-flash` | 模型名做成可配置项。当前两种模式都用 V4.1-Flash，深度模式开启思考（D-031） |
@@ -361,6 +301,8 @@ Events: api/worker ──publish──▶ Valkey channel "events:{APP_ENV}" ─�
 | `PRODUCT_NAME` / `AGENT_DISPLAY_NAME` / `AGENT_USERNAME` | `ChatApp` / `助手` / `assistant` | |
 | `VAPID_PUBLIC_KEY` / `VAPID_PRIVATE_KEY` / `VAPID_SUBJECT` | M6 生成 | |
 | `SENTRY_DSN` | 空（M7） | 为空时不上报 |
+| `SITE_STORAGE_BUDGET_BYTES` | M3 新增；本地填写测试预算 | 生产必填，与磁盘/备份预留核对，不用总用户配额推导 |
+| `RESTORE_MODE` / `RESTORE_EPOCH` | `isolated` / 恢复时新生成 | M7；隔离模式禁止外发，epoch 不从旧备份复用 |
 | `LOG_LEVEL` | `info` | |
 | `SEED_DEMO_PASSWORD` | 由 setup 脚本生成 | 仅开发环境，演示账号的密码 |
 
@@ -384,7 +326,7 @@ Events: api/worker ──publish──▶ Valkey channel "events:{APP_ENV}" ─�
 
 ## 10. 性能设计
 
-- **消息查询**只走 `(conversation_id, seq)` 和 `(conversation_id, change_seq)` 两个索引，分页每页 50 条。
+- **消息查询**使用 (conversation_id,seq)，变更扫描走 conversation_changes 的联合主键，实体按 id 批量读取；额外索引按搜索/附件/权限查询的 EXPLAIN 验证，不假定只需两个索引。分页每页 50 条。
 - **会话列表**一次查询返回：未读数（`last_seq - last_read_seq`）、最后一条消息的预览、私信对方的资料，避免 N+1 查询。
 - **前端**
   - 时间线用虚拟列表，在内存里保留最近 2000 条消息，更早的按需加载。
@@ -397,11 +339,11 @@ Events: api/worker ──publish──▶ Valkey channel "events:{APP_ENV}" ─�
 
 ## 11. 前端架构要点
 
-- **服务端数据**：全部由 TanStack Query 管理。WebSocket 收到事件后直接修改 Query 缓存（`setQueryData`），不再重新请求。
+- **服务端数据**：由 TanStack Query 管理。WS 的 id/版本提示合并后重新请求；HTTP 返回按本人权限投影的数据。仅经授权的 Agent 增量可直接拼接，最终以持久快照为准。
 - **消息缓存**：每个会话一份分页缓存，按 `seq` 排序，合并时以消息 id 去重，并以 `change_seq` 大的版本为准。
 - **乐观更新**：发送、编辑、撤回都先更新界面，失败再回滚；未发出的消息用 `clientId` 标识。
 - **一致性**：
-  - 按会话检测 `changeSeq` 跳号（第 5.2 节）；
+  - 区分 observed/synced，固定上界补发并每 30 秒对账（第 5.2 节）；
   - 收到消息更新时，同时更新引用它的回复和会话预览；
   - 收到 `conversation.removed` 时，删除该会话的本地缓存。
 - **全局状态**（zustand）：当前会话、Inspector 是否打开、输入框草稿（按会话保存，M6 起持久化到 IndexedDB）、外观设置。
@@ -411,5 +353,6 @@ Events: api/worker ──publish──▶ Valkey channel "events:{APP_ENV}" ─�
   - 用 `hello.serverTime` 校正本地时钟，撤回按钮等时限判断以校正后的时间为准；
   - 切换会话、页面前后台变化时，上报 `focus`。
 - **输入法**：组字期间（`isComposing` 为 true，或 `keyCode` 为 229）回车不发送（D-050）。
-- **退出登录或收到 4401**：清空 Query 缓存、IndexedDB 中的消息和草稿、Service Worker 缓存，并删除本设备的推送订阅（M6）。
+- **本地身份隔离（D-070）**：Query key、IndexedDB、草稿和离线队列使用 userId + authEpoch + membershipId 命名空间。退出先设置共享注销墓碑，通过 BroadcastChannel/SW 通知其他标签页停止渲染、发送和重连，再清缓存及订阅；远程失效在联网复核时执行同样流程。SW 只缓存公共外壳。
+- **离线边界**：初次冷启动未联网验证时只显示外壳；已验证且仍打开的标签页可看已缓存内容。消息缓存最多 7 天/每会话 200 条/总 50 MiB，草稿 7 天，待发纯文本 24 小时。重新联网先验证身份与成员世代再发；换账号、重新入群、过期项保留为需人工处理的草稿，不自动发送。不能清除失联设备或用户另存的副本。
 - **表单**：每个输入框使用 contracts 里的同一份 zod schema，前后端校验规则保持一致。

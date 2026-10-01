@@ -28,8 +28,10 @@
 **安全**（完整要求见 docs/07）
 - 用户身份**只**从服务端会话获取；请求体和 WebSocket 消息里声称"我是谁"的字段一律忽略。
 - 所有与会话相关的读写都必须经过 `authorize()`；对无权访问的私有资源返回 404。
-- 消息可见性只有一个判断：是会话成员，而且消息的 `seq` 大于自己的 `visible_from_seq`。广播更新时，不能把新成员看不到的内容发出去（INV-12）。
-- WebSocket 连接与登录会话绑定，会话失效就断开。Better Auth 的原生接口不能绕过应用规则，比如邀请码和改名限制（D-038、D-039）。
+- 消息可见性基础是当前成员且 seq > visible_from_seq；引用、预览、附件也逐项投影。普通 WS 无正文，流式每批复核授权与来源；共享 Agent 只读当前成员共同可见历史（D-057、D-060）。
+- WS 绑定 session，持久撤权+5 秒复核；业务写入在事务锁内复核授权。Better Auth method/path 默认拒绝、禁止代登，注册确认+验证才激活（D-057–D-059）。
+- 业务变更、同步日志和 work_items 同事务；Valkey 丢队列由独立 Postgres 扫描恢复。observed 不等于 synced（D-056）。
+- 本轮最新实现决策是 D-056–D-075，优先于其明确取代的旧条款；08 的 AT-01–AT-24 分阶段验收。
 - 隐私说明（01 第 4.11 节）必须与实际行为一致；改动数据保留期或管理员能看到的内容时，同步修改说明。
 - 前端禁止用 `innerHTML` 或 `dangerouslySetInnerHTML` 渲染用户内容；Markdown 不允许原始 HTML。
 - 写操作走 HTTP，并带幂等键；WebSocket 只负责推送事件和瞬时信号。
@@ -37,7 +39,7 @@
   - 以调用者本人的权限执行；
   - 输出到共享会话时，只能读取当前会话；面板和 ⌘K 默认也只读当前会话；
   - 影响他人的操作必须经过用户审批；
-  - 有副作用的步骤恰好执行一次（`agent_effects`）。
+  - 同库业务效果与 agent_effects 同事务去重；外部模型/推送/邮件不得宣称恰好一次；预算先预占、未知调用不盲重试。
 
 **代码**
 - TS 严格模式。不引入新的 `any`、`@ts-ignore`，不跳过测试；确有必要时写明原因。
@@ -54,7 +56,7 @@
 - API key 和各种密钥都不能出现在聊天、日志和提交里。
 - `.env.local` 不提交；`DEEPSEEK_API_KEY` 由用户自己填写。
 
-## 本机环境（2026-09-30 已搭好，详见 docs/09）
+## 本机环境（2026-09-30 已搭好，2026-10-01 复核，详见 docs/09）
 
 - Windows 11，Node 26，Docker 29.8.1。
 - Bun 1.4.2 安装在 `%USERPROFILE%\.bun\bin`。如果当前 shell 找不到 `bun`，先把这个目录加到 PATH 前面：
@@ -62,7 +64,7 @@
   - PowerShell：`$env:Path = "$env:USERPROFILE\.bun\bin;$env:Path"`
 - **端口冲突，两个占用方都不能停**：
   - 5432 被原生的 PostgreSQL 占用，所以开发库用 **5434**；
-  - 1025 被 Cisco VPN（`vpnagent`）占用，所以 Mailpit 的 SMTP 在宿主机上用 **2525**。
+  - 1025 被 Cisco VPN（`vpnagent`）占用；Mailpit 默认用 **2525**，但本机 2525 又落入 Windows 保留范围，现通过 `.env.local` 的 `SMTP_PORT` 改用 **12525**。Compose 与应用共用该变量。
 - 其他端口：web 5173、api 3100、Valkey 6379、Garage 3900 和 3903、Mailpit 网页 8025。
 - 在 Git Bash 里手动执行 `docker compose exec garage /garage …` 时，要加 `MSYS_NO_PATHCONV=1`，否则路径会被改写。
 - `.env.local` 由 `bun run setup` 生成，已被 git 忽略，**不要在输出中打印其中的值**。
@@ -72,7 +74,7 @@
 
 - **已经可用**：`bun run setup` · `doctor`（加 `--ai` 可以检查 DeepSeek key）· `infra:up` / `infra:down` / `infra:ps` / `infra:logs` · `infra:bootstrap` · `infra:reset --yes`（会删除全部本地数据，执行前先征得用户同意）· `lint` / `lint:fix` · `typecheck` · `guard` · `check`
 - **以下命令到对应的里程碑才会创建，在那之前不要假定它们存在**：
-  - M1a：`db:*` · `dev:api` · `dev:worker` · `test` / `test:unit` / `test:integration` · `admin:create` · `admin:verify-email`
+  - M1a：`db:*`（含生产安全的 db:bootstrap、仅开发的 db:seed）· `dev:api` · `dev:worker` · `test` / `test:unit` / `test:integration` · `admin:create` · `admin:verify-email`
   - M1b：`dev` · `dev:web` · `test:e2e` · `test:visual` · `storybook` · `build`
   - M2b：`edge:up` / `edge:down`
   - M4：`eval`

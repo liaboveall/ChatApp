@@ -1,7 +1,7 @@
 # ChatApp v2 总览
 
-> 状态：规划定稿（M0），并于同日完成规划审查修订（D-033 到 D-055）；尚未开始编写应用代码。进度见 [PROGRESS.md](PROGRESS.md)。
-> 最后更新：2026-09-30
+> 状态：M0 与两轮规划修订完成；2026-10-01 独立复审的 24 项已落实 D-056–D-075。应用尚未实现，AT 验收与技术实验仍待对应里程碑执行。进度见 [PROGRESS.md](PROGRESS.md)。
+> 最后更新：2026-10-01
 
 ## 一句话
 
@@ -25,11 +25,11 @@
 | 语言与运行时 | TypeScript 7 全栈；后端 Bun 1.4 + Hono 4 |
 | 数据 | PostgreSQL 18（含 pgvector）+ Drizzle ORM；Valkey 9.1（事件总线、在线状态、限流、BullMQ 队列）；Garage（自托管 S3） |
 | 认证 | Better Auth 1.7：邮箱密码 + Passkey，凭邀请码注册 |
-| AI / Agent | AI SDK 7 的 `ToolLoopAgent`；按用户指定，目前只用 `deepseek-flash`（V4.1-Flash）：快速模式关闭思考，深度模式开启思考。可以用站点 key，也可以用户自带 key（M5a）；副作用工具恰好执行一次 |
+| AI / Agent | AI SDK 7 的 `ToolLoopAgent`；按用户指定，目前只用 `deepseek-flash`（V4.1-Flash）：快速模式关闭思考，深度模式开启思考。可以用站点 key，也可以用户自带 key（M5a）；同库业务效果事务去重；持久 run/审批/取消、来源范围世代、调用前预算预占 |
 | 前端 | React 19.3 + React Compiler、Vite 8、TanStack Router/Query、Tailwind 4、Base UI、react-virtuoso |
-| 实时 | 写操作走 HTTP（带幂等键），WebSocket 只负责推送；每个会话维护序号（seq），断线后按序号补发，连接未断时按跳号自动补齐；WebSocket 连接与登录会话绑定 |
+| 实时 | HTTP 写入与按权限读取；普通 WS 仅发变更提示，流式逐接收者授权；同步日志固定上界，前台周期对账；撤权不依赖订阅缓存 |
 | 权限 | 一个 `authorize()` 加一个可见性判断（成员，且消息在自己加入之后），HTTP、WebSocket、搜索、Agent、附件下载统一走它；身份只从服务端会话获取 |
-| 数据 | 数据库是唯一的事实来源，Valkey 里的东西丢了都能重建；保留期和隐私说明见 04 第 10 节、01 第 4.11 节 |
+| 数据 | Postgres 业务+work_items 同事务，Valkey 仅运输/瞬态层；完整副本清理、对象删除时限与恢复隔离；保留期见 04 第 10 节、01 第 4.11 节 |
 
 ## 文档地图
 
@@ -49,6 +49,7 @@
 | [11-roadmap.md](11-roadmap.md) | 里程碑任务、验收标准、会话划分 | 每个里程碑开始时 |
 | [12-decisions.md](12-decisions.md) | 决策记录（含未选方案及原因） | 想改决策时 |
 | [13-legacy-analysis.md](13-legacy-analysis.md) | 旧版缺陷清单（回归测试来源） | 写安全测试时 |
+| [14-planning-review-2026-10-01.md](14-planning-review-2026-10-01.md) | 历史独立审查与 F01–F24 修订对照 | 核对设计变更与尚待实施的验收时 |
 
 **文档冲突时的处理：** 先修正文档，再写代码，不要静默选其中一份。优先级为：用户最新指示 > 12-decisions > 其他规格文档。
 
@@ -62,9 +63,9 @@
 | 私信 | 两个人之间的会话，每对用户只有一个 |
 | Agent 会话 | 用户与 Agent 的私有对话，一个用户可以有多个 |
 | 成员关系（membership） | 用户与会话的关系，带会话内角色：群主 `owner`、管理员 `admin`、成员 `member` |
-| 站点角色 | 站点管理员或普通成员，数据库字段 `users.role` 分别取值 `'admin'` / `'user'`（Better Auth admin 插件的默认值） |
+| 站点角色 | 站点管理员或普通成员，数据库字段 `users.role` 分别取值 `'admin'` / `'user'`（由应用 domain 管理，不开放原生 admin 端点） |
 | `seq` | 会话内消息序号，新消息创建时 +1，永不改变，用于排序和计算未读 |
-| `change_seq` | 会话内变更序号，任何消息的新增、编辑、撤回、删除都 +1，用于断线补发和跳号检测 |
+| `change_seq` | 会话内变更序号，任何消息的新增、编辑、撤回、删除都 +1，用于同步日志与消息版本合并 |
 | `visible_from_seq` | 成员加入时会话的 `last_seq`。成员只能看到 seq 比它大的消息，即加入之后的消息 |
 | 会话封禁 | 被"移出并封禁"的人不能再以任何方式加入这个会话，直到解除封禁 |
 | 站点 key / 自带 key | 站点提供的 DeepSeek key / 用户在设置里填写的自己的 key。前者的运行内容管理员可查看，后者不可以 |
