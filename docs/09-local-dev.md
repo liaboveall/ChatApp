@@ -83,6 +83,18 @@ bun run doctor                 # end-to-end checks; add --ai to also test the De
 
 ## 7. 脚本清单（根目录 `package.json`）
 
+### 故障测试环境（M1a计划新增，D-085）
+
+现有chatapp_test、Valkey db1及chatapp-test桶只做不改实例状态的普通集成测试。M1a首次故障注入前创建`infra/compose.test.yml`与`test:infra:up`/`test:infra:down`/`test:fault`入口；目前这些文件/命令尚不存在。
+
+- 每次生成随机runId，项目名chatapp-test-<runId>；独立Postgres/Valkey/Garage/Mailpit容器、卷、网络、密钥和loopback动态端口，不继承开发compose的name/container_name/卷/bind挂载。每个测试项目使用events:test:<runId>频道和独立实例标记。
+- setup把实际容器ID、卷ID、networkID、端口和随机实例标记写入被忽略的本次运行manifest；DB/Valkey/S3各有可读标记。故障入口检查APP_ENV=test、project label、所有目标ID/标记、实际连接端点，不接受只凭库名或字符串前缀放行。
+- stop/kill、全局flush/config、限内存、断网、磁盘故障只操作manifest列出的独立资源；验证失败立即停止。清理仅删除本run拥有的资源，禁止docker system prune/volume prune或模糊匹配。开发库中的哨兵及服务前后健康须保持不变（AT-34）。
+- M3启用媒体时，Windows开发的worker也运行在Linux容器内，经内部网络访问开发依赖，与media共享私有Unix socket；不能假定宿主机Bun可访问Docker内Unix socket。故障套件使用同样的worker/media拓扑，凭据和卷仍隔离。纯后端热重载在M1a阶段可继续宿主机运行。
+- M7本地删除journal使用第二套独立存储服务模拟故障；V-19最终证据仍须真实异地服务及原主机不可访问场景。只开本机第二桶不能证明灾难独立性。
+
+### 命令状态
+
 | 脚本 | 作用 | 状态 |
 |---|---|---|
 | `setup` | 生成 `.env.local`、本地密钥和 Garage 配置 | ✅ 可用 |
@@ -100,9 +112,11 @@ bun run doctor                 # end-to-end checks; add --ai to also test the De
 | `dev` / `dev:web` | 同时启动前后端 / 只启动前端 | M1b |
 | `admin:create` / `admin:verify-email` | 创建管理员（密码在自己的终端里输入）/ 手动标记邮箱已验证 | M1a |
 | `test` / `test:unit` / `test:integration` | 各层测试 | M1a 起 |
+| `test:infra:up` / `test:infra:down` / `test:fault` | 每run独立拓扑、限定清理及故障矩阵 | M1a首次故障前新增 |
 | `test:e2e` / `test:visual` | 端到端测试 / 视觉测试（在 Playwright 官方 Linux 镜像里运行，基线也在那里生成） | M1b 起 |
 | `storybook` / `build` | 组件库、构建 | M1b |
 | `edge:up` / `edge:down` | 用 Nginx 容器和生产站点配置提供一次构建产物 | M2b |
+| `media:up` / `media:down` | worker容器与无网络media、私有IPC及资源限制；不重置开发依赖 | M3新增 |
 | `eval` | Agent 评测 | M4 |
 
 **Git 钩子**：lefthook 的 pre-commit 钩子会对暂存的文件运行 Biome（并自动修复）和 guard。

@@ -10,17 +10,21 @@
   - 默认只接受 application/json；上传内容 PUT /api/uploads/:id/content 使用 application/octet-stream，Sentry /api/monitoring 仅接收经过大小与格式限制的 envelope。
   - 没有请求体的 POST 可以不带 `Content-Type`。
   - 其他类型一律返回 415。
+  - **解析前限额（D-078）**：普通JSON 128KiB，monitoring 256KiB，上传PUT独立100MiB且受reservation.maxBytes约束；拒绝请求Content-Encoding压缩。网关与应用读取流时分别计数，无Content-Length同样受限，超限413、异常framing400、超时408，不把输入回显到日志。
+  - JSON/envelope总读取≤15秒、空闲≤5秒；上传总≤120秒、空闲≤15秒。应用在JSON解析/SDK认证处理之前执行，不能仅依赖代理。边界最大合法请求由AT-27验证。
 - **认证**：使用 Better Auth 的会话 Cookie。公开入口仅限认证允许清单中的注册/登录/找回/验证、邀请码检查、healthz/readyz、隐私静态页及受限 monitoring；其他要求 active 账号及有效会话。
 - **防跨站**：所有非 GET 请求都要校验 `Origin`，必须等于 `APP_ORIGIN`，否则返回 403。
 - **JSON 格式**：字段名用 camelCase；id 是 UUID 字符串；时间是 ISO 8601 格式的 UTC 时间；`seq` 和 `changeSeq` 以数字形式传输（在 2^53 以内是安全的）。
+- 时间只允许有限值；免打扰使用 `mute: {mode:'off'} | {mode:'forever'} | {mode:'until', until: ISODate}`，不传 infinity。时区使用IANA标识，调度需明确UTC时刻与当地时间/offset，见01第4.3节。
 - **分页**：消息按 `seq` 或 `changeSeq` 做游标分页，其他列表用不透明的 `cursor`；默认每页 50 条，最多 100 条。
 - **幂等**（D-066）：消息携带 clientId，唯一 (sender_id,client_id)，初始请求指纹包含目标会话、正文、附件和引用；跨目标复用返回 IDEMPOTENCY_CONFLICT。一般创建类请求使用 Idempotency-Key，按 actor+operation+target+key 存 Postgres，保留 24 小时；同键异参 409，同键同参重新鉴权后返回当前资源，不缓存敏感 DTO。并发请求由数据库唯一约束和事务串行化；原资源已删除返回 RESOURCE_GONE。
 - **条件更新**：编辑/设置携带 expectedChangeSeq 或 version，失配返回 VERSION_CONFLICT；撤回、取消和删除的重复成功请求返回相同终态，过期键不可作为业务永久去重依据。注册/上传的长操作用状态机而非长事务。
+- **删除操作（M7）**：撤回、管理删除、删除私有Agent会话/记忆/附件、注销等通过D-084异地journal；成功响应只在journal确认且在线事务完成后返回。5秒内未完成返回202 `{operationId,status:'pending',statusUrl}`，相同键定位同一操作；GET `/api/deletion-operations/:id` 仅本人/原授权管理角色可查，返回pending/completed/failed和脱敏码。准备阶段已授权并冻结目标、不可扩展参数；UI等待完成才显示删除成功，pending时内容仍可能可见。到达journaled后保证幂等完成，不能因session过期取消。
 
 - **限流**：超限时返回 429，并带 `Retry-After` 头。按用户和真实客户端 IP 计数；IP 只取可信的本机反向代理写入的头（SEC-28）。
 - **私有资源不可见时返回 404**：对私有会话、消息、附件，如果当前用户无权访问，一律返回 404 而不是 403，避免暴露资源是否存在。只有"资源可见、但当前操作不被允许"时才返回 403，比如成员试图踢人。
 - **错误文字**：`message` 是给开发者看的英文说明；界面上显示的文字由客户端根据 `code` 和 `details` 本地化。
-- **Better Auth 的错误格式**：`/api/auth/*` 沿用 Better Auth 自己的错误格式，前端对这些路由单独适配。
+- **Better Auth错误格式**：允许转发的原生登录/Passkey等沿用SDK格式；应用自定义verification/password四个端点使用本站统一错误结构，不能仅凭/api/auth前缀决定解析方式。
 - **邀请码不进日志**：邀请码一律放在请求体或请求头里，不放在 URL 路径或查询参数里（D-045）。
 
 ### 错误格式
@@ -42,6 +46,8 @@
 | `CONVERSATION_BANNED` | 403 | 已被该会话封禁，不能加入 |
 | `PAYLOAD_TOO_LARGE` | 413 | 文件或请求体太大 |
 | `UNSUPPORTED_MEDIA_TYPE` | 415 | 不支持的请求类型 |
+| `REQUEST_TIMEOUT` / `INVALID_REQUEST_FRAMING` | 408 / 400 | 读取超时 / 长度或传输编码非法；网关先拒绝时允许无JSON正文，前端按HTTP状态兜底 |
+| `AUTH_CHALLENGE_INVALID` | 400 | 验证/重置凭证无效、已用、过期或世代失效，统一提示不枚举账号 |
 | `WINDOW_EXPIRED` | 403 | 已超过撤回或编辑时限 |
 | `INVITE_INVALID` | 400 | 邀请码无效、过期、用完或已撤销 |
 | `IDEMPOTENCY_CONFLICT` / `VERSION_CONFLICT` | 409 | 同键异参 / 基于旧版本修改 |
@@ -54,31 +60,32 @@
 ## 2. 主要数据结构（简写，完整定义见 contracts）
 
 ```ts
-UserSummary  { id, username, displayName, avatarUrl|null, isBot, deleted: boolean }
-Me           UserSummary & { email, role: 'user'|'admin', bio, locale, timezone, settings,
+UserSummary  { id, profileVersion, username, displayName, avatarUrl|null, isBot, deleted: boolean }
+Me           UserSummary & { meVersion, authEpoch, restoreEpoch, email, role: 'user'|'admin', bio, locale, timezone, settings,
                inviteQuota, invitesUsed, storageUsedBytes, storageQuotaBytes, aiDailyTokens,
                aiKey: { provider: 'deepseek', last4, status: 'active'|'invalid' }|null }        // aiKey from M5
 Conversation { id, kind: 'channel'|'group'|'dm'|'agent', name|null, description|null, avatarUrl|null,
-               memberCount, lastSeq, lastChangeSeq, lastMessageAt|null,
+               metadataVersion, membershipVersion, viewerVersion, memberCount, lastSeq, lastChangeSeq, lastMessageAt|null,
                lastMessagePreview: { senderId|null, text|null, kind, state: 'ok'|'recalled'|'deleted' }|null,
                dmPeer: UserSummary|null, settings: { whoCanInvite?, agentEnabled? },
                panelForConversationId|null, archivedAt|null,
-               me: { role, membershipId, visibleFromSeq, lastReadSeq, unread, notifyLevel, mutedUntil|null,
+               previewVersion: { lastChangeSeq, viewerVersion },
+               me: { version, role, membershipId, visibleFromSeq, lastReadSeq, unread, notifyLevel, mute,
                      silencedUntil|null, pinnedAt|null, hiddenAt|null } }
-Member       { user: UserSummary, role, membershipId, joinedAt, silencedUntil|null }
+Member       { user: UserSummary, membershipVersion, role, membershipId, joinedAt, silencedUntil|null }
 Message      { id, conversationId, seq, changeSeq, kind: 'user'|'system'|'agent', status: 'sent'|'streaming'|'failed',
                senderId|null, body|null,
                replyTo: { state: 'unavailable' }|{ id, seq, senderId|null, excerpt|null, state: 'ok'|'recalled'|'deleted' }|null,
                attachments: Attachment[], mentions: string[], streamRevision,
                editedAt|null, recalledAt|null, deletedAt|null, createdAt,
                meta: { system?: {...}, agent?: { runId, mode, keySource, streamIndex? }, viaAgent?: { runId } } }
-Attachment   { id, kind: 'image'|'video'|'audio'|'file', mime, name, sizeBytes, width|null, height|null,
+Attachment   { id, version, generation, kind: 'image'|'video'|'audio'|'file', mime, name, sizeBytes, width|null, height|null,
                durationMs|null, thumbhash|null, status: 'processing'|'ready'|'failed',
                urls: { original, thumb|null, preview|null } }
 AgentRun     { id, trigger, conversationId|null, status, mode, model|null, keySource: 'site'|'user', readScope,
                stepCount, usage: { inputTokens, outputTokens, cachedTokens, costUsd }, createdAt, finishedAt|null,
                error: { code, message }|null, regeneratedFromRunId|null, stateVersion, resumeSeq, contextEpoch }
-Notification { id, type, data, readAt|null, createdAt }                                   // M6
+Notification { id, version, type, data, readAt|null, createdAt }                          // M6
 Page<T>      { items: T[], nextCursor|null }  // message lists instead return { messages, users: Record<id, UserSummary>, hasMore }
 ```
 
@@ -86,6 +93,22 @@ Page<T>      { items: T[], nextCursor|null }  // message lists instead return { 
 - 普通实时事件不携带消息或 sender；HTTP 响应按当前请求者投影，再合并 users 字典。
 - `lastMessagePreview.text` 在撤回或删除后为 null，界面文字（"撤回了一条消息"等）由客户端按 `state` 生成。
 - replyTo.state=unavailable 时只返回不含原消息 id、seq、sender 或摘要的占位；可见引用才使用完整结构。lastMessagePreview 同样逐用户投影，不能复用其他成员看到的预览。
+
+**版本覆盖与合并（D-082）**
+
+| 实体/字段组 | 版本与更新规则 | 条件写入 |
+|---|---|---|
+| UserSummary公开资料 | profileVersion；显示名、用户名、头像、匿名化递增；独立合并users字典 | PATCH me的公开资料也要求expectedMeVersion |
+| Me本人字段 | meVersion；公开资料及email/role/配额/本人设置变化递增；auth/restore世代另作身份边界 | PATCH me带expectedMeVersion |
+| Conversation共享资料 | metadataVersion；名称、头像、设置、memberCount、归档变化递增；成员列表另用membershipVersion | PATCH conversation带expectedMetadataVersion；成员管理带expectedMembershipVersion |
+| 本人关系/偏好/已读/隐藏 | viewerVersion来自持久user_conversation_states；me.version等于当前viewerVersion，state_version同值；移除墓碑也是此序列 | PATCH conversation/me带expectedViewerVersion；read只单调GREATEST，不要求旧版本覆盖 |
+| 会话消息摘要/排序 | lastSeq/lastMessageAt按lastChangeSeq合并；预览同时依赖lastChangeSeq和viewerVersion | 同一membership下复合版本逐分量不小且至少一个更大才替换；不可比就失效补拉 |
+| 通知/附件/run | version / version（generation也验）/ stateVersion | 状态迁移用CAS，不能靠到达顺序 |
+| 提醒/定时任务/删除操作等其他可变实体 | version；表与DTO同名，任一状态或可编辑字段变化递增 | 修改要求expectedVersion；幂等取消仍重新鉴权，终态不被旧响应回退 |
+
+版本在业务字段变化的同一事务更新并产生对应同步提示。成员列表一页固定membershipVersion，翻页时变化则重建；独立profileVersion允许更新成员名字而不改变成员关系。所有HTTP响应必须经过统一merge，不允许Query默认整对象替换绕过版本。新viewerVersion的removed使旧membership响应失效；新加入只接纳经当前服务器授权的新membership。若复合预览任一依赖已改变，先隐藏旧预览再重取，避免旧摘要继续显示。
+
+请求发起时保存 userId/authEpoch/restoreEpoch/membershipId/cacheGeneration，响应回来先验证这些边界；reset/退出/重入会增加本地cacheGeneration并取消旧请求。通过版本接受新的实体不推进synced。列表中缺一个实体本身不构成删除证据，必须有版本化墓碑或一致快照重建。
 
 ## 3. 接口清单
 
@@ -95,6 +118,8 @@ Page<T>      { items: T[], nextCursor|null }  // message lists instead return { 
 | 方法和路径 | 说明 | 里程碑 |
 |---|---|---|
 | `/api/auth/*` | 仅按下方方法/能力清单转发；未列明路由默认 404。注册沿用 POST /api/auth/sign-up/email，但经受控注册 adapter 与激活状态机，不直接透传 | M1 |
+| `POST /api/auth/verification/request` / `POST /api/auth/verification/consume` | 前者请求/重发验证邮件（通用响应）；后者`{token}`，原子消费绑定凭证并验证激活条件，不自动登录 | M1 |
+| `POST /api/auth/password/request-reset` / `POST /api/auth/password/consume-reset` | 前者请求找回（通用响应）；后者`{token,newPassword}`，消费/改密/撤销会话和委托同事务 | M1 |
 | `POST /api/invites/check` | `{code}`，注册页用它校验邀请码是否可用；按 IP 限流 | M1 |
 | `GET /api/me` / `PATCH /api/me` | 查看或修改自己的资料和设置：用户名（检查冷却期、保留名）、显示名（检查保留名）、简介、时区、偏好设置 | M1 / M2 |
 | `POST /api/me/avatar` | `{attachmentId}`，把一个 `purpose=avatar` 的附件设为头像 | M3 |
@@ -108,12 +133,14 @@ Page<T>      { items: T[], nextCursor|null }  // message lists instead return { 
 |---|---|
 | 邮箱注册 | POST sign-up/email；X-Invite-Code + Idempotency-Key；04 注册状态机；拒绝客户端 role/is_bot/限额/验证状态/registration_id |
 | 登录/退出/本人会话 | 邮箱登录、sign-out、get-session、list-sessions、注销本人单个/其他/全部 session；账号必须 active、非 bot、未封禁 |
-| 验证与找回 | 验证邮件发送/重发、GET 验证回调、密码找回与重置；单次短期令牌及注册激活检查；匿名响应不枚举账号 |
+| 验证与找回 | 仅上表四个应用受控POST端点；GET只提供静态确认页，token来自fragment且读取后立即移除。原生verify-email/JWT回调及原生request/reset-password路径不转发；匿名响应不枚举账号 |
 | 本人修改密码 | 需当前凭证与近期认证，注销其他 session；重置注销全部 session |
 | Passkey | 本人的 challenge 生成/校验、登记、登录、列表、改名、删除；所有 challenge 绑定 session/账号、Origin、RP ID，禁止任意 userId |
 | 禁止能力 | 所有 admin/impersonation；无邀请创建用户；替他人设置密码、邮箱；change-email（本版不提供）；update-user；原生 delete-user；username 登录；OAuth/社交登录及其他插件入口 |
 
 M1a 从锁定版 SDK 导出精确 HTTP method/path 清单并提交 contracts/auth-endpoints，以上“能力”仅用于选择该清单，绝不是通配路径放行。端点升级的快照测试必须检查新增路径仍默认拒绝；省略、编码、尾斜杠等路由归一化形式也必须覆盖。后台功能全部用 /api/admin 的 domain 接口，不启用 admin 插件 HTTP 路由。机器人和未确认注册不能通过 Passkey/密码/会话恢复绕过激活。
+
+普通sign-out与“撤销设备/注销其他或全部设备”按03第5.9节分别映射，不能都调用一个只删除session的原生函数。安全操作撤销origin/delegation；普通退出只结束session。设备页和任务列表显示这一区别，所有身份变更由受控adapter完成。认证页无第三方资源、no-referrer/no-store；fragment token不写localStorage/分析事件/错误报告。
 
 ### 3.2 邀请与用户
 | 方法和路径 | 说明 | 里程碑 |
@@ -135,7 +162,7 @@ M1a 从锁定版 SDK 导出精确 HTTP method/path 清单并提交 contracts/aut
 | `DELETE /api/conversations/:id` | 只用于 Agent 会话：删除会话和其中的消息（本人） | M4 |
 | `POST /api/conversations/:id/join` / `POST …/leave` | 加入频道；退出会话（群主须先转让） | M2 |
 | `POST /api/conversations/:id/transfer` | `{userId}`，转让群主 | M2 |
-| `PATCH /api/conversations/:id/me` | 我对这个会话的个人设置：`{notifyLevel?, mutedUntil?, pinned?, hidden?}` | M2 |
+| `PATCH /api/conversations/:id/me` | 我对这个会话的个人设置：`{expectedViewerVersion, notifyLevel?, mute?, pinned?, hidden?}`；mute判别联合见第1节 | M2 |
 | `POST /api/conversations/:id/read` | `{seq}`，推进我的已读位置（只能向前推） | M2 |
 | `GET /api/conversations/:id/members?cursor=` | 成员列表 | M2 |
 | `POST /api/conversations/:id/members` | `{userIds}`，拉人进群（跳过被封禁的人，并在结果里说明） | M2 |
@@ -153,6 +180,7 @@ M1a 从锁定版 SDK 导出精确 HTTP method/path 清单并提交 contracts/aut
 | `GET /api/sync/heads` / `GET /api/me/changes?after=&cursor=&limit=` | 轻量会话与个人版本清单 / 个人日志，覆盖成员移除、隐藏、已读和设置 | M2 |
 | `GET /api/messages/:id` | 按当前权限获取单条消息及流式持久快照；不可见引用脱敏 | M2 |
 | `POST /api/conversations/:id/messages` | `{clientId, body?, attachmentIds?, replyToId?}`，正文和附件至少要有一个；新建返回 201，重复提交返回 200 | M2（附件在 M3） |
+| `POST /api/conversations/:id/messages/replay` | 离线队列恢复，字段同发送并带队列登记时间；同一幂等键，≤24小时，服务端固定offline_replay，不推进已读。常规发送端点仅供本人明确交互使用 | M6 |
 | `PATCH /api/messages/:id` | `{body, expectedChangeSeq}`，编辑（仅发送者，24 小时内）。不会触发 Agent，也不产生新的通知 | M2 |
 | `POST /api/messages/:id/recall` | 撤回（仅发送者，2 分钟内，服务端留 5 秒宽限） | M2 |
 | `POST /api/messages/:id/hide` | 仅自己删除 | M2 |
@@ -179,9 +207,12 @@ M1a 从锁定版 SDK 导出精确 HTTP method/path 清单并提交 contracts/aut
 | `POST /api/agent/approvals/:id` | `{decision: 'approve'\|'reject', editedArgs?, expectedStateVersion}`，状态 CAS 审批，回应/queued/work 同事务 | M5 |
 | `GET /api/agent/approvals?status=pending` | 待我审批的列表 | M5 |
 | `GET /api/agent/memories` / `POST` / `DELETE /api/agent/memories/:id` | 长期记忆：查看、新增、删除 | M5 |
+| `PATCH /api/agent/memories/:id/privacy` | `{expectedContentVersion, allowSiteUse}`，本人逐条明确选择是否允许站点助手使用；默认byok_private，版本变化使旧上下文失效 | M5 |
 
 | `GET /api/reminders?status=&cursor=` / `DELETE /api/reminders/:id` | 本人的提醒列表/取消；终态重复取消幂等，无权限 404 | M5 |
 | `GET /api/scheduled-messages?status=&cursor=` / `DELETE /api/scheduled-messages/:id` | 本人的定时消息列表/取消；不得修改为未批准的新内容，修改需取消后重新审批 | M5 |
+
+任务DTO包含version、来源设备标识（无令牌）、delegation状态、到期、UTC执行时刻、创建时IANA时区/offset及失败码；deletion-operation也返回version。审批和创建定时效果冻结时间解释；DST重复/不存在时刻不能静默猜测。AgentRun返回contextEpoch/keySource；切换key只新建请求，不自动回填原BYOK内容（06第14节）。
 
 ### 3.7 通知、管理与运维
 | 方法和路径 | 说明 | 里程碑 |
@@ -242,14 +273,14 @@ M1a 从锁定版 SDK 导出精确 HTTP method/path 清单并提交 contracts/aut
 ### 4.4 服务端 → 客户端
 | type | topic | data |
 |---|---|---|
-| hello / pong | — | connectionId/userId/serverTime/heartbeatMs（hello）；serverTime（pong） |
+| hello / pong | — | connectionId/userId/authEpoch/restoreEpoch/serverTime/heartbeatMs（hello）；serverTime（pong） |
 | message.changed | conv:* | conversationId、messageId、changeSeq；所有创建/编辑/撤回/删除共用，不含正文、引用或 sender |
 | user.changed | user:* | userChangeSeq；通知个人同步，不含私有内容 |
 | conversation.changed / conversation.removed | user:* | conversationId、userChangeSeq；成员失效时 removed，客户端清掉该会话缓存 |
 | member.changed | conv:* | conversationId、membershipVersion，重拉成员列表 |
 | typing | conv:* | conversationId、userId、state、expiresInMs=5000，当前授权后发送 |
 | presence / presence.snapshot | presence:* / — | userId、status、lastSeenAt；仅登录用户可接收 |
-| attachment.updated | user:* | attachmentId、generation、status，重新查询上传或附件 |
+| attachment.updated | user:* | attachmentId、generation、version，重新查询上传或附件 |
 | agent.run.updated / agent.step / agent.approval.requested | user:* | runId、stateVersion、stepIndex 或 approvalId；详情接口读取，仅调用者接收 |
 | agent.delta | conv:*（hub 逐连接授权，非盲播） | runId、resumeSeq、messageId、index、text；每批重新检查 session、成员、来源版本、租约 |
 | notification | user:* | notificationId、userChangeSeq；正文按权限读取 |
@@ -259,18 +290,18 @@ M1a 从锁定版 SDK 导出精确 HTTP method/path 清单并提交 contracts/aut
 
 会话第一页 after=synced，响应：
 
-    { items: Message[], tombstones: string[], scannedThrough, through, nextCursor,
+    { items: Message[], tombstones: { id, changeSeq }[], scannedThrough, through, nextCursor,
       membershipId, resetRequired: false }
 
-- through 在第一页固定；后续 cursor 是服务端签名的 actor/conv/membershipId/after/through/过期时间组合，默认 10 分钟。limit 限制扫描日志数（最大 100），不是过滤后的可见消息数，因此空 items 也可以推进。
+- through第一页固定；cursor签名绑定actor/authEpoch/restoreEpoch/conv/membershipId/after/through/过期时间，默认10分钟；旧恢复/授权世代拒绝并重建。limit限制扫描日志数（最大100），不是过滤后消息数，空items也可推进。
 - 读取当前实体投影，允许 Message.changeSeq 高于 through；客户端只合并更新版本，但 synced 只能由 scannedThrough/最后一页 through 推进。下一轮仍从这个 synced 读取日志，不把新实体版本误当成全量水位。
-- user changes 同协议，items 为资源的当前授权状态或移除墓碑，含 hiddenMessageIds/已读/设置/成员变化；不再使用 hiddenSince。成员不再存在返回 404 并清缓存，旧 membershipId 游标返回 resetRequired。
+- user changes 同协议，items为带第2节版本的资源当前授权状态；个人会话墓碑为`{conversationId,membershipId,state:'removed',viewerVersion}`，覆盖hiddenMessageIds/已读/设置/成员变化，不再用hiddenSince。旧移除事件只促使对账，不能凭迟到提示删除新membership；本人持久关系墓碑无正文可经个人同步读取。会话内容接口在成员不存在时返回404，旧membership游标resetRequired。
 - 日志过期、缺口 >1000 或 cursor 过期返回 resetRequired，不静默跳过。重建响应在同一个数据库一致快照内返回当前会话/最新消息页、baselineChangeSeq、baselineUserSeq；后续从 baseline 补发期间发生的新变化。
 - GET /sync/heads 仅返回当前可访问的 id、membershipId、lastChangeSeq、userChangeSeq，不携带正文。前台 30 秒一次（抖动），重连/回前台立即做；客户端始终区分 observed 和 synced。
 - 普通提示合并后尽快补拉（目标 50ms 批处理），尾事件目标 35 秒内收敛。无内容的事件不直接写消息缓存。
 - agent.delta 仅给通过 03 第 6 节批次授权的接收者。index 不连续就停止拼接，通过 GET /messages/:id 获取持久快照；每秒持久快照的 streamRevision 单调递增，最后完成事件同样走 message.changed。最终事件丢失由周期对账恢复。
 - 重新生成使用新的 runId，切换前核对消息当前绑定；旧 run 的迟到增量一律丢弃。审批暂停把当前段标 sent，下一 resumeSeq 创建新段。
-- 引用、预览变化时客户端失效相关缓存并重新投影；conversation.removed 清理消息、草稿的可见缓存和离线待发权限，不把清缓存当作防泄露措施。
+- 引用/预览变化时失效并重取；conversation.removed只是对账提示，确认较新viewerVersion移除墓碑后才清消息/草稿/离线权限，不能让迟到提示删除重入关系。清缓存不替代服务端授权。
 
 ### 4.6 功能契约闭环
 

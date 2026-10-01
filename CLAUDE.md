@@ -10,7 +10,7 @@
 2. `docs/11-roadmap.md` 中当前里程碑的那一节。
 3. 该里程碑引用到的规格文档。**只读需要的部分，不要一次全部读完。**
 
-文档索引见 `docs/00-overview.md`。规格文档是开发依据：遇到冲突或缺漏时，先和用户确认，改好文档，再写代码。优先级为：用户最新指示 > `docs/12-decisions.md` > 其他规格。
+文档索引见 `docs/00-overview.md`。规格是开发依据：冲突或缺漏先按用户既有授权修订文档，再写代码；已授权的完善无需重复确认，改变用户明确决定或超出授权范围时才提出具体选择。优先级为：用户最新指示 > `docs/12-decisions.md` > 其他规格。
 
 ## 已定方向（细节见 docs/12）
 
@@ -26,12 +26,16 @@
 ## 硬性规则
 
 **安全**（完整要求见 docs/07）
-- 用户身份**只**从服务端会话获取；请求体和 WebSocket 消息里声称"我是谁"的字段一律忽略。
+- HTTP/WS用户身份只从服务端session获取；后台用户操作用服务端签发的持久delegation并检查origin/授权世代/当前业务权限。请求体不能指定Principal或冒用userId（D-079）。
 - 所有与会话相关的读写都必须经过 `authorize()`；对无权访问的私有资源返回 404。
 - 消息可见性基础是当前成员且 seq > visible_from_seq；引用、预览、附件也逐项投影。普通 WS 无正文，流式每批复核授权与来源；共享 Agent 只读当前成员共同可见历史（D-057、D-060）。
 - WS 绑定 session，持久撤权+5 秒复核；业务写入在事务锁内复核授权。Better Auth method/path 默认拒绝、禁止代登，注册确认+验证才激活（D-057–D-059）。
 - 业务变更、同步日志和 work_items 同事务；Valkey 丢队列由独立 Postgres 扫描恢复。observed 不等于 synced（D-056）。
-- 本轮最新实现决策是 D-056–D-075，优先于其明确取代的旧条款；08 的 AT-01–AT-24 分阶段验收。
+- 最新规划决策D-076–D-092补充/修正D-056–D-075；08的AT-01–AT-37分阶段验收，设计完成不等于运行通过。15顶部有本轮17项修订对照。
+- 验证/重置使用绑定注册实例及恢复世代的一次性凭证；原生JWT回调关闭。JSON解析前限128KiB，日志只记录白名单字段/规范化路由，不能落原始URL。
+- 普通退出不撤销长期任务；安全撤销按03真值表取消委托。自动发送不推进人的已读。所有HTTP响应按05实体版本合并，through不是实体版本。
+- 私有BYOK传递来源不自动进入site上下文，key切换新开空白段；媒体解码只在无网络/无业务凭据的独立media容器。生产成功删除先有独立异地journal，缺删除证据不能开放恢复数据。
+- stop/kill、OOM、网络/磁盘故障只在独立compose.test项目且核验实际实例后执行；当前共享测试库/db1/bucket不构成实例隔离。
 - 隐私说明（01 第 4.11 节）必须与实际行为一致；改动数据保留期或管理员能看到的内容时，同步修改说明。
 - 前端禁止用 `innerHTML` 或 `dangerouslySetInnerHTML` 渲染用户内容；Markdown 不允许原始 HTML。
 - 写操作走 HTTP，并带幂等键；WebSocket 只负责推送事件和瞬时信号。
@@ -75,6 +79,7 @@
 - **已经可用**：`bun run setup` · `doctor`（加 `--ai` 可以检查 DeepSeek key）· `infra:up` / `infra:down` / `infra:ps` / `infra:logs` · `infra:bootstrap` · `infra:reset --yes`（会删除全部本地数据，执行前先征得用户同意）· `lint` / `lint:fix` · `typecheck` · `guard` · `check`
 - **以下命令到对应的里程碑才会创建，在那之前不要假定它们存在**：
   - M1a：`db:*`（含生产安全的 db:bootstrap、仅开发的 db:seed）· `dev:api` · `dev:worker` · `test` / `test:unit` / `test:integration` · `admin:create` · `admin:verify-email`
+  - M1a首次故障前：`test:infra:up` / `test:infra:down` / `test:fault`；M3：`media:up` / `media:down`（worker容器与私有IPC）
   - M1b：`dev` · `dev:web` · `test:e2e` · `test:visual` · `storybook` · `build`
   - M2b：`edge:up` / `edge:down`
   - M4：`eval`

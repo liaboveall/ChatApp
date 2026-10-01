@@ -4,7 +4,7 @@
 
 - **命名**：数据库里用 snake_case，TypeScript 里用 camelCase。在 Drizzle 中配置 `casing: 'snake_case'` 自动转换。表名用复数。
 - **主键**：统一用 `uuid`，默认值为 `uuidv7()`（PostgreSQL 18 内置函数，按时间有序；不把 id 的随机性当作授权）。
-  - Better Auth 的几张表通过配置 `advanced.database.generateId` 生成 UUIDv7，可以用 `Bun.randomUUIDv7()`。**M1a 要验证 Better Auth + Drizzle adapter 能否正常使用 uuid 类型的主键（V-04）。**
+  - Better Auth 的几张表通过配置 `advanced.database.generateId` 注入 `runtime/ids` 的 UUIDv7 工厂，Bun 专用实现不进入 auth/domain（D-090）。**M1a 要验证 Better Auth + Drizzle adapter 能否正常使用 uuid 类型的主键（V-04）。**
 - **时间**：一律用 `timestamptz`，存 UTC。"每天""每月"这类按日期归类的数据，按业务时区 `APP_TIMEZONE`（默认 `Asia/Shanghai`）计算。
 - **大整数**：`seq` 等 bigint 列在 TypeScript 里按 number 处理（Drizzle 的 `mode: 'number'`），实际数值远小于 2^53。
 - **文本比较**：频道名唯一性、保留名比较之前，先做 Unicode NFKC 规范化，再转小写，比如 `lower(normalize(name, NFKC))`。
@@ -32,6 +32,7 @@ Better Auth 的 Drizzle adapter 需要开启 `usePlural: true`，这样表名才
 | registration_id | uuid | unique null → registration_invite_uses，延迟约束 | 普通注册必须在账号首次插入时写入；bootstrap/CLI 账号使用受审计的例外来源 |
 | activation_status | text | not null | pending / active / revoked；登录要求 active 且 email_verified |
 | auth_epoch / user_change_seq | bigint | default 0 | 账号授权世代 / 个人同步水位 |
+| profile_version / me_version | bigint | default 1 | 公开资料版本 / 本人资料与设置版本；所覆盖字段见 05，变化同事务递增 |
 | avatar_attachment_id | uuid | null → attachments | image 只是服务端派生的 URL |
 | is_bot | boolean | default false | 为 true 表示 Agent |
 | bio | text | null，≤ 200 字符 | |
@@ -50,13 +51,27 @@ Better Auth 的 Drizzle adapter 需要开启 `usePlural: true`，这样表名才
 | created_at / updated_at | timestamptz | | |
 
 ### Better Auth 的其他表
-- `sessions`：会话令牌、过期时间、IP、User-Agent。
+- `sessions`：会话令牌、过期时间、IP、User-Agent、auth_epoch、authorization_origin_id（→ authorization_origins）。
   - **会话以 Postgres 为准**：Valkey 只用于缓存和限流，Valkey 丢数据不会让用户掉线（D-044）。
   - 令牌在库里怎么存，以 M1a 的验证结果为准（V-13）。如果是明文存储，数据库备份必须加密，数据库访问也要严格限制。
 - `accounts`：`provider_id = 'credential'` 的那一行保存密码哈希。
-- `verifications`：邮箱验证和重置密码用的令牌。
+- `verifications`：仅保留锁定版 SDK 确实需要的 challenge；应用邮箱验证/密码重置由下方 auth_challenges 控制，不能假设此表能撤销 SDK 的签名邮件 JWT。
 - `passkeys`：Passkey 的公钥、凭证 id、计数器等。
 - 具体列以当时版本的 Better Auth CLI（`@better-auth/cli generate`）生成的 schema 为准，生成后纳入 `packages/db`。
+
+### auth_challenges（M1a，D-076）
+- 列：id、user_id（FK，删除账号级联）、registration_id（普通注册必填）、purpose（verify_email/reset_password）、email_hash、auth_epoch、restore_epoch、token_hash（unique）、expires_at、consumed_at、revoked_at、created_at。
+- token 为随机256-bit，SHA-256 后查行，按 user_id 定位唯一账号并检查注册关联/邮箱摘要/全部世代；不得仅按邮箱查当前账号。验证和重置默认1小时；重发锁定用户后撤销同用途未消费凭证，旧邮件即使晚到也不能使用。
+- 邮件 worker 所需 token 仅存该受限认证表的 delivery_ciphertext/nonce/key_version，以单独 AUTH_TOKEN_ENCRYPTION_KEY 加密。事务同时创建凭证和仅含 challenge id 的 work_item；发送确认、到期或撤销后清密文。网络结果未知可用同一未过期凭证有限重投，不能把 token/邮件正文写入通用队列或日志。
+- 验证消费、email_verified、confirmed 检查及 active 更新同事务；人工验证撤销全部 verify_email 凭证。重置消费、密码哈希写入、auth_epoch 递增、全部 session/origin/delegation 撤销同事务；适配器无法保证时不得开放该原生路径。重复已消费凭证返回通用失效，不登录或重建账号。
+- 消费/过期行保留7天无密文元数据后删除。RESTORE_EPOCH 从备份外重新生成，所有旧凭证默认拒绝；清表与世代校验两层同时执行。
+
+### authorization_origins / execution_delegations（身份契约 M1a，业务使用 M4/M5a，D-079）
+- authorization_origins：id、user_id、created_at、ended_at、revoked_at、revoke_reason；每次登录生成不可由客户端指定的 origin。session 普通结束只记 ended_at，明确安全撤销设置 revoked_at；origin 在 session 删除后仍保留，直到关联委托终态且超过30天。
+- execution_delegations：id、user_id、origin_id、parent_id（可空）、auth_epoch、restore_epoch、purpose（agent_run/reminder/scheduled_message）、target_type/id、args_hash、status（active/revoked/completed/expired）、expires_at、revoked_at、created_at。表由 domain 创建；不是可传给客户端使用的 bearer token。
+- run 委托创建后最多25小时；调度子委托绑定已批准的目标/参数、来源 origin 及 epoch，expires_at=到点时间+24小时，预约≤365天。子任务独立于父 run 完成/取消，但继承 origin/账号撤销。审批不可用另一设备重新绑定失效委托。
+- 未完成run/任务的delegation_id必须非空且存在；终态元数据引用可ON DELETE SET NULL，清委托前确认无活任务和活子委托，origin最后清。状态CHECK防止清理后终态再次变为可执行；去重账本独立保留。
+- SessionPrincipal 验当前 session，DelegatedPrincipal 验 active 委托、origin 未撤销、两个 epoch、有效期及作用范围；两者都验当前业务权限。普通退出/到期不使 origin 撤销；安全操作真值表见03。维护清理的 SystemPrincipal 只允许列明动作，不能据此代用户发送消息。
 
 ### `username_reservations`
 | 列 | 类型 | 说明 |
@@ -93,7 +108,7 @@ Better Auth 的 Drizzle adapter 需要开启 `usePlural: true`，这样表名才
 
 1. 占用：按统一锁顺序锁定邀请人、邀请码及 registration；原子增加 use_count、invites_used，插入 reserved。重复请求不再次占用。
 2. 账号首次 INSERT 必须带 registration_id、activation_status=pending，并在锁定 registration、检查 lease_epoch 的事务中提交。可共享整体事务时一并确认；否则 adapter 的账号创建事务至少要覆盖这一步关联和 account_created 转移，不能靠事后 hook 补关联。
-3. 确认器按 registration_id 幂等补齐 user_id，转 confirmed，并创建验证邮件工作。email_verified 只能记录验证事实；只有 confirmed 且验证成功的账号才转 active。验证、人工验证、清理和撤销都取同一注册锁。
+3. 确认器按 registration_id 幂等补齐 user_id，转 confirmed，并创建绑定该 user/registration 的 auth_challenge 和验证邮件工作。email_verified 只能由受控消费或人工验证写入；只有 confirmed 且验证成功才转 active。锁序为用户→注册记录→challenge；清理、撤销和人工验证同序执行（03）。
 4. 释放：reserved 超时先取得锁并使旧 epoch 失效，查询 users.registration_id；存在账号则恢复确认，不退名额；不存在才改 released 并原子退两项计数。account_created 不可仅按超时释放。
 5. 未验证账号满 7 天或被邀请人撤销时，在锁内检查仍未 active，撤销会话/令牌并清理账号及个人信息，标 released、仅退一次名额。已激活账号之后注销不退“成功邀请”名额。
 6. confirmed 的最小关联记录随账号保留（外键仍有效），released 保留 30 天且清空邮箱等个人字段；释放账号前先解除 user_id 反向外键。过期注册键重放返回失效，不能创建替代账号。并发验证与撤销只有一个终态生效。
@@ -115,6 +130,7 @@ V-13 必须验证 adapter 创建事务可以实施上述锁和关联；否则先
 | panel_for_conversation_id | uuid | null → conversations，级联删除 | 面板对话所绑定的会话，只用于 `kind = 'agent'` |
 | last_seq | bigint | default 0 | 最后一条消息的 seq |
 | last_change_seq | bigint | default 0 | 最后一次变更的序号 |
+| metadata_version | bigint | default 1 | 名称、简介、头像、设置、人数、归档等共享资料变化递增，不替代消息 change_seq |
 | membership_version | bigint | default 0 | 成员、角色、禁言、归档变更时递增；用于 Agent 来源与权限失效 |
 | last_message_at | timestamptz | null | |
 | member_count | int | default 0 | 在同一事务中维护 |
@@ -143,6 +159,11 @@ V-13 必须验证 adapter 创建事务可以实施上述锁和关联；否则先
 - user_changes：PK (user_id, change_seq)，entity_type、entity_id、operation、created_at；对应 users.user_change_seq 同事务递增。成员加入/移出、隐藏、已读、个人设置、通知及会话列表变化均有可恢复条目。
 - 两类日志保留 7 天，记录 earliest_available_seq；清理与读游标边界协调。成员变动的 membership_id 与固定 through 游标防止退出重入复用旧缓存。协议见 05 第 4.5 节。
 
+### user_conversation_states（M2a，D-082）
+- PK (user_id,conversation_id)，membership_id（可空）、state（active/hidden/archived/removed）、viewer_version、updated_at。conversation_id 是可保留删除墓碑的标识，不因实体删除级联清除此行。
+- 关系加入/移出/重入、已读、个人通知设置、隐藏消息等改变本人投影时，锁用户及关系行，以本次 users.user_change_seq 分配 viewer_version，并同步更新活动成员的 state_version；退出先写 removed 与新版本再删除成员行。新 membership_id 不复用旧 viewer_version。
+- active/hidden/archived 随关系保留；removed 最少保留7天且覆盖全部有效游标期限。删除墓碑后，旧游标/缓存必须 reset，客户端本地重建代次拒绝先前在途响应。账号注销时清理此表。消息新增不必向每个成员复制个人版本，预览用05的复合版本。
+
 ### `dm_pairs`
 | 列 | 类型 | 说明 |
 |---|---|---|
@@ -160,10 +181,11 @@ V-13 必须验证 adapter 创建事务可以实施上述锁和关联；否则先
 | role | `member_role` | default `member` | `owner` / `admin` / `member` |
 | joined_at | timestamptz | default now() | |
 | membership_id | uuid | unique, not null | 每次加入新建，退出后旧值永不复用 |
+| state_version | bigint | not null | 本人关系/偏好版本，与 user_conversation_states.viewer_version 同事务更新；角色/禁言变化也更新 |
 | visible_from_seq | bigint | not null, default 0 | 只能看到 `seq` 大于它的消息（D-035）。加入时取会话当时的 `last_seq`；创建会话时的初始成员为 0 |
 | last_read_seq | bigint | default 0 | 加入时取 `visible_from_seq`；只能增大，写法 `GREATEST(旧值, 新值)` |
 | notify_level | `notify_level` | not null，由创建事务填写 | all / mentions / none；私信默认 all，群/频道默认 mentions |
-| muted_until | timestamptz | null | 免打扰截止时间；永久免打扰用 `'infinity'` |
+| mute_mode / muted_until | text / timestamptz | off / null | off、until、forever；CHECK：until 需有限非空时间，其余必须 null，不存 infinity |
 | silenced_until | timestamptz | null | **禁言**截止时间：到期前不能发消息 |
 | pinned_at | timestamptz | null | 置顶时间 |
 | hidden_at | timestamptz | null | 隐藏私信的时间 |
@@ -222,6 +244,8 @@ V-13 必须验证 adapter 创建事务可以实施上述锁和关联；否则先
 | reply_to_id | uuid | null → messages | 必须在同一会话内，而且发送者能看到它（seq 大于发送者的 `visible_from_seq`），由应用层检查 |
 | client_id / request_hash | uuid / text | null | 客户端稳定键及规范化初始请求哈希 |
 | content_version / stream_revision | bigint | default 1 / 0 | 正文语义版本 / 流式持久快照版本；每个流式快照单调递增 |
+| execution_source | text | not null | interactive / offline_replay / agent_effect / scheduled / system，由可信入口设置；仅 interactive 自动推进人的已读 |
+| privacy_class / context_epoch | text / uuid | standard / null | 私有 BYOK 输入/输出为 byok_private；普通共享消息为 standard；派生标签见06 |
 | meta | jsonb | default `{}` | 可能的键：`system`（系统事件内容）、`agent`（runId、mode、keySource、streamIndex）、`viaAgent`（经 Agent 代发时的 runId） |
 | edited_at / recalled_at / deleted_at | timestamptz | null | |
 | deleted_by | uuid | null → users | |
@@ -258,6 +282,7 @@ V-13 必须验证 adapter 创建事务可以实施上述锁和关联；否则先
 | raw_size_bytes / size_bytes / charged_bytes | bigint | 均 ≥ 0 | 原始输入 / 处理后主文件 / 用户计费字节；ready 时 charged_bytes=size_bytes |
 | sha256 | text | uploading/processing 时可空，ready 必填 | 处理后主文件哈希 |
 | generation / deleted_message_id | bigint / uuid | default 1 / null | 处理 fencing 代次 / 原消息墓碑标识（非活外键） |
+| version / privacy_class | bigint / text | 1 / standard | 状态/绑定/变体变化递增；私有 BYOK 附件标签不可被 site 工具绕过 |
 | width / height / duration_ms | int | null | |
 | storage_key | text | unique，ready 前可空 | 当前 generation 主对象 key，格式 att/{id}/{generation}/original；与原始文件名无关 |
 | variants | jsonb | default `{}` | 衍生文件：`{thumb:{key,w,h,mime}, preview:{…}}` |
@@ -293,7 +318,7 @@ V-13 必须验证 adapter 创建事务可以实施上述锁和关联；否则先
   - 列：`id`、`user_id`、`session_id`、`endpoint`（唯一）、`installation_id`、`binding_version`、`p256dh`、`auth`、`user_agent`、`created_at`、`last_success_at`、`failure_count`。
   - `session_id` 是订阅时的登录会话；该会话退出或被注销时，这条订阅一并删除（D-038）。
 - **`notifications`**：
-  - 列：`id`、`user_id`、`type`、`data`（jsonb）、`read_at`、`created_at`。
+  - 列：`id`、`user_id`、`type`、`data`（jsonb）、`read_at`、`version`（默认1，变更递增）、`created_at`。
   - `type` 的取值：`mention` / `reply` / `approval_requested` / `reminder` / `budget_alert` / `report_opened`。
   - data 只存资源 id、类型和必要时间，不保存聊天摘要；读取时重查权限并投影。来源不可见时显示通用不可用提示，不返回旧正文。
   - 索引：`(user_id, created_at desc)`。保留 90 天。
@@ -305,12 +330,14 @@ V-13 必须验证 adapter 创建事务可以实施上述锁和关联；否则先
 |---|---|---|
 | id | uuid PK | |
 | user_id | uuid → users | **调用者**：本次运行按此人的权限执行 |
+| delegation_id | uuid → execution_delegations | 创建 run 同事务签发；不能从 worker 裸 user_id 恢复权限 |
 | trigger | text | `agent_chat` / `mention` / `panel` / `command` / `scheduled` |
 | conversation_id | uuid null → conversations | 输出写到哪个会话；会话被删除时置为 null |
 | context_conversation_id | uuid null | 面板或命令所绑定的会话 |
 | source_message_id / output_message_id | uuid null | 触发运行的消息 / Agent 回复的消息 |
 | read_scope | text | `current_conversation` 或 `all_accessible`（见 06） |
 | key_source | text | `site`（站点 key）或 `user`（自带 key），决定内容是否对站点管理员可见（D-034） |
+| privacy_class / key_revision | text / bigint null | standard 或 byok_private；创建时固定 key_source 和自带 key 修订，删除/替换 key 使旧 run 停止 |
 | mode / model | text | `fast` 或 `deep`，以及实际使用的模型名 |
 | timezone | text | 本次运行采用的时区 |
 | status | `agent_run_status` | `queued` / `running` / `awaiting_approval` / `completed` / `failed` / `cancelled` |
@@ -322,7 +349,7 @@ V-13 必须验证 adapter 创建事务可以实施上述锁和关联；否则先
 | heartbeat_at / lease_until | timestamptz null | 每 5 秒续租，默认 30 秒租期 |
 | resume_seq / lease_epoch | bigint | 逻辑续跑段号 / 每次领取递增的 fencing token |
 | cancel_requested_at | timestamptz null | 持久取消，终态不会因重复取消重新执行 |
-| context_epoch / context_manifest | uuid / jsonb | 范围世代及来源 id、content_version、membership_id、成员版本，不存第二份正文 |
+| context_epoch / context_manifest | uuid / jsonb | scope/key 世代及来源 id、content_version、privacy_class、membership_id、成员版本；包含传递来源，不存第二份正文 |
 | state_version / elapsed_active_ms | bigint | 状态 CAS 版本 / 累计活跃时长，重试/续跑不重置总步数与时长 |
 | content_purged_at | timestamptz null | 内容按保留期清除的时间 |
 | created_at / started_at / finished_at | timestamptz | |
@@ -350,7 +377,7 @@ V-13 必须验证 adapter 创建事务可以实施上述锁和关联；否则先
 - **用法**：执行有副作用的工具时，domain 在同一个事务里完成操作，并插入这一行。重试时先查这张表：已有记录就直接返回其中的 `result`，不再执行（INV-10，D-037）。
 
 ### `agent_approvals`（M5a）
-- **列**：`id`、`run_id`、`step_id`、`user_id`（必须由调用者本人审批）、`tool_name`、`args`（jsonb）、`edited_args`（jsonb，用户修改后的参数，可为空）、`status`（`pending` / `approved` / `rejected` / `expired`）、`decided_at`、`expires_at`（创建后 24 小时）、`created_at`。
+- **列**：`id`、`run_id`、`step_id`、`user_id`（调用者本人审批）、`tool_name`、`args`、`edited_args`、`status`（pending/approved/rejected/expired）、`decided_at`、`expires_at`、`created_at`。expires_at=min(创建后24小时, run委托到期)，卡片显示实际期限；时间歧义确认也使用本审批状态机。
 - 另有 `args_hash`、`state_version`、`resume_seq`；唯一 (run_id, step_id)。取消时 pending 转 rejected 并标原因。审批状态和 run/工作意图同事务迁移，参数修改必须通过 schema 和当前权限，提交前检查获批参数哈希。
 - **索引**：`(user_id, status)`。过期由独立 Postgres 对账循环处理。
 
@@ -358,7 +385,7 @@ V-13 必须验证 adapter 创建事务可以实施上述锁和关联；否则先
 - 主键 (run_id, resume_seq)，message_id FK（ON DELETE SET NULL）、created_at；同一段输出创建和 run 状态同事务。run.output_message_id 只是当前段指针。恢复不能创建第二条输出；重新生成的新 run 可绑定同一个目标消息，由该消息的当前 runId CAS 保护。
 
 ### `agent_memories`（M5b）
-- **列**：`id`、`user_id`、`content`（≤ 500 字）、`source`（`user` / `agent`）、`created_by_run_id`（用户在设置里手动添加时为 null）、`embedding`（vector(N)）、`created_at`、`deleted_at`。
+- **列**：`id`、`user_id`、`content`（≤ 500 字）、`source`（`user` / `agent`）、`created_by_run_id`（用户在设置里手动添加时为 null）、`privacy_class`、`content_version`、`source_manifest`、`embedding`（vector(N)）、`created_at`、`deleted_at`。继承 byok_private，手动添加默认此类；显式允许站点使用须本人操作并递增版本，既有运行不能悄悄换上下文。
 - **向量索引**：在 `embedding` 上建 HNSW 索引，使用 `vector_cosine_ops`，条件为 `deleted_at IS NULL`。
 
 ### `message_embeddings`（M5b）
@@ -373,6 +400,8 @@ V-13 必须验证 adapter 创建事务可以实施上述锁和关联；否则先
 - **`scheduled_messages`**：列为 `id`、`user_id`、`conversation_id`、`body`、`send_at`、`status`（`scheduled` / `sent` / `cancelled` / `failed`）、`created_by_run_id`、`sent_message_id`、`created_at`。
 - **到点执行**：由对账任务把即将到点的项放入队列（D-044），不依赖长时间挂在 Valkey 里的延迟任务。
 - **发送前再检查一次权限**：持有业务锁复核当前成员/激活/禁言/归档，与写消息和改 sent 同事务。取消使用同一锁；提醒增加 failed 状态及两类任务的 finished_at/content_purged_at。已取消任务绝不再次排入可执行态。
+- 两表另有 delegation_id、scheduled_timezone、scheduled_local_time、scheduled_offset_minutes；保存确定的UTC时刻及创建时的当地时间解释，改用户时区不改旧任务。逾期24小时或委托失效则 failed（仅元数据错误码），不补发；成功发送不推进用户已读。
+- 两表均有version，创建为1，每次状态/展示字段变化同事务递增；列表/取消响应按version合并，不让旧scheduled覆盖终态。
 
 ### `ai_usage_daily`（M4）
 - **列**：`user_id`、`day`（date，按 `APP_TIMEZONE` 计算）、`key_source`、`input_tokens`、`output_tokens`、`cached_tokens`、`cost_usd`、`run_count`；主键为 `(user_id, day, key_source)`。
@@ -384,11 +413,11 @@ V-13 必须验证 adapter 创建事务可以实施上述锁和关联；否则先
 - reserve、标 started、usage 条件结算均为持久事务；unknown 仍占用上限，不按超时自动退款。日/月归属在 reserve 时冻结；reserved 未 started 可以超时释放。自带 key 只记 usage，不占站点预算。
 
 ### `user_ai_keys`（M5a）
-- **列**：`user_id`（主键，→ users，级联删除）、`provider`（目前只有 `deepseek`）、`key_ciphertext`（bytea）、`key_nonce`（bytea）、`key_version`（smallint，加密密钥的版本号，便于轮换）、`key_last4`、`status`（`active` / `invalid`）、`last_verified_at`、`created_at`、`updated_at`。
+- **列**：`user_id`（主键，→ users，级联删除）、`provider`（目前只有 `deepseek`）、`key_ciphertext`（bytea）、`key_nonce`（bytea）、`key_version`（smallint，加密密钥版本）、`revision`（bigint，替换key递增）、`key_last4`、`status`（`active` / `invalid`）、`last_verified_at`、`created_at`、`updated_at`。
 - 用 AES-256-GCM 加密，密钥来自 `AI_KEY_ENCRYPTION_KEY`。明文只在 worker 发起模型请求时解密，不返回给任何人，也不写日志（SEC-26）。
 
 ### `agent_conversation_state`（M5b）
-- **列**：`conversation_id`（主键，→ conversations，级联删除）、`context_epoch`、`source_manifest`（来源 id/版本）、`summary`、`summarized_through_seq`、`expires_at`、`updated_at`。
+- **列**：`conversation_id`（主键，→ conversations，级联删除）、`context_epoch`、`key_source`、`privacy_class`、`source_manifest`（来源 id/版本/隐私标签）、`summary`、`summarized_through_seq`、`expires_at`、`updated_at`。
 - 长对话的滚动摘要。它不随会话数据下发给客户端。来源撤回/编辑、授权或 scope 变化即失效并清空，不得只移除工具却继续注入旧摘要；最长 30 天，不因读取而续期。
 
 ## 8. 不变量（在测试中逐条验证）
@@ -418,6 +447,13 @@ V-13 必须验证 adapter 创建事务可以实施上述锁和关联；否则先
 | INV-21 | 用户 used+reserved 不超额度；S3 写入均有对象账本，旧 generation 不能发布已删除附件 |
 | INV-22 | 向量/摘要使用的内容版本与当前有效来源匹配，失配不得检索或进入上下文 |
 | INV-23 | 活动群/频道恰有一个 owner，owner_id 与 owner 成员一致；归档空会话按本节例外处理 |
+| INV-24 | 验证/重置凭证只消费一次且绑定原 user、registration、用途和授权/恢复世代；旧邮箱链接不能激活后来注册的账号 |
+| INV-25 | 后台写操作有有效委托及当前业务权限；安全撤销先提交则旧委托无后续效果，普通退出不误取消长期任务 |
+| INV-26 | 私有 byok_private 来源及派生内容不进入 site 自动上下文；只有本人明确重输或发布的内容按06的例外处理 |
+| INV-27 | 实体版本随覆盖字段同事务变化，迟到响应和旧 membership 不能倒退状态或复活移除关系；实体版本不推进 synced |
+| INV-28 | 非 interactive 发送不推进人的 last_read_seq；所有执行来源由服务端确定 |
+| INV-29 | 生产确认成功的删除先有异地持久意图；旧备份对账至独立最新可信删除水位前不得开放 |
+| INV-30 | mute=until 才有有限时间；调度保存 UTC/时区/offset，时区修改不重排已授权任务 |
 
 ## 9. 迁移与种子数据
 
@@ -450,6 +486,9 @@ V-13 必须验证 adapter 创建事务可以实施上述锁和关联；否则先
 | 提醒/定时消息正文 | scheduled 状态保留到执行；取消时清空，终态只留 id/状态/计费元数据 | sent/failed 后 30 天清空；注销立即取消清空；最长预约 365 天 |
 | 通知、push 工作、同步日志 | 通知和工作仅存 id，不保存消息摘要；读取/发送时投影 | 通知 90 天；同步日志 7 天；终态工作 7 天 |
 | 未验证账号与注册占用 | 按注册状态机处理，不按无关联的 pending 时间直接退款 | 未验证账号 7 天；reserved 10 分钟后先对账 |
+| 认证凭证/投递密文 | 同用途重发撤旧，消费/到期/撤销后清密文；密码及token不进通用工作表 | 凭证1小时；无密文终态元数据7天 |
+| 委托与来源设备 | 未完成任务保留可撤销来源；终态委托保留id/哈希不留正文 | 终态30天后可清；未被引用的origin再清，效果去重账本仍独立保留 |
+| 异地删除 journal | 加密的id/动作/规则版本及截止时间，无正文/邮箱/密钥 | 至少35天且覆盖全部允许恢复的备份；备份先过期才可截断所需历史 |
 | 未绑定附件 | 当前有效头像不属于孤儿，message/头像都按有效绑定判断 | 24 小时；失败预占按租约释放 |
 | 幂等响应 | 只留资源 id/指纹，不缓存敏感 DTO、密码、令牌 | 一般创建键 24 小时；消息键随消息墓碑保留 |
 | 审计、run/调用用量元数据 | id、状态、数量、脱敏错误，无正文/工具参数 | 长期保留；注销后关联匿名用户 |
@@ -463,5 +502,7 @@ V-13 必须验证 adapter 创建事务可以实施上述锁和关联；否则先
 - work_items：id、kind、dedupe_key（unique）、entity_id、entity_version、status（pending/leased/running/retry/done/dead/uncertain）、delivery_seq、attempts、available_at、lease_epoch、lease_until、last_error_code、created_at、finished_at。payload 仅存标识。索引 (status,available_at)，消费者只以当前 epoch 条件提交。
 - idempotency_records：actor_key、operation、target_key、key（联合唯一）、request_hash、resource_type、resource_id、state、created_at、expires_at。普通操作的占位、业务写入和结果 id 同事务，未提交占位随回滚消失；长上传/注册用对应 durable 状态机。
 - 回复重放重新授权并加载当前资源；相同键不同参数 409，原资源删除返回墓碑/410，不能创建替代资源。已提交的唯一键冲突由读取已有行处理，不捕获错误后继续使用已失败的事务。
-- backup_runs（M7）：id、epoch、status、snapshot_at、lease_until、manifest_key/hash、object_count、offsite_verified_at、last_error；全局删除屏障记录当前 backup id/epoch，删除器与备份建立屏障时串行协调并等待在途删除完成。备份后 manifest 自包含，台账不代替加密备份。
+- backup_runs（M7）：id、epoch、status、snapshot_at、lease_until、manifest_key/hash、object_count、deletion_journal_applied_seq/hash、offsite_verified_at、last_error。已应用水位只推进到连续无缺口的applied序号，不能取最大完成项；与DB快照同读。全局删除屏障与删除器串行协调，等待在途删除完成；台账不代替加密备份。
+- deletion_operations（M7）：id、actor_id、action、target_manifest（仅id/版本/截止时间）、request_hash、version、status（prepared/journaled/applied/failed）、journal_epoch/seq/hash、created_at、applied_at。准备时授权并冻结目标，相关实体记录delete_operation_id/待删除状态以拒绝并发编辑/绑定和目标扩展；journaled按不可撤回意图执行，不依赖原session。稳定operation id承接幂等键；清空数据、applied及version更新同事务。failed仅限确定未被异地接受的永久失败，网络未知保持pending对账，不能误解冻。
+- 删除 journal 是独立异地对象链，顺序/完整性/保留/恢复规则以10第7节为准；本地 deletion_operations 或普通备份都不能冒充这个独立来源。无权查询 operation 返回404，status 响应不含待删内容。
 - 两级预算、site_storage、work_items 的状态/计数均有非负 CHECK 和唯一键；租约和 CAS 失败不能仅记录日志后继续提交。
