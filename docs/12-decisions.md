@@ -556,7 +556,7 @@ Base UI 提供无障碍的交互原语（菜单、弹窗、焦点管理等）；
 - **迁移方式**：从 GitHub 克隆 `v2`，提交与目录树哈希同 Windows 副本一致；已被 git 忽略的 `.env.local` 和 `infra/garage/garage.toml` 按字节复制；Docker 沿用 Docker Desktop 的 WSL 集成，开发容器用 WSL 路径重建，数据卷保留；Bun 1.4.2 和 Node 26.8.1 装在用户目录，未使用 sudo。
 - **放弃的方案**：直接复制整个目录。`.git` 的 reflog 里还留着 D-032 清理前的旧对象，`node_modules` 也是 Windows 上安装的，不适合带过来。
 - **D-029 的端口结论不变**：Docker Desktop 把端口发布在 Windows 主机上，冲突都发生在 Windows 一侧（迁移时核对过：开发端口由 `com.docker.backend` 发布，5432 由 Windows 上的 `postgres` 进程监听）。5434 和 12525 继续使用。
-- **影响**：浏览器仍在 Windows 上访问 `localhost`（已用临时服务验证）；M8 前要把 SSH 私钥和全局说明同步到 WSL（09 第 10 节）；从 WSL 的第一次真实推送是 2026-10-01 的环境复核提交，结果以远端记录为准。
+- **影响**：浏览器仍在 Windows 上访问 `localhost`（已用临时服务验证）；M8 前要把 SSH 私钥和全局说明同步到 WSL（09 第 10 节）；从 WSL 的第一次真实推送已在 2026-10-01 成功（`64d5e57`）。
 
 ## 待验证事项（结论出来后补成新的决策记录）
 

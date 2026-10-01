@@ -151,8 +151,8 @@ bun run doctor                 # end-to-end checks; add --ai to also test the De
 - **项目放在 Linux 文件系统**（`/home/mars/projects/ChatApp`），不要放进 `/mnt/c`、`/mnt/d`。那里是 Windows 盘的 9p 挂载，权限位不可靠（例如 Windows 上的私钥文件显示为 777），`ssh` 会因权限过宽而拒绝这样的私钥。
 - **Docker**：`docker` 命令在 WSL 里直接使用，引擎是 Docker Desktop 的，所以 Windows 上的 Docker Desktop 必须在运行。Compose 的 bind mount 源是 WSL 路径；开发容器已在迁移时用 WSL 路径重建，数据卷（`chatapp-dev_*`）保留。**不要在 Windows 的 `D:\ChatApp` 里再运行 `infra:up`，那会把容器改回 Windows 路径。**
 - **浏览器**：Windows 浏览器直接访问 `http://localhost:<端口>`，见第 3 节和第 9 节。
-- **git 推送**：仓库级配置了 `credential.helper = !gh.exe auth git-credential`，借用 Windows 上已登录的 GitHub CLI（依赖 WSL 默认可见的 Windows PATH）。已验证 helper 能返回 github.com 的凭据，`git push --dry-run` 也通过；第一次真实推送是 2026-10-01 的环境复核提交，结果以远端记录为准。令牌始终由 Windows 的 `gh` 保管，不写进仓库或 WSL 的配置文件。
+- **git 推送**：仓库级配置了 `credential.helper = !gh.exe auth git-credential`，借用 Windows 上已登录的 GitHub CLI（依赖 WSL 默认可见的 Windows PATH）。已验证 helper 能返回 github.com 的凭据；2026-10-01 第一次真实推送（`64d5e57`）成功，CI 通过。令牌始终由 Windows 的 `gh` 保管，不写进仓库或 WSL 的配置文件。
 - **Claude Code 与全局说明**：WSL 里的 Claude Code 读取 WSL 自己的 `~/.claude/`。2026-10-01 核对：`~/.claude/CLAUDE.md` 已是指向 `/mnt/c/Users/Mars/.claude/CLAUDE.md` 的软链接，Windows 的全局说明（含服务器信息）会被自动读到；但其中的 SSH 命令仍是 Git Bash 路径（`/c/Users/Mars/.ssh/…`），M8 前改成 WSL 里的路径。
-- **SSH 私钥**：Windows 上的私钥经 `/mnt/c` 访问时权限显示为 777。M8 前由用户自己把私钥复制到 WSL 的 `~/.ssh` 并 `chmod 600`；Claude 不读取、不复制私钥内容。2026-10-01 核对：私钥已在 `~/.ssh/`，但权限是 644（`ssh` 会拒绝），仍需 `chmod 600`。
+- **SSH 私钥**：Windows 上的私钥经 `/mnt/c` 访问时权限显示为 777。M8 前由用户自己把私钥复制到 WSL 的 `~/.ssh` 并 `chmod 600`；Claude 不读取、不复制私钥内容。2026-10-01 核对：私钥已在 `~/.ssh/`，当时权限是 644（`ssh` 会拒绝），用户随后已改为 600。
 - **软件安装**：迁移时没有使用 sudo，所有工具都装在用户目录，所以 WSL 里没有 `unzip`、`make`、`jq` 等 apt 包；需要时再装。
 - **Windows 上的 `D:\ChatApp`**：已停用，不再提交。其中的 `.env.local` 和 `infra/garage/garage.toml` 仍是一份密钥副本，用户确认不再需要后自行删除整个目录即可；删除不会影响现在运行的容器和数据卷。
