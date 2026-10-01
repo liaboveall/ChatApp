@@ -19,7 +19,7 @@
 |---|---|---|
 | 外部人员（没有邀请码） | 只能访问公开页面和接口 | 暴力破解登录；猜测或滥用邀请码；绕过邀请直接调用注册接口；借 SSRF 或上传漏洞入侵；刷接口 |
 | 恶意成员（已注册） | 合法会话，能在群里发内容 | 越权读取，包括加入前的历史；冒充他人或冒充"助手"；XSS；恶意上传；在消息里埋注入指令操纵 Agent（外泄、记忆投毒）；刷屏；刷 AI 额度；被踢后重新加入 |
-| 被盗的账号 | 拿到了某个用户的会话 | 冒用此人的权限。需要让用户能看到设备并注销，注销后实时连接立即断开，并限制破坏范围 |
+| 被盗的账号 | 拿到了某个用户的会话 | 冒用此人权限；提供设备注销和持续授权复核，撤销提交后拒绝新授权，连接在 5 秒复核周期内关闭；已授权在途内容无法收回 |
 | 恶意内容 | 网页、文件、聊天记录中嵌入的指令 | 诱导 Agent 泄露数据或执行操作 |
 | 站点管理员（受信但受限） | 管理后台 | 越权查看私有内容。约束：只能看举报上下文和站点 key 的 Agent 运行（D-034），每次查看都写审计日志；看不到自带 key 运行的内容，也看不到用户的 key |
 | 网络窃听者 | 能监听网络流量 | 生产环境全程 HTTPS，使用 HSTS 和 Secure Cookie |
@@ -30,34 +30,47 @@
 |---|---|
 | **SEC-01** | 用户身份**只**从服务端会话获取。请求体和 WebSocket 消息里任何表示"我是谁"的字段（比如 username、senderId），一律忽略或直接拒绝 |
 | **SEC-02** | 所有会话相关的读写（HTTP、WebSocket 订阅、附件下载、搜索、Agent 工具）都必须经过 `authorize(user, conversation, action)`。<br>• 消息可见性统一为"是成员，并且 `seq > visible_from_seq`"（D-035）<br>• 被封禁的人不能重新加入（D-042）<br>• 对无权访问的私有资源一律返回 404 |
-| **SEC-03** | WebSocket 连接：<br>• 必须登录，`Origin` 必须等于 `APP_ORIGIN`<br>• 订阅哪些频道只由服务端根据成员关系决定，客户端不能自选<br>• 连接与登录会话绑定：会话被退出、注销、封禁或改密码后，几秒内以 4401 断开；每 5 分钟复核一次（D-038） |
+| **SEC-03** | WS 绑定 session，Origin 必须匹配；服务端决定 topic，但订阅不构成授权。内容每批查当前 session/成员/来源版本；注销走持久撤销，5 秒复核（测试容差 1 秒），依赖失败停止派发并断连；已授权在途字节不可召回（03 第 6 节）。 |
 | **SEC-04** | 所有对外暴露的 id 都用 UUIDv7，不使用可以枚举的自增 id 或可以拼出来的名字（旧版的 `private_1_2` 就是反例） |
 | **SEC-05** | 前端**禁止**用 `innerHTML` 或 `dangerouslySetInnerHTML` 渲染用户内容。<br>• Markdown 按 D-047 配置：禁止原始 HTML，关闭数学公式和 Mermaid<br>• 链接只允许 `http`、`https`、`mailto` 三种协议，外链加 `rel="noopener noreferrer"`<br>• `guard` 扫描 `innerHTML`、`outerHTML`、`insertAdjacentHTML`、`dangerouslySetInnerHTML`、`document.write`、`setHTMLUnsafe`、`createContextualFragment`、`srcdoc` |
 | **SEC-06** | 页面文档（index.html）的 CSP 由 Nginx 站点配置输出：<br>`default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data: blob:; media-src 'self' blob:; connect-src 'self'; font-src 'self'; worker-src 'self'; manifest-src 'self'; frame-ancestors 'none'; object-src 'none'; base-uri 'none'; form-action 'self'`<br>• 是否开启 Trusted Types（`require-trusted-types-for 'script'`）在 M2b 随 Markdown 渲染一起决定（V-08）<br>• WebKit 的 E2E 要验证 WebSocket 在 `connect-src 'self'` 下能连接；不能的话，显式加上 `wss://<站点域名>` |
-| **SEC-07** | 上传：<br>• 边接收边检查大小上限，超出立即中止<br>• 根据文件开头的字节判断真实类型；按白名单决定是在页面里直接展示，还是只能下载<br>• 图片先按方向旋转，再重新编码去除 EXIF；视频重新封装去除元数据<br>• svg、html、xml 等文本类格式一律只能下载<br>• 存储路径用随机 key，原始文件名只用于显示 |
-| **SEC-08** | 附件下载前必须按 `purpose` 鉴权（INV-09）。响应头由应用设置：<br>• `Content-Type` 为经过判断的安全值<br>• `Content-Disposition`：只有图片、音视频才用 `inline`，其余一律 `attachment`<br>• `X-Content-Type-Options: nosniff`<br>• `Content-Security-Policy: sandbox`<br>• `Cache-Control` 带 `private` |
-| **SEC-09** | 注册必须持有有效的邀请码：<br>• 校验放在 Better Auth 的 before hook 里，覆盖所有注册路径（D-039）<br>• 名额原子占用，并发也不会超用（D-040）<br>• 邀请码只存哈希，可以设置过期、限制次数、随时撤销<br>• 邀请码不出现在 URL 路径和查询参数里<br>• 检查邀请码和注册的接口按 IP 限流 |
+| **SEC-07** | 上传先持久预占与对象意图，再接收流；每阶段可幂等恢复。魔数/长度/像素/帧数/时长/解码内存/超时均有限制；媒体子进程无网络、非 root。随机不可覆盖对象 key；svg/html/xml 只能下载；EXIF 清理失败不能宣称已清理（03 第 5.4 节）。 |
+| **SEC-08** | 附件按 purpose、当前有效绑定和消息可见性授权；deleting 一律不可读。应用设置安全 Content-Type、Content-Disposition、nosniff、CSP sandbox、Cache-Control: private, no-store；Range 每次重新鉴权，SW 不缓存敏感文件。 |
+| **SEC-09** | 所有注册路径默认拒绝，仅受控入口执行 D-059 状态机；首次创建账号即关联 registration_id，confirmed 且 email_verified 才激活；验证/撤销/清理串行化。邀请码只存哈希、明文不进日志/URL，按 IP 限流。 |
 | **SEC-10** | 密码至少 10 位，并用本地的常见弱密码表拦截弱密码；密码哈希使用 Better Auth 的默认算法 |
 | **SEC-11** | 登录与会话：<br>• 登录、注册、重置密码都有限流（Better Auth 自带的限流，计数存在 Valkey，按真实客户端 IP 计算，见 SEC-28）；错误提示不透露某个账号是否存在<br>• 修改密码后，注销其他所有会话；重置密码后，注销全部会话<br>• 不开启 Better Auth 的 `cookieCache`，保证注销立即对 HTTP 接口生效 |
 | **SEC-12** | Cookie 设为 `HttpOnly`、`SameSite=Lax`；生产环境加 `Secure`，并使用 `__Host-` 前缀（如果 Better Auth 不支持，就用 `__Secure-`，并确保不设置 `Domain`） |
-| **SEC-13** | 所有非 GET 请求都校验 `Origin`（Better Auth 的 `trustedOrigins` 加上我们自己的中间件）；API 只接受 JSON 或 multipart，拒绝普通表单格式 |
+| **SEC-13** | 所有非 GET 请求都校验 `Origin`（Better Auth 的 `trustedOrigins` 加上我们自己的中间件）；API 默认只接受 JSON，上传内容仅 octet-stream，monitoring 仅受限 envelope；拒绝其他普通表单格式 |
 | **SEC-14** | 用户名和显示名：<br>• 用户名有格式规则和保留名单；显示名也不能使用保留名，比较前先做 NFKC 规范化<br>• 所有数据都通过用户 id 关联<br>• 改名有 30 天冷却期，旧用户名保留 30 天，不能被别人立刻注册<br>• Better Auth 的 `update-user` 不能修改用户名、显示名和头像（D-039） |
-| **SEC-15** | 撤回和删除时，立即清除正文、附件文件和向量；其他副本按 04 第 10 节的保留期清除；注销账号时按 INV-11 清除数据 |
+| **SEC-15** | 撤回事务清空在线正文/提及/向量，附件立即拒读；对象物理删除目标 1 小时、最长 24 小时，失败告警重试。所有内容副本、摘要、审批参数、任务、浏览器缓存和备份按 04 第 10 节处理；注销取消活动和未来任务。 |
 | **SEC-16** | 限流覆盖消息、上传、Agent 运行、@Agent 触发、正在输入事件，以及每个用户的 WebSocket 连接数（见 01 第 7 节） |
 | **SEC-17** | Agent 必须遵守 [06 第 11 节](06-agent.md) 的 A1–A13 |
 | **SEC-18** | 启动时校验配置：生产环境缺少密钥、密钥太短或仍是示例值，都拒绝启动；错误响应里不包含堆栈和内部信息 |
 | **SEC-19** | 日志不记录消息正文、AI 的提示词和输出、密码、令牌、Cookie 和 API key。<br>• Sentry 不开会话回放，上报前过滤正文<br>• AI SDK 的遥测不记录输入和输出（D-046） |
 | **SEC-20** | 依赖和镜像：<br>• 依赖锁定精确版本，用 Renovate 自动提升级 PR<br>• CI 运行 `osv-scanner`（查依赖漏洞）、`trivy`（查镜像漏洞）、`gitleaks`（查泄露的密钥） |
 | **SEC-21** | 以下操作都要写入审计日志：<br>• 站点管理员和会话管理员的操作<br>• 站点管理员查看敏感内容：举报上下文、Agent run 详情（包括站点 key 运行的内容）<br>• 审计日志只存 id 和元数据，不存正文 |
-| **SEC-22** | 安全响应头：<br>• 生产环境由 Nginx 开启 HSTS（`max-age=31536000; includeSubDomains`）<br>• `Referrer-Policy: strict-origin-when-cross-origin`；`Permissions-Policy: camera=(), geolocation=(), microphone=()`；`Cross-Origin-Opener-Policy: same-origin`<br>• 分工：静态文件的头由 Nginx 配置（用 include 片段避免 `add_header` 不继承的问题）；API 和附件的头由应用设置；两边不重复（D-045） |
-| **SEC-23** | 服务端不去抓取用户提供的 URL（链接预览、Agent 读网页都是上线之后的功能）。届时必须做 SSRF 防护：<br>• 禁止内网、回环、链路本地和元数据服务地址<br>• 每次重定向后重新检查<br>• 限定协议、大小和超时 |
+| **SEC-22** | HSTS 由 Nginx 的独立片段 add_header ... always 覆盖每个 HTTPS location 及错误页，不能只放 server 级后被子 location 覆盖。静态 CSP、Referrer/Permissions/COOP 由静态片段设置；API/附件除 HSTS 外的头由应用设置，不重复。 |
+| **SEC-23** | M6 Web Push 即实施 SSRF 防护：HTTPS/443、经真实浏览器订阅验证的服务商域名清单、拒绝用户信息与 IP 字面量、每次解析全部 A/AAAA 并拒绝非公网地址、连接钉住已验证 IP 且保持正确 TLS SNI、不跟随重定向、5 秒超时及出口防火墙。DNS 重绑定、IPv4-mapped IPv6、元数据地址须测试。Sentry 固定服务端目的地/项目 id，envelope 不能指定任意转发地址。将来 fetch_url 也须独立实施防护。 |
 | **SEC-24** | WebSocket 单帧最大 64 KB；每条消息都用 zod 校验；收到未知类型的消息，回一条 `error` 事件 |
 | **SEC-25** | Passkey 的 RP ID 与站点域名一致；本地开发用 `localhost` |
 | **SEC-26** | 用户自带的 API key（M5a）：<br>• 用 AES-256-GCM 加密存储，密钥来自 `AI_KEY_ENCRYPTION_KEY`，带版本号便于轮换<br>• 保存后只返回末 4 位；不写日志、不进提示词、管理员也看不到<br>• 只发往固定的 DeepSeek 地址，不接受用户提供的地址，避免 SSRF<br>• 注销账号时删除 |
-| **SEC-27** | 广播和补发不泄露成员看不到的内容：被更新的消息 `seq ≤ last_join_seq` 时，只广播不含内容的 `message.changed`。Agent 流式增量同理，允许在有人加入后最多再推送 1 秒（INV-12） |
+| **SEC-27** | message.changed 一律不含正文/引用/附件；HTTP 投影逐接收者检查可见性。Agent 共享输入采用共同可见水位，成员变化使旧运行失效；每批流式发布检查当前授权与 epoch，不允许加入后一秒继续盲播。 |
 | **SEC-28** | 限流和日志使用真实客户端 IP：只信任来自 `TRUSTED_PROXIES` 的转发头；其他来源的 `X-Forwarded-For`、`X-Real-IP` 一律忽略 |
 | **SEC-29** | 测试专用接口（可控时钟、断开连接等）只在 `APP_ENV=test` 时注册；生产环境启动时自检，发现它们就拒绝启动 |
 | **SEC-30** | 数据按 04 第 10 节的保留期清理；隐私说明（01 第 4.11 节）必须与实际行为一致，行为变化时同步修改说明 |
+
+
+### 2.1 新增边界要求
+
+| 编号 | 要求 |
+|---|---|
+| SEC-31 | 认证端点 method/path 默认拒绝，扩展字段 input=false/显式 schema 拒绝。站点管理员也不能代登、改他人密码邮箱、原生硬删除或绕邀请建用户；后台与 CLI 只能调用受审计 domain |
+| SEC-32 | 所有业务写入在一致锁序下事务内复核授权；Agent 效果同时核对 lease_epoch、取消、审批状态和 args_hash，旧执行者不可写回 |
+| SEC-33 | 所有站点模型调用先锁库预占；未知外部调用不自动退款或重试。价格/用量估算失准告警并停止新调用 |
+| SEC-34 | 本地消息、草稿、队列、push 按账号/登录世代/成员世代隔离，退出跨标签页广播并清理；重新联网先验证身份，不把失联设备远程清除作为安全承诺 |
+| SEC-35 | 恢复隔离模式禁止外发/模型任务，失效 sessions 和验证凭证、提升恢复世代后核对任务。备份有逻辑对象清单/校验值及删除屏障 |
+
+管理员内容限制指应用角色；本系统无端到端加密，主机/数据库/服务端密钥的运维权限不在此隔离保证内。安全测试需同时以普通成员、管理员、机器人、未激活/注销账号执行原生路由矩阵。
 
 ## 3. 旧版缺陷 → 新要求 → 回归测试
 
@@ -98,7 +111,7 @@
 ## 4. 每个里程碑验收前的自查清单
 
 - [ ] 新增的接口在 contracts 中都有 zod schema，并且都经过 `authorize()` 和统一的可见性判断。
-- [ ] 新增的推送事件都只发给有权限的频道；更新类事件遵守 INV-12，不把加入前的内容广播出去。
+- [ ] 新增事件按接收者当前权限派发；普通提示无正文，流式来源与权限版本有效，不能仅检查 topic。
 - [ ] 没有新增 `innerHTML` 等禁用写法（CI 用 `guard` 扫描）。
 - [ ] 新增的配置项都有 zod 校验；生产环境缺失时会拒绝启动。
 - [ ] 日志和 Sentry 里没有正文或密钥（抽查日志输出）。

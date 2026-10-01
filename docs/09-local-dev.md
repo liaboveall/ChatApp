@@ -14,7 +14,7 @@
 
 **本机端口冲突**（两处都不要去关占用方）：
 - **5432**：被原生的 PostgreSQL 服务占用 → 开发库用 **5434**。
-- **1025**：被 Cisco VPN 客户端（`vpnagent`）占用 → Mailpit 的 SMTP 在宿主机上用 **2525**。
+- **1025**：被 Cisco VPN 客户端（`vpnagent`）占用 → Mailpit 的 SMTP 默认用 **2525**。2026-10-01 复核时，2525 落入 Windows 保留范围 2492–2591，本机已通过 `.env.local` 的 `SMTP_PORT` 改用 **12525**。
 
 ## 2. 首次搭建
 
@@ -41,7 +41,7 @@ bun run doctor                 # end-to-end checks; add --ai to also test the De
 | Postgres | **5434** → 容器内 5432 | 用户名 `chatapp`；开发库 `chatapp`，测试库 `chatapp_test`。两个库都已安装 `vector` 0.8.6 和 `pg_trgm` 1.6 |
 | Valkey | 6379 | 开发用 db 0，测试用 db 1；配置为 `noeviction`，已开启 AOF。pub/sub 不区分 db，所以事件频道名带环境：`events:development`、`events:test`（D-044） |
 | Garage | 3900（S3）、3903（管理接口） | region 为 `garage`；bucket `chatapp` 和 `chatapp-test` |
-| Mailpit | **2525**（SMTP）→ 容器内 1025；8025（网页界面） | |
+| Mailpit | **12525**（本机 SMTP）→ 容器内 1025；8025（网页界面） | Compose 从 `SMTP_PORT` 读取宿主机端口，模板默认 2525 |
 | Storybook | 6006 | M1b 起可用 |
 
 所有端口都只绑定在 `127.0.0.1` 上。
@@ -55,7 +55,7 @@ bun run doctor                 # end-to-end checks; add --ai to also test the De
 - **garage**：镜像 `dxflrs/garage:v2.4.1`，配置文件由 `infra/garage/garage.toml.template` 渲染生成（生成的文件已被 git 忽略）。
 - **mailpit**：镜像 `axllent/mailpit:v1.31.3`。
 - **健康检查**：四个服务都有健康检查；`infra:up` 使用 `--wait`，会等所有服务变为健康状态后才返回。
-- **持久化**：已实测 `infra:down` 之后再 `infra:up`，数据和 Garage 的配置都还在。
+- **持久化**：已实测 `infra:down` 之后再 `infra:up`，Postgres、Valkey 的数据及 Garage 的数据和配置都还在。Mailpit 使用临时数据库，没有持久卷，不能假定重启或重建后保留测试邮件。
 
 ## 5. 密钥与 Garage 初始化
 
@@ -94,7 +94,8 @@ bun run doctor                 # end-to-end checks; add --ai to also test the De
 | `typecheck` | TS 7 类型检查（M1a 起覆盖所有工作区包） | ✅ 可用 |
 | `guard` | 禁止 raw HTML 写法（SEC-05），禁止跟踪 env 文件和其他密钥文件 | ✅ 可用 |
 | `check` | 依次运行 lint、typecheck、guard。M1a 起加入单元测试和集成测试。**提交前必须通过** | ✅ 可用 |
-| `db:generate` / `db:migrate` / `db:check` / `db:seed` / `db:studio` | 数据库相关 | M1a |
+| `db:generate` / `db:migrate` / `db:check` / `db:seed` / `db:studio` | 数据库相关；seed 仅开发 | M1a |
+| `db:bootstrap` | 生产也可用的幂等基础数据：机器人、保留名、配置；无演示账号 | M1a |
 | `dev:api` / `dev:worker` | 启动后端开发服务 | M1a |
 | `dev` / `dev:web` | 同时启动前后端 / 只启动前端 | M1b |
 | `admin:create` / `admin:verify-email` | 创建管理员（密码在自己的终端里输入）/ 手动标记邮箱已验证 | M1a |
@@ -120,6 +121,7 @@ bun run doctor                 # end-to-end checks; add --ai to also test the De
 | 终端提示找不到 `bun` | 刚装完 Bun 后，需要新开终端或重启编辑器（PATH 已经写入用户环境变量）。临时办法：`$env:Path = "$env:USERPROFILE\.bun\bin;$env:Path"` |
 | `infra:up` 提示连不上 Docker | 先启动 Docker Desktop，等它就绪 |
 | `infra:up` 报 `ports are not available … 1025` | 1025 被 VPN 占用，已经改用 2525；如果还报错，检查 compose 文件是否是最新的 |
+| Mailpit 显示 healthy，但 `doctor` 连不上；或启动时报端口访问权限错误 | 检查 `docker compose -f infra/compose.dev.yml --env-file .env.local ps` 是否有实际宿主机端口映射；用 `netsh interface ipv4 show excludedportrange protocol=tcp` 检查 Windows 保留范围。把 `.env.local` 的 `SMTP_PORT` 改为可绑定的端口，再运行 `bun run infra:up` 和 `bun run doctor`。端口变更会重建 Mailpit，需保留的测试邮件应先导出；不要停止 VPN 或重置其他服务的数据卷 |
 | 连数据库被拒绝，或连到了别的库 | 端口要用 **5434**，5432 是本机原生的 PostgreSQL |
 | 改了 `POSTGRES_PASSWORD` 后认证失败 | 见第 5 节：执行 `bun run infra:reset --yes`，然后重新 up 和 bootstrap |
 | 在 Git Bash 里手动运行 `docker compose exec garage /garage …`，报错路径变成了 `C:/Program Files/Git/garage` | 这是 MSYS 的路径转换导致的，在命令前加 `MSYS_NO_PATHCONV=1`。项目里的脚本都通过 Bun 执行，不受影响 |

@@ -57,7 +57,7 @@ services:
   mailpit:
     image: axllent/mailpit:v1.31.3
     ports:
-      - "127.0.0.1:2525:1025" # SMTP (host 1025 is taken by the Cisco VPN agent)
+      - "127.0.0.1:${SMTP_PORT:-2525}:1025" # SMTP; override SMTP_PORT if the host port is occupied or reserved
       - "127.0.0.1:8025:8025" # web UI
     healthcheck:
       test: ["CMD", "/mailpit", "readyz"]
