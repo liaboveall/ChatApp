@@ -60,19 +60,17 @@
 - API key 和各种密钥都不能出现在聊天、日志和提交里。
 - `.env.local` 不提交；`DEEPSEEK_API_KEY` 由用户自己填写。
 
-## 本机环境（2026-09-30 已搭好，2026-10-01 复核，详见 docs/09）
+## 本机环境（2026-10-01 起在 WSL 中开发，详见 docs/09 和 D-093）
 
-- Windows 11，Node 26，Docker 29.8.1。
-- Bun 1.4.2 安装在 `%USERPROFILE%\.bun\bin`。如果当前 shell 找不到 `bun`，先把这个目录加到 PATH 前面：
-  - Git Bash：`export PATH="$HOME/.bun/bin:$PATH"`
-  - PowerShell：`$env:Path = "$env:USERPROFILE\.bun\bin;$env:Path"`
-- **端口冲突，两个占用方都不能停**：
-  - 5432 被原生的 PostgreSQL 占用，所以开发库用 **5434**；
-  - 1025 被 Cisco VPN（`vpnagent`）占用；Mailpit 默认用 **2525**，但本机 2525 又落入 Windows 保留范围，现通过 `.env.local` 的 `SMTP_PORT` 改用 **12525**。Compose 与应用共用该变量。
-- 其他端口：web 5173、api 3100、Valkey 6379、Garage 3900 和 3903、Mailpit 网页 8025。
-- 在 Git Bash 里手动执行 `docker compose exec garage /garage …` 时，要加 `MSYS_NO_PATHCONV=1`，否则路径会被改写。
-- `.env.local` 由 `bun run setup` 生成，已被 git 忽略，**不要在输出中打印其中的值**。
-- 本仓库的 git 提交身份在仓库级配置：`liaboveall <2628370933@qq.com>`。
+- **开发目录**：WSL（Ubuntu 26.04）里的 `/home/mars/projects/ChatApp`，放在 Linux 文件系统上。Windows 上的 `D:\ChatApp` 已停用，不要再在那里改代码或提交。
+- **Docker** 29.8.1 来自 Docker Desktop 的 WSL 集成，和 Windows 共用同一个引擎、容器和数据卷；使用前 Windows 上的 Docker Desktop 必须在运行。
+- **Bun** 1.4.2 在 `~/.bun/bin`，**Node** 26.8.1 在 `~/.local/share/node`，软链接放在 `~/.local/bin`。如果当前 shell 找不到 `bun`，新开一个终端，或先执行：`export PATH="$HOME/.local/bin:$HOME/.bun/bin:$PATH"`。
+- **端口冲突，两个占用方都不能停**。它们都在 Windows 主机上，而 Docker Desktop 把端口发布在 Windows 主机上，所以搬到 WSL 后依然适用：
+  - 5432 被 Windows 上原生的 PostgreSQL 占用，所以开发库用 **5434**；
+  - 1025 被 Cisco VPN（`vpnagent`）占用；Mailpit 默认用 **2525**，但 2525 又落入 Windows 保留范围，现通过 `.env.local` 的 `SMTP_PORT` 改用 **12525**。Compose 与应用共用该变量。
+- 其他端口：web 5173、api 3100、Valkey 6379、Garage 3900 和 3903、Mailpit 网页 8025。Windows 浏览器可以直接访问 WSL 里的 `localhost:<端口>`。
+- `.env.local` 由 `bun run setup` 生成（WSL 里的这份是从迁移前的 Windows 副本原样复制来的），已被 git 忽略，**不要在输出中打印其中的值**。
+- 本仓库的 git 提交身份在仓库级配置：`liaboveall <2628370933@qq.com>`。推送凭据由仓库级的 credential helper 通过 Windows 的 `gh.exe` 提供（见 docs/09 第 10 节）。
 
 ## 常用命令
 
@@ -87,4 +85,4 @@
 
 ## 部署
 
-M8 才涉及部署。服务器信息和多站点约定写在用户的全局 `~/.claude/CLAUDE.md` 中；ChatApp 的部署方案见 `docs/10-deployment.md`。
+M8 才涉及部署。服务器信息和多站点约定写在用户的全局 `~/.claude/CLAUDE.md` 中；ChatApp 的部署方案见 `docs/10-deployment.md`。在 WSL 里，`~/.claude/CLAUDE.md` 是指向 Windows 那份全局文件的软链接，会被自动读到；但其中的 SSH 命令仍是 Git Bash 路径，部署时要改用 WSL 里的私钥（`~/.ssh/`，权限须为 600），细节见 docs/09 第 10 节。

@@ -173,7 +173,7 @@ Events: api/worker ──publish──▶ Valkey channel "events:{APP_ENV}" ─�
 | worker | M1a宿主机热重载；M3起Linux容器热重载，以便和media共享Unix socket | 与api同server镜像；1536MiB。向量若不兼容Bun（V-12），在本容器内用Node子进程，仍受总预算 |
 | media（M3） | Linux 容器，network_mode=none，无TCP端口 | 独立镜像；仅私有Unix socket，512 MiB上限；不挂应用密钥或对象卷 |
 | edge（M2b 起） | Nginx 容器，`https://chat.localhost:8443`，加载生产站点配置，服务一次构建产物，用于 CSP 测试和彩排 | 宿主机 Nginx，配置文件相同 |
-| postgres | 容器，宿主机端口 **5434**（本机 5432 已被原生 PostgreSQL 占用） | 仅容器内网 |
+| postgres | 容器，宿主机端口 **5434**（Windows 主机的 5432 已被原生 PostgreSQL 占用） | 仅容器内网 |
 | valkey | 容器，宿主机端口 6379 | 仅容器内网 |
 | garage | 容器，S3 接口 :3900，管理接口 :3903 | 仅容器内网 |
 | mailpit | 容器；SMTP 从 `SMTP_PORT` 读取（默认 2525，本机 12525），映射到容器内 1025；网页 :8025 | 不部署，改用 Resend |

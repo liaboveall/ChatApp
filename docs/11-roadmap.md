@@ -280,7 +280,7 @@ R01–R12及五项一致性修订已落实D-076–D-092，对照见15顶部；AT
 
 ## M3 富消息
 
-- **先做V-18**：compose.media.yml、独立media镜像和Unix IPC；Windows的worker从此阶段容器化；512MiB/无网络/无密钥、进程组清理和1536MiB worker总预算通过后才接入真实附件处理（AT-30）。
+- **先做V-18**：compose.media.yml、独立media镜像和Unix IPC；本机开发的worker从此阶段容器化；512MiB/无网络/无密钥、进程组清理和1536MiB worker总预算通过后才接入真实附件处理（AT-30）。
 
 - **存储**：建 `attachments` 表；存储层实现 `BlobStore` 接口，底层是 Bun 的 S3 客户端连接 Garage。
 - **上传状态机**：reservation → content → processing → ready/failed；对象账本、用户/站点配额预占、输出差额结算、断流/崩溃/旧 generation 恢复及限流。

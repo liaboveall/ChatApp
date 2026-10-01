@@ -9,11 +9,12 @@
 - **本轮生效**：[15复审](15-planning-rereview-2026-10-01.md)的12项主问题与5项一致性问题全部落实D-076–D-092；新增AT-25–AT-37、V-18–V-21。当前没有应用实现，所有新增运行验收仍为未开始。
 - **2026-10-01 全面完善**：[独立审查](14-planning-review-2026-10-01.md) 的 11 项 P1、13 项 P2 已逐项落实 D-056–D-075，当前规格已同步；08 的 AT-01–AT-24 是待实施验收，应用代码尚未开始，不把设计完成视作运行时通过。
 - **2026-10-01 Docker 补查**：已修复 Mailpit 保留端口冲突；本机 SMTP 为 12525，网页 8025。基础设施 doctor 通过证据见交接记录。
+- **2026-10-01 开发环境迁到 WSL**：之后都在 WSL（Ubuntu 26.04）的 `/home/mars/projects/ChatApp` 开发，开发容器已用 WSL 路径重建，Windows 的 `D:\ChatApp` 停用（D-093）。迁移内容和验证见交接记录；之后的复核见最新一条交接记录：环境可用，`git push --dry-run` 通过；第一次真实推送随该复核记录的提交进行，结果以远端记录为准。
 - **分支**：
   - `v2`：已推送到 GitHub，本地跟踪 `origin/v2`，所有开发都在这里进行；
   - `main`：仍是旧版代码，已经过历史清理；
   - 标签 `v1-legacy`：指向 main 的最后一个提交。
-- **CI**：历史基线 `check` 通过（run 36683294188）；本次规划修订的 CI 需在推送后按对应提交核验，历史结果不代表本次通过。
+- **CI**：当前 HEAD `a4918c7`（已在 `origin/v2`）的 `check` 通过（run 36813220984，2026-10-01 核对 headSha 一致）；`v2` 最近 5 次运行全部成功。
 - **下一个会话**（两个方向互不依赖，可以分别开会话同时推进）：
   - **D 设计原型**：见 [11-roadmap.md](11-roadmap.md) 的 D 节和 [02-design-system.md](02-design-system.md) 第 9 节；
   - **M1a 后端骨架**：先做注册 adapter/原生路由收口实验，再实现第一个纵向切片，见 [11-roadmap.md](11-roadmap.md) 第 2 节及 M1a。
@@ -49,19 +50,73 @@
 - [x] 作废旧的 DeepSeek key，并把新 key 填进 `.env.local`（2026-09-30）。`bun run doctor --ai` 已验证可用。
 - [ ] 可选：在 GitHub 上安装 Renovate App，让 `renovate.json` 生效。
 - [ ] 可选：请 GitHub Support 清除已改写历史中旧提交的缓存（见 D-032 中的"残留风险"）。
+- [ ] 迁移收尾：在 WSL 里用一阵、确认没问题后，自行删除 Windows 的 `D:\ChatApp`（里面还有一份 `.env.local` 密钥副本）。
+- [ ] 确认第一次从 WSL 的真实推送正常：它随 2026-10-01 的复核提交进行（`git push --dry-run` 和 `gh.exe auth status` 已验证可用），结果以 `origin/v2` 上的提交和 GitHub Actions 记录为准，确认后勾掉。
+- [ ] 删除工作区根目录的 `sudo.txt`（你之前放的，已被 `.git/info/exclude` 排除；WSL 现在配置了免密 sudo，不再需要。我没有读它的内容）。
 - [ ] M8 前：
   - 购买域名。这是硬性前提：没有域名就发不出验证邮件，也就无法开放注册（D-049）。
   - 开通 Resend。
   - 准备持续可用的异地备份和删除journal目标（优先验证R2，B2/其他目标须通过V-19）；偶尔下载备份不能满足恢复目标或journal要求。
 - [ ] M8 前：准备一个 QQ 邮箱和一个 163 邮箱，用来测试验证邮件能否送达（V-11）。
+- [ ] M8 前：私钥已复制到 WSL 的 `~/.ssh`（2026-10-01），但权限是 644，需要 `chmod 600 ~/.ssh/ssh-key-2026-09-25.key`；全局 `CLAUDE.md` 已软链接到 WSL，但其中的 SSH 命令还是 Git Bash 路径，要改成 WSL 路径（见 09 第 10 节）。
 - [ ] M8 时：把 restic 备份密码保存到自己的密码管理器里，不能只放在服务器上。
-- 注意：刚装完 Bun，之前已经打开的终端和编辑器要重启，才能直接找到 `bun`。
+- 注意：WSL 里新装了 Bun 和 Node，已经打开的 WSL 终端要重新打开（或执行 `source ~/.bashrc`），才能直接找到 `bun`。
 
 ## 待验证事项
 
 见[12-decisions.md](12-decisions.md)的V-01–V-21及[08-testing.md](08-testing.md)的AT-01–AT-37；V-06仍并入V-08。按11阶段记录负责人、状态、SHA、命令、结果和限制，不能把本次文档检查作为应用验收。优先V-13/AT-25及AT-34；media/journal/质量/成本实验按所属阶段执行。
 
 ## 交接记录
+
+### 2026-10-01 · WSL 迁移后的开发前环境复核（Claude）
+
+**用户的指示**：“我刚刚将项目从windows迁移到WSL，现在看一下环境什么的开发前的准备工作做好了没有”；核对完后用户回复“先推送”。核对阶段没有安装软件或修改配置，只更新了文档；提交和推送在用户回复之后进行，见“提交与推送”。
+
+**实际执行与结果**：
+- `bun run check`：退出 0（Biome 11 文件、tsc、guard ok）。
+- `bun run doctor --ai`：退出 0，`environment ok`。bun 1.4.2、Docker 29.8.1、`.env.local` 8 项必需值齐全、DeepSeek key 已设置、4 个容器 healthy、开发/测试库 PostgreSQL 18.6（pg_trgm 1.6、vector 0.8.6、uuidv7）、Valkey（noeviction、AOF）、两个 Garage 桶读写删、Mailpit SMTP 12525、DeepSeek 模型列表可用（`--ai` 只调用免费的模型列表接口）。
+- Docker：`compose ps` 显示 4 个服务 healthy；4 个 `chatapp-dev_*` 数据卷都在；`docker inspect`（只取挂载和标签，不碰环境变量）显示 compose 工作目录是 `/home/mars/projects/ChatApp/infra`，`garage.toml` 的 bind mount 源在 WSL 路径。
+- 端口：`netsh` 列出的 Windows 保留范围不含 3100、5173、5434、6379、3900、3903、8025、12525；5173 和 3100 空闲。5432 由 Windows 的 `postgres.exe` 监听，开发端口由 `com.docker.backend.exe` 发布（`tasklist` 核对）。
+- Windows 到 WSL：临时 `python3 -m http.server`（绑定 127.0.0.1:5173，根目录在临时目录）经 WSL、Windows 的 `localhost` 和 `127.0.0.1` 访问，均返回 200；服务已退出，端口已释放。
+- git：HEAD `a4918c7` 与 `origin/v2` 一致；`git push --dry-run origin v2` 返回 `Everything up-to-date`（没有发送任何内容）；`gh.exe auth status` 显示已登录 `liaboveall`，权限含 `repo`、`workflow`。CI 结果见“当前状态”。
+- lefthook：直接执行 `.git/hooks/pre-commit` 退出 0（没有暂存文件，biome 和 guard 都因无匹配文件而跳过，只证明钩子能启动）。登录 shell 和交互 shell 找得到 `bun`；极简 PATH（`/usr/bin:/bin`）下找不到，即钩子依赖启动 git 的环境带有 `~/.local/bin`。
+- 机器与网络：32 核、约 15.5 GiB 内存、磁盘可用约 936 GB、inotify watches 1048576、systemd 已开；npm registry 可访问（HTTP 200）。
+- `.env.local`：键集合与 `.env.example` 一致，权限 600；值为空的只有 `SMTP_USER`、`SMTP_PASS`（Mailpit 不需要认证）和 `VAPID_*`（M6 才生成）。
+
+**发现（都不阻塞 D 和 M1a）**：
+- 工作区根目录有 `sudo.txt`（4 字节，13:03）。`.git/info/exclude` 里已排除它，注释写明是用户放进工作区的；我没有读它的内容。现在 `sudo -n -l` 显示 `(ALL) NOPASSWD: ALL`，这个文件已无用，见用户待办。
+- `~/.ssh/ssh-key-2026-09-25.key` 已存在，但权限是 644，`ssh` 会拒绝；旁边还有两个 `.Zone.Identifier` 文件（Windows 复制时产生，可删）。
+- `~/.claude/CLAUDE.md` 是指向 `/mnt/c/Users/Mars/.claude/CLAUDE.md` 的软链接，WSL 里能读到全局说明。CLAUDE.md 和 09 第 10 节里“不会被自动读到”的说法已据此改正；其中的 SSH 命令仍是 Git Bash 路径。
+- WSL 里没有 `unzip`、`make`、`gcc`、`uv`、`psql`、`redis-cli`、`valkey-cli` 和 WSL 版 `gh`（用 `gh.exe`），暂时都不需要。`curl`、`jq`、`python3`、`openssl` 来自 `~/anaconda3/bin`，排在系统路径前面。
+
+**没有验证**：Safari/macOS 等 D 的评审环境；任何应用级测试（还没有应用代码）。
+
+**提交与推送**：用户回复“先推送”后，CLAUDE.md、03、08、09、11、12、PROGRESS 共 7 个文档（迁移时的改动加上本次记录）作为一个 `docs:` 提交推送到 `origin/v2`。提交前核对过 diff 没有密钥，`bun run check` 通过。这是第一次从 WSL 的真实推送；推送与该提交的 CI 结果以远端记录为准，本记录不预先宣称通过。
+
+**下一步**：不变，D 原型与 M1a（M1a 先做 V-13 注册 adapter/原生路由收口实验，以及 compose.test 独立故障环境）。
+
+### 2026-10-01 · 开发环境迁到 WSL（Claude）
+
+**用户的指示**：“将项目迁移到WSL中，我将在WSL中完成开发”，开发目录 `/home/mars/projects/ChatApp`；随后授权直接进行软件安装和环境配置，不再逐项过问。
+
+**完成**：
+- **仓库**：`git clone https://github.com/liaboveall/ChatApp.git`，切到 `v2`。HEAD `a4918c7`、目录树 `2d492f7` 与 Windows 副本一致；`main`、`v1-legacy` 也在。没有复制 `.git`（reflog 里还有 D-032 清理前的旧对象）。仓库级身份设为 `liaboveall <2628370933@qq.com>`，全局 git 配置没动。
+- **本地文件**：`.env.local` 和 `infra/garage/garage.toml` 按字节复制（`cmp` 一致，权限 600，内容未打印）。已跟踪文件与 Windows 副本逐文件比对（`diff -rq`）无差异。
+- **工具链**（没有使用 sudo，全部装在用户目录，下载后核对 SHA256）：Bun 1.4.2 → `~/.bun/bin`，并按官方脚本的做法追加 `~/.bashrc`；Node 26.8.1（与 Windows 上的版本相同）→ `~/.local/share/node`；`~/.local/bin` 里放软链接。官方 Bun 脚本需要 `unzip`，WSL 里没有，所以改用 python3 解压同一个发布包。
+- **依赖与钩子**：`bun install --frozen-lockfile` 装了 11 个包，lefthook 的 pre-commit 钩子随 `prepare` 安装；`git status` 仍干净，`bun.lock` 未变。
+- **容器**：迁移前 4 个容器的 bind mount 和 compose 标签都指向 `D:\ChatApp`。先 `up --dry-run` 预览，再执行 `docker compose -f infra/compose.dev.yml --env-file .env.local up -d --wait --force-recreate`。4 个服务均 healthy，4 个数据卷（`chatapp-dev_pg`、`_valkey`、`_garage-meta`、`_garage-data`）原样保留，bind mount 和标签现在指向 WSL 路径。重建前 Mailpit 里有 0 封邮件。
+- **推送凭据**：仓库级 `credential.helper = !gh.exe auth git-credential`，借用 Windows 上已登录的 GitHub CLI。验证了 helper 能为 github.com 返回凭据（用户名和密码在输出中打码，未落盘）。
+- **文档**：CLAUDE.md 的“本机环境”和“部署”、09（前置条件、端口说明、FAQ、新增第 10 节）、03/08/11 各一处措辞、12 新增 D-093，均改为 WSL 版本；本文件的状态和待办同步。
+
+**验证**：
+- `bun run check`：退出码 0（Biome 11 文件、tsc、guard；应用本身尚无测试）。
+- `bun run doctor --ai`：退出码 0，`environment ok`。bun 1.4.2、Docker 引擎 29.8.1、四个容器 healthy、开发/测试库 PostgreSQL 18.6（pg_trgm 1.6、vector 0.8.6、uuidv7）、Valkey（noeviction、AOF）、两个 Garage 桶读写删、Mailpit SMTP 12525、DeepSeek 模型列表（key 可用）。
+- Windows 到 WSL 的 localhost：在 WSL 里用 python3 临时起 `127.0.0.1:5173`，Windows 上 `127.0.0.1` 和 `localhost` 都返回 HTTP 200，随后服务已退出。
+
+**边界和下一步**：
+- 没有提交、推送；从 WSL 实际 `git push` 尚未验证。Windows 的 `D:\ChatApp` 没有删除，也没有改动；Docker 数据卷本来就由 Docker Desktop 在 Windows 和 WSL 间共用，没有搬运动作。
+- 没有安装 apt 包（`unzip`、`make`、`jq` 等缺失，需要 sudo 时再装）；WSL 里没有安装 Claude Code。
+- 下一步不变：D 原型与 M1a。
 
 ### 2026-10-01 · 规划修订提交与推送准备（Codex）
 

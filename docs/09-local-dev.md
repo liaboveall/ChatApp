@@ -1,24 +1,24 @@
 # 09 本地开发环境
 
 > 基础设施和工具链已在 2026-09-30 的"开发准备"中搭好并验证通过（验证方式：`bun run doctor`）。应用本身的脚本（`db:*`、`dev`、`test:*` 等）由 M1a 和 M1b 创建，**创建之前不要假定它们存在**。
-> 开发机器：Windows 11。命令在 PowerShell 或 Git Bash 里都能运行。
+> 开发环境：自 2026-10-01 起在 **WSL（Ubuntu 26.04）** 中进行（D-093）。仓库在 `/home/mars/projects/ChatApp`，命令都在 WSL 的 bash 里运行；Docker 用 Docker Desktop 的 WSL 集成。Windows 上的 `D:\ChatApp` 已停用。
 
 ## 1. 前置条件
 
-| 工具 | 要求 | 本机状态（2026-09-30） |
+| 工具 | 要求 | 本机状态（2026-10-01，WSL） |
 |---|---|---|
-| Bun | 与 `package.json` 中 `packageManager` 锁定的版本一致（1.4.2） | ✅ 已通过官方脚本安装到 `%USERPROFILE%\.bun\bin`，并写入了用户 PATH。**安装后新开的终端和编辑器才找得到 `bun`**，之前打开的需要重启 |
-| Docker Desktop | Compose v2 及以上 | ✅ Docker 29.8.1，Compose 5.5.1 |
-| Node | ≥ 24（Playwright、Storybook 等工具需要） | ✅ 26.8.1 |
-| Git | 较新版本即可 | ✅ 本仓库已配置提交身份：`liaboveall <2628370933@qq.com>`，只在本仓库生效，没有改全局配置 |
+| Bun | 与 `package.json` 中 `packageManager` 锁定的版本一致（1.4.2） | ✅ 装在 `~/.bun/bin`（下载官方发布包并核对 SHA256），PATH 写在 `~/.bashrc`；`~/.local/bin/bun` 另有一个软链接，让非交互的登录 shell 和 git 钩子也找得到。**新装后要新开终端（或 `source ~/.bashrc`）才找得到 `bun`** |
+| Docker Desktop | Compose v2 及以上；在 Docker Desktop 的 Settings → Resources → WSL integration 里对 Ubuntu 打开集成 | ✅ Docker 29.8.1，Compose 5.5.1。WSL 里的 `docker` 与 Windows 共用同一个引擎、容器和数据卷 |
+| Node | ≥ 24（Playwright、Storybook 等工具需要） | ✅ 26.8.1（与迁移前 Windows 上的版本相同），装在 `~/.local/share/node`，软链接在 `~/.local/bin` |
+| Git | 较新版本即可 | ✅ 2.53.0。本仓库已配置提交身份：`liaboveall <2628370933@qq.com>`，只在本仓库生效，没有改全局配置 |
 
-**本机端口冲突**（两处都不要去关占用方）：
-- **5432**：被原生的 PostgreSQL 服务占用 → 开发库用 **5434**。
+**本机端口冲突**（两处都不要去关占用方）。冲突发生在 **Windows 主机**上：Docker Desktop 把容器端口发布在 Windows 主机上，所以搬到 WSL 后依然适用。2026-10-01 迁移时核对过：开发端口由 Windows 上的 `com.docker.backend` 发布，5432 由 Windows 上的 `postgres` 进程监听。
+- **5432**：被 Windows 上原生的 PostgreSQL 服务占用 → 开发库用 **5434**。
 - **1025**：被 Cisco VPN 客户端（`vpnagent`）占用 → Mailpit 的 SMTP 默认用 **2525**。2026-10-01 复核时，2525 落入 Windows 保留范围 2492–2591，本机已通过 `.env.local` 的 `SMTP_PORT` 改用 **12525**。
 
 ## 2. 首次搭建
 
-```powershell
+```bash
 bun install                    # install dependencies; also installs the lefthook git hooks
 bun run setup                  # create .env.local + infra/garage/garage.toml; generate local secrets (never printed)
 bun run infra:up               # start postgres, valkey, garage, mailpit and wait until healthy
@@ -90,7 +90,7 @@ bun run doctor                 # end-to-end checks; add --ai to also test the De
 - 每次生成随机runId，项目名chatapp-test-<runId>；独立Postgres/Valkey/Garage/Mailpit容器、卷、网络、密钥和loopback动态端口，不继承开发compose的name/container_name/卷/bind挂载。每个测试项目使用events:test:<runId>频道和独立实例标记。
 - setup把实际容器ID、卷ID、networkID、端口和随机实例标记写入被忽略的本次运行manifest；DB/Valkey/S3各有可读标记。故障入口检查APP_ENV=test、project label、所有目标ID/标记、实际连接端点，不接受只凭库名或字符串前缀放行。
 - stop/kill、全局flush/config、限内存、断网、磁盘故障只操作manifest列出的独立资源；验证失败立即停止。清理仅删除本run拥有的资源，禁止docker system prune/volume prune或模糊匹配。开发库中的哨兵及服务前后健康须保持不变（AT-34）。
-- M3启用媒体时，Windows开发的worker也运行在Linux容器内，经内部网络访问开发依赖，与media共享私有Unix socket；不能假定宿主机Bun可访问Docker内Unix socket。故障套件使用同样的worker/media拓扑，凭据和卷仍隔离。纯后端热重载在M1a阶段可继续宿主机运行。
+- M3启用媒体时，本地开发的worker也运行在Linux容器内，经内部网络访问开发依赖，与media共享私有Unix socket；不能假定宿主机Bun可访问Docker内Unix socket。故障套件使用同样的worker/media拓扑，凭据和卷仍隔离。纯后端热重载在M1a阶段可继续宿主机运行。
 - M7本地删除journal使用第二套独立存储服务模拟故障；V-19最终证据仍须真实异地服务及原主机不可访问场景。只开本机第二桶不能证明灾难独立性。
 
 ### 命令状态
@@ -121,9 +121,9 @@ bun run doctor                 # end-to-end checks; add --ai to also test the De
 
 **Git 钩子**：lefthook 的 pre-commit 钩子会对暂存的文件运行 Biome（并自动修复）和 guard。
 
-## 8. 仓库约定（Windows 相关）
+## 8. 仓库约定
 
-- **换行符**：`.gitattributes` 设置了 `* text=auto eol=lf`，工作区和仓库里一律使用 LF。你全局配置里的 `core.autocrlf=true` 不影响这一点。
+- **换行符**：`.gitattributes` 设置了 `* text=auto eol=lf`，工作区和仓库里一律使用 LF，与 `core.autocrlf` 的设置无关（Windows 的系统级 git 配置是 true，WSL 里没有设置）。
 - **编辑器**：`.editorconfig` 统一 UTF-8、LF、2 空格缩进。
 - **文件名**：一律小写，用连字符分隔。
 - **生产部署**：使用 CI 构建的镜像，或者用 `git -c core.autocrlf=false archive` 打包源码。
@@ -132,16 +132,27 @@ bun run doctor                 # end-to-end checks; add --ai to also test the De
 
 | 现象 | 处理 |
 |---|---|
-| 终端提示找不到 `bun` | 刚装完 Bun 后，需要新开终端或重启编辑器（PATH 已经写入用户环境变量）。临时办法：`$env:Path = "$env:USERPROFILE\.bun\bin;$env:Path"` |
-| `infra:up` 提示连不上 Docker | 先启动 Docker Desktop，等它就绪 |
+| 终端提示找不到 `bun` | 新装后需要新开终端（或 `source ~/.bashrc`）。临时办法：`export PATH="$HOME/.local/bin:$HOME/.bun/bin:$PATH"`。非交互的登录 shell（如 git 钩子）靠 `~/.local/bin/bun` 这个软链接，确认它还在 |
+| `infra:up` 提示连不上 Docker | 先启动 Windows 上的 Docker Desktop，等它就绪；再确认 Settings → Resources → WSL integration 里对 Ubuntu 是打开的 |
 | `infra:up` 报 `ports are not available … 1025` | 1025 被 VPN 占用，已经改用 2525；如果还报错，检查 compose 文件是否是最新的 |
-| Mailpit 显示 healthy，但 `doctor` 连不上；或启动时报端口访问权限错误 | 检查 `docker compose -f infra/compose.dev.yml --env-file .env.local ps` 是否有实际宿主机端口映射；用 `netsh interface ipv4 show excludedportrange protocol=tcp` 检查 Windows 保留范围。把 `.env.local` 的 `SMTP_PORT` 改为可绑定的端口，再运行 `bun run infra:up` 和 `bun run doctor`。端口变更会重建 Mailpit，需保留的测试邮件应先导出；不要停止 VPN 或重置其他服务的数据卷 |
-| 连数据库被拒绝，或连到了别的库 | 端口要用 **5434**，5432 是本机原生的 PostgreSQL |
+| Mailpit 显示 healthy，但 `doctor` 连不上；或启动时报端口访问权限错误 | 检查 `docker compose -f infra/compose.dev.yml --env-file .env.local ps` 是否有实际宿主机端口映射；在 Windows 的 PowerShell 里用 `netsh interface ipv4 show excludedportrange protocol=tcp` 检查保留范围（端口是 Docker Desktop 在 Windows 主机上绑定的）。把 `.env.local` 的 `SMTP_PORT` 改为可绑定的端口，再运行 `bun run infra:up` 和 `bun run doctor`。端口变更会重建 Mailpit，需保留的测试邮件应先导出；不要停止 VPN 或重置其他服务的数据卷 |
+| 连数据库被拒绝，或连到了别的库 | 端口要用 **5434**，5432 是 Windows 上原生的 PostgreSQL |
 | 改了 `POSTGRES_PASSWORD` 后认证失败 | 见第 5 节：执行 `bun run infra:reset --yes`，然后重新 up 和 bootstrap |
-| 在 Git Bash 里手动运行 `docker compose exec garage /garage …`，报错路径变成了 `C:/Program Files/Git/garage` | 这是 MSYS 的路径转换导致的，在命令前加 `MSYS_NO_PATHCONV=1`。项目里的脚本都通过 Bun 执行，不受影响 |
 | Garage 报 layout 相关的错误 | 重新执行 `bun run infra:bootstrap` |
 | S3 报签名错误 | 检查 `S3_ENDPOINT` 是否为 `http://localhost:3900`，`S3_REGION` 是否为 `garage` |
 | 登录后 Cookie 不生效（M1b 起） | 必须通过 5173 端口访问（经过 Vite 代理），不要直接访问 3100 |
-| 视觉测试的截图总是对不上 | 基线只在 Playwright 的 Linux 镜像里生成和比对，Windows 本机的字体不同。用 `bun run test:visual`，它会在容器里运行 |
+| Windows 浏览器打不开 WSL 里的 `localhost:5173`（M1b 起） | 先在 WSL 里 `curl http://localhost:5173` 确认服务在监听。WSL 为 NAT 网络模式（`wslinfo --networking-mode` 输出 `nat`，Windows 用户目录下没有 `.wslconfig`），已用临时服务验证过：WSL 里监听 `127.0.0.1` 的端口，Windows 上用 `localhost` 和 `127.0.0.1` 都能访问 |
+| 视觉测试的截图总是对不上 | 基线只在 Playwright 的 Linux 镜像里生成和比对，本机（WSL 与 Windows）的字体都不同。用 `bun run test:visual`，它会在容器里运行 |
 | 开发服务和测试同时运行时，收到对方的事件 | 检查 `APP_ENV`：事件频道名按它区分（`events:development` / `events:test`） |
 | 在手机上测试（v1.1 之后） | 通过局域网 IP 访问时，Passkey 和 Service Worker 要求 HTTPS。可以用 `edge:up` 的 Nginx 容器在本地提供 HTTPS，或者用内网穿透 |
+
+## 10. 在 WSL 中开发的注意事项（2026-10-01 迁移，D-093）
+
+- **项目放在 Linux 文件系统**（`/home/mars/projects/ChatApp`），不要放进 `/mnt/c`、`/mnt/d`。那里是 Windows 盘的 9p 挂载，权限位不可靠（例如 Windows 上的私钥文件显示为 777），`ssh` 会因权限过宽而拒绝这样的私钥。
+- **Docker**：`docker` 命令在 WSL 里直接使用，引擎是 Docker Desktop 的，所以 Windows 上的 Docker Desktop 必须在运行。Compose 的 bind mount 源是 WSL 路径；开发容器已在迁移时用 WSL 路径重建，数据卷（`chatapp-dev_*`）保留。**不要在 Windows 的 `D:\ChatApp` 里再运行 `infra:up`，那会把容器改回 Windows 路径。**
+- **浏览器**：Windows 浏览器直接访问 `http://localhost:<端口>`，见第 3 节和第 9 节。
+- **git 推送**：仓库级配置了 `credential.helper = !gh.exe auth git-credential`，借用 Windows 上已登录的 GitHub CLI（依赖 WSL 默认可见的 Windows PATH）。已验证 helper 能返回 github.com 的凭据，`git push --dry-run` 也通过；第一次真实推送是 2026-10-01 的环境复核提交，结果以远端记录为准。令牌始终由 Windows 的 `gh` 保管，不写进仓库或 WSL 的配置文件。
+- **Claude Code 与全局说明**：WSL 里的 Claude Code 读取 WSL 自己的 `~/.claude/`。2026-10-01 核对：`~/.claude/CLAUDE.md` 已是指向 `/mnt/c/Users/Mars/.claude/CLAUDE.md` 的软链接，Windows 的全局说明（含服务器信息）会被自动读到；但其中的 SSH 命令仍是 Git Bash 路径（`/c/Users/Mars/.ssh/…`），M8 前改成 WSL 里的路径。
+- **SSH 私钥**：Windows 上的私钥经 `/mnt/c` 访问时权限显示为 777。M8 前由用户自己把私钥复制到 WSL 的 `~/.ssh` 并 `chmod 600`；Claude 不读取、不复制私钥内容。2026-10-01 核对：私钥已在 `~/.ssh/`，但权限是 644（`ssh` 会拒绝），仍需 `chmod 600`。
+- **软件安装**：迁移时没有使用 sudo，所有工具都装在用户目录，所以 WSL 里没有 `unzip`、`make`、`jq` 等 apt 包；需要时再装。
+- **Windows 上的 `D:\ChatApp`**：已停用，不再提交。其中的 `.env.local` 和 `infra/garage/garage.toml` 仍是一份密钥副本，用户确认不再需要后自行删除整个目录即可；删除不会影响现在运行的容器和数据卷。
