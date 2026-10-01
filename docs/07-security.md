@@ -28,25 +28,25 @@
 
 | 编号 | 要求 |
 |---|---|
-| **SEC-01** | 用户身份**只**从服务端会话获取。请求体和 WebSocket 消息里任何表示"我是谁"的字段（比如 username、senderId），一律忽略或直接拒绝 |
-| **SEC-02** | 所有会话相关的读写（HTTP、WebSocket 订阅、附件下载、搜索、Agent 工具）都必须经过 `authorize(user, conversation, action)`。<br>• 消息可见性统一为"是成员，并且 `seq > visible_from_seq`"（D-035）<br>• 被封禁的人不能重新加入（D-042）<br>• 对无权访问的私有资源一律返回 404 |
+| **SEC-01** | HTTP/WS身份只来自服务端session，后台用户动作只来自受控delegation；请求体不能指定Principal/userId/发送来源，username、senderId等冒用字段忽略或拒绝 |
+| **SEC-02** | 会话读写（HTTP、WS、附件、搜索、Agent）统一经authorize(principal,conversation,action)。消息需当前成员且seq>visible_from_seq；封禁不可重入；无权私有资源404；Principal规则见03 |
 | **SEC-03** | WS 绑定 session，Origin 必须匹配；服务端决定 topic，但订阅不构成授权。内容每批查当前 session/成员/来源版本；注销走持久撤销，5 秒复核（测试容差 1 秒），依赖失败停止派发并断连；已授权在途字节不可召回（03 第 6 节）。 |
 | **SEC-04** | 所有对外暴露的 id 都用 UUIDv7，不使用可以枚举的自增 id 或可以拼出来的名字（旧版的 `private_1_2` 就是反例） |
 | **SEC-05** | 前端**禁止**用 `innerHTML` 或 `dangerouslySetInnerHTML` 渲染用户内容。<br>• Markdown 按 D-047 配置：禁止原始 HTML，关闭数学公式和 Mermaid<br>• 链接只允许 `http`、`https`、`mailto` 三种协议，外链加 `rel="noopener noreferrer"`<br>• `guard` 扫描 `innerHTML`、`outerHTML`、`insertAdjacentHTML`、`dangerouslySetInnerHTML`、`document.write`、`setHTMLUnsafe`、`createContextualFragment`、`srcdoc` |
 | **SEC-06** | 页面文档（index.html）的 CSP 由 Nginx 站点配置输出：<br>`default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data: blob:; media-src 'self' blob:; connect-src 'self'; font-src 'self'; worker-src 'self'; manifest-src 'self'; frame-ancestors 'none'; object-src 'none'; base-uri 'none'; form-action 'self'`<br>• 是否开启 Trusted Types（`require-trusted-types-for 'script'`）在 M2b 随 Markdown 渲染一起决定（V-08）<br>• WebKit 的 E2E 要验证 WebSocket 在 `connect-src 'self'` 下能连接；不能的话，显式加上 `wss://<站点域名>` |
 | **SEC-07** | 上传先持久预占与对象意图，再接收流；每阶段可幂等恢复。魔数/长度/像素/帧数/时长/解码内存/超时均有限制；媒体子进程无网络、非 root。随机不可覆盖对象 key；svg/html/xml 只能下载；EXIF 清理失败不能宣称已清理（03 第 5.4 节）。 |
 | **SEC-08** | 附件按 purpose、当前有效绑定和消息可见性授权；deleting 一律不可读。应用设置安全 Content-Type、Content-Disposition、nosniff、CSP sandbox、Cache-Control: private, no-store；Range 每次重新鉴权，SW 不缓存敏感文件。 |
-| **SEC-09** | 所有注册路径默认拒绝，仅受控入口执行 D-059 状态机；首次创建账号即关联 registration_id，confirmed 且 email_verified 才激活；验证/撤销/清理串行化。邀请码只存哈希、明文不进日志/URL，按 IP 限流。 |
+| **SEC-09** | 注册仅受控入口执行D-059；首次INSERT关联registration_id。D-076验证/重置凭证绑定user、registration、purpose、邮箱摘要、auth/restore世代，一次性事务消费；GET不消费，原生JWT回调默认关闭。同邮箱重建不可复用旧链接，验证/撤销/清理串行化。邀请码只存哈希，按IP限流。 |
 | **SEC-10** | 密码至少 10 位，并用本地的常见弱密码表拦截弱密码；密码哈希使用 Better Auth 的默认算法 |
-| **SEC-11** | 登录与会话：<br>• 登录、注册、重置密码都有限流（Better Auth 自带的限流，计数存在 Valkey，按真实客户端 IP 计算，见 SEC-28）；错误提示不透露某个账号是否存在<br>• 修改密码后，注销其他所有会话；重置密码后，注销全部会话<br>• 不开启 Better Auth 的 `cookieCache`，保证注销立即对 HTTP 接口生效 |
+| **SEC-11** | 登录/注册/验证重发/重置按真实IP及规范化账号摘要限流，计数在Valkey；自定义认证端点显式接入同一限流器，不能假定SDK覆盖。匿名错误不枚举账号。改密注销其他会话、重置注销全部，委托按03撤销；不启用cookieCache |
 | **SEC-12** | Cookie 设为 `HttpOnly`、`SameSite=Lax`；生产环境加 `Secure`，并使用 `__Host-` 前缀（如果 Better Auth 不支持，就用 `__Secure-`，并确保不设置 `Domain`） |
 | **SEC-13** | 所有非 GET 请求都校验 `Origin`（Better Auth 的 `trustedOrigins` 加上我们自己的中间件）；API 默认只接受 JSON，上传内容仅 octet-stream，monitoring 仅受限 envelope；拒绝其他普通表单格式 |
 | **SEC-14** | 用户名和显示名：<br>• 用户名有格式规则和保留名单；显示名也不能使用保留名，比较前先做 NFKC 规范化<br>• 所有数据都通过用户 id 关联<br>• 改名有 30 天冷却期，旧用户名保留 30 天，不能被别人立刻注册<br>• Better Auth 的 `update-user` 不能修改用户名、显示名和头像（D-039） |
 | **SEC-15** | 撤回事务清空在线正文/提及/向量，附件立即拒读；对象物理删除目标 1 小时、最长 24 小时，失败告警重试。所有内容副本、摘要、审批参数、任务、浏览器缓存和备份按 04 第 10 节处理；注销取消活动和未来任务。 |
 | **SEC-16** | 限流覆盖消息、上传、Agent 运行、@Agent 触发、正在输入事件，以及每个用户的 WebSocket 连接数（见 01 第 7 节） |
-| **SEC-17** | Agent 必须遵守 [06 第 11 节](06-agent.md) 的 A1–A13 |
+| **SEC-17** | Agent必须遵守[06第11节](06-agent.md)的A1–A15，包含持久委托和跨key来源隔离 |
 | **SEC-18** | 启动时校验配置：生产环境缺少密钥、密钥太短或仍是示例值，都拒绝启动；错误响应里不包含堆栈和内部信息 |
-| **SEC-19** | 日志不记录消息正文、AI 的提示词和输出、密码、令牌、Cookie 和 API key。<br>• Sentry 不开会话回放，上报前过滤正文<br>• AI SDK 的遥测不记录输入和输出（D-046） |
+| **SEC-19** | 应用/Nginx/Sentry只记录允许字段和规范化route，不存原始URL/query/path参数/Referer/请求体/Cookie/认证头/正文。网关未知路由只记unknown，不能用默认combined；错误日志也不可带原始请求行。Sentry事件/breadcrumb双层过滤且关闭回放，SDK遥测无输入输出。假哨兵覆盖正常和错误路径（AT-26）。 |
 | **SEC-20** | 依赖和镜像：<br>• 依赖锁定精确版本，用 Renovate 自动提升级 PR<br>• CI 运行 `osv-scanner`（查依赖漏洞）、`trivy`（查镜像漏洞）、`gitleaks`（查泄露的密钥） |
 | **SEC-21** | 以下操作都要写入审计日志：<br>• 站点管理员和会话管理员的操作<br>• 站点管理员查看敏感内容：举报上下文、Agent run 详情（包括站点 key 运行的内容）<br>• 审计日志只存 id 和元数据，不存正文 |
 | **SEC-22** | HSTS 由 Nginx 的独立片段 add_header ... always 覆盖每个 HTTPS location 及错误页，不能只放 server 级后被子 location 覆盖。静态 CSP、Referrer/Permissions/COOP 由静态片段设置；API/附件除 HSTS 外的头由应用设置，不重复。 |
@@ -69,6 +69,12 @@
 | SEC-33 | 所有站点模型调用先锁库预占；未知外部调用不自动退款或重试。价格/用量估算失准告警并停止新调用 |
 | SEC-34 | 本地消息、草稿、队列、push 按账号/登录世代/成员世代隔离，退出跨标签页广播并清理；重新联网先验证身份，不把失联设备远程清除作为安全承诺 |
 | SEC-35 | 恢复隔离模式禁止外发/模型任务，失效 sessions 和验证凭证、提升恢复世代后核对任务。备份有逻辑对象清单/校验值及删除屏障 |
+| SEC-36 | domain区分Session/Delegated/System Principal；后台用户动作持有有效origin、auth/restore世代及参数绑定委托。普通退出与安全撤销分开；安全撤销和效果提交串行化，不凭裸userId授权 |
+| SEC-37 | 私有byok_private内容及派生摘要/记忆/向量命中不进入site自动上下文，工具检索同样过滤；key来源切换新开空白段。共享发布仅按用户明确操作释放正文，不释放原私有run详情 |
+| SEC-38 | JSON/envelope/上传分别在网关及应用解析前执行128KiB/256KiB/100MiB上限（上传另受reservation约束）、字节累计和超时；拒绝压缩请求、异常framing，超限不影响正常小请求 |
+| SEC-39 | 媒体只在D-081无网络、无凭据、只读、受cgroup/pid/tmpfs约束的独立容器解码；worker不挂Docker socket，IPC拒绝任意命令/URL/路径；OOM/超时不拖垮API/worker |
+| SEC-40 | 生产成功删除先有独立异地journal证据；恢复校验完整链并重放至可信head，缺证据保持隔离。凭证、删除journal密钥和restore epoch的恢复材料不能仅存在原主机 |
+| SEC-41 | 进程/网络/实例级故障仅在独立测试Compose执行；核对project labels、实例标记及容器/卷ID，禁止开发/生产目标与模糊清理，开发哨兵须保持不变 |
 
 管理员内容限制指应用角色；本系统无端到端加密，主机/数据库/服务端密钥的运维权限不在此隔离保证内。安全测试需同时以普通成员、管理员、机器人、未激活/注销账号执行原生路由矩阵。
 
@@ -115,6 +121,8 @@
 - [ ] 没有新增 `innerHTML` 等禁用写法（CI 用 `guard` 扫描）。
 - [ ] 新增的配置项都有 zod 校验；生产环境缺失时会拒绝启动。
 - [ ] 日志和 Sentry 里没有正文或密钥（抽查日志输出）。
+- [ ] 认证链接/搜索假哨兵在应用、网关访问/错误日志、监控事件及breadcrumb中均不存在；直连API也实施解析前限额。
+- [ ] 本阶段涉及的委托撤销、BYOK来源、实体版本、媒体隔离和删除journal已有对应AT证据，未实现不得标通过。
 - [ ] 限流按真实客户端 IP 计数；Better Auth 的原生接口没有绕过应用规则的路径。
 - [ ] 对应的 SEC 和 L 测试全部通过；M4 起，Agent 评测中安全类的结果断言 100% 通过。
 - [ ] 依赖和镜像扫描没有高危问题；有高危就先修复，或在 12-decisions 里记录豁免理由。

@@ -35,6 +35,8 @@ bun run doctor           # 检查各项服务是否正常
 
 从 [docs/00-overview.md](docs/00-overview.md) 开始阅读。
 
+最新规划已将两轮独立审查落实到规格、决策和阶段验收，见[本轮修订对照](docs/15-planning-rereview-2026-10-01.md)。下一步为设计原型与M1a认证切片；规划完成不表示应用功能或故障验收已经通过。
+
 ## 许可证与来源
 
 采用 [MIT](LICENSE) 许可证。v1 改编自 [rustyxlol/Django-ChatApp](https://github.com/rustyxlol/Django-ChatApp)（MIT），原作者的版权声明保留在 LICENSE 中。
