@@ -19,7 +19,7 @@
 | 数据库迁移 | CI 脚本 | — | 空库迁移、上一发布版含真实关系的数据夹具升级、bootstrap 幂等、新旧应用兼容、drizzle-kit check；演示 seed 单独验证 |
 | 端到端 | Playwright 1.63 | `apps/web/e2e/` | 多人场景：用两到三个互相隔离的浏览器环境同时登录。Chromium 和 WebKit 全量运行，Firefox 只跑冒烟（场景 1、2） |
 | 无障碍 | `@axe-core/playwright` | 与端到端测试一起 | 关键页面没有严重违规 |
-| 视觉 | Playwright 截图，对象是 Storybook 中的关键组件 | `apps/web/visual/` | 防止设计还原走样；浅色和深色模式都要截。**基线只在 Playwright 官方 Linux 镜像里生成和比对**，Windows 本机的字体不同，直接截图永远对不上 |
+| 视觉 | Playwright 截图，对象是 Storybook 中的关键组件 | `apps/web/visual/` | 防止设计还原走样；浅色和深色模式都要截。**基线只在 Playwright 官方 Linux 镜像里生成和比对**，本机（WSL 与 Windows）的字体不同，直接截图永远对不上 |
 | Agent 评测 | `bun run eval`（调用真实的 DeepSeek） | `apps/server/evals/` | 见 06 第 12 节 |
 | 压力 | k6（Docker 镜像，锁定版本） | `infra/load/` | M7：500 个 WebSocket 连接、每秒 20 条消息，p95 < 300 ms；彩排时把容器的 CPU 限制到接近服务器的 2 核 |
 
