@@ -15,14 +15,24 @@ concurrency:
 jobs:
   check:
     runs-on: ubuntu-24.04
-    timeout-minutes: 15
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v7
       - uses: oven-sh/setup-bun@v2
         with:
           bun-version-file: package.json
+      # Vite, Vitest and Storybook run on Node (the tests and the build of apps/web).
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 26
       - run: bun install --frozen-lockfile
       - run: bun run check
+      - name: Build the web app
+        run: bun run build
+      - name: The generated route tree is up to date
+        run: git diff --exit-code -- apps/web/src/routeTree.gen.ts
+      - name: Storybook builds (every story compiles)
+        run: bun run --cwd apps/web storybook:build
       - name: Validate dev compose file
         run: docker compose -f infra/compose.dev.yml config --quiet
         env:
@@ -50,5 +60,8 @@ jobs:
       - uses: oven-sh/setup-bun@v2
         with:
           bun-version-file: package.json
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 26
       - run: bun install --frozen-lockfile
       - run: bun run check
