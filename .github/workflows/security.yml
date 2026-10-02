@@ -6,6 +6,7 @@ on:
   pull_request:
   schedule:
     - cron: "17 3 * * 1" # every Monday 03:17 UTC
+  workflow_dispatch: # push and pull_request scans cover only their commits; this and the schedule scan the whole history
 
 permissions:
   contents: read
@@ -15,6 +16,7 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  # Accepted false positives (test fixtures) are listed in .gitleaks.toml; see docs/12 D-106.
   gitleaks:
     runs-on: ubuntu-24.04
     timeout-minutes: 10
