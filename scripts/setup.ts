@@ -5,6 +5,10 @@
  * - renders infra/garage/garage.toml from its template
  *
  * Do not regenerate POSTGRES_PASSWORD after the database volume exists; use `bun run infra:reset --yes` instead.
+ *
+ * Database accounts: DATABASE_OWNER_URL(_TEST) is the owner (migrations, bootstrap, CLI); DATABASE_URL(_TEST) is the
+ * unprivileged application role. A `.env.local` from before the split holds the owner URL in DATABASE_URL, so that
+ * value is moved to DATABASE_OWNER_URL once and DATABASE_URL is pointed at the application role.
  */
 import { randomBytes } from 'node:crypto'
 import { copyFileSync, existsSync } from 'node:fs'
@@ -15,6 +19,8 @@ const LOCAL = '.env.local'
 const GARAGE_TEMPLATE = 'infra/garage/garage.toml.template'
 const GARAGE_CONFIG = 'infra/garage/garage.toml'
 const DB_HOST_PORT = 5434
+const OWNER_ROLE = 'chatapp'
+const APP_ROLE = 'chatapp_app'
 
 const hex = (bytes: number) => randomBytes(bytes).toString('hex')
 const token = (bytes: number) => randomBytes(bytes).toString('base64url')
@@ -27,6 +33,18 @@ if (!existsSync(LOCAL)) {
 const env = await readEnvFile(LOCAL)
 const filled: string[] = []
 
+// Keys added to .env.example after this file was created are appended with the template's value; existing
+// values are never touched.
+const added: string[] = []
+for (const line of (await readEnvFile(EXAMPLE)).lines) {
+  const match = /^\s*([A-Za-z_][A-Za-z0-9_]*)\s*=(.*)$/.exec(line)
+  const key = match?.[1]
+  if (key !== undefined && getEnv(env, key) === undefined) {
+    setEnv(env, key, match?.[2] ?? '')
+    added.push(key)
+  }
+}
+
 function ensure(key: string, make: () => string): string {
   const current = getEnv(env, key)
   if (current !== undefined && !isUnset(current)) return current
@@ -37,17 +55,43 @@ function ensure(key: string, make: () => string): string {
 }
 
 const pgPassword = ensure('POSTGRES_PASSWORD', () => hex(16))
-ensure('DATABASE_URL', () => `postgres://chatapp:${pgPassword}@localhost:${DB_HOST_PORT}/chatapp`)
-ensure(
-  'DATABASE_URL_TEST',
-  () => `postgres://chatapp:${pgPassword}@localhost:${DB_HOST_PORT}/chatapp_test`,
-)
+const appDbPassword = hex(16)
+
+function urlUser(value: string | undefined): string | undefined {
+  if (value === undefined || isUnset(value)) return undefined
+  try {
+    return decodeURIComponent(new URL(value).username)
+  } catch {
+    return undefined
+  }
+}
+
+/** Fills the owner/application URL pair for one database, converting a pre-split `.env.local` once. */
+function ensureDatabaseUrls(ownerKey: string, appKey: string, database: string): void {
+  const owner = `postgres://${OWNER_ROLE}:${pgPassword}@localhost:${DB_HOST_PORT}/${database}`
+  const app = `postgres://${APP_ROLE}:${appDbPassword}@localhost:${DB_HOST_PORT}/${database}`
+  const currentOwner = getEnv(env, ownerKey)
+  const currentApp = getEnv(env, appKey)
+  if (currentOwner === undefined || isUnset(currentOwner)) {
+    const legacy = urlUser(currentApp) === OWNER_ROLE ? currentApp : undefined
+    setEnv(env, ownerKey, legacy ?? owner)
+    filled.push(ownerKey)
+  }
+  if (currentApp === undefined || isUnset(currentApp) || urlUser(currentApp) !== APP_ROLE) {
+    setEnv(env, appKey, app)
+    filled.push(appKey)
+  }
+}
+ensureDatabaseUrls('DATABASE_OWNER_URL', 'DATABASE_URL', 'chatapp')
+ensureDatabaseUrls('DATABASE_OWNER_URL_TEST', 'DATABASE_URL_TEST', 'chatapp_test')
 ensure('S3_ACCESS_KEY_ID', () => `GK${hex(12)}`) // Garage key id: "GK" + 24 hex chars
 ensure('S3_SECRET_ACCESS_KEY', () => hex(32)) // Garage secret: 64 hex chars
 const rpcSecret = ensure('GARAGE_RPC_SECRET', () => hex(32))
 const adminToken = ensure('GARAGE_ADMIN_TOKEN', () => token(32))
 const metricsToken = ensure('GARAGE_METRICS_TOKEN', () => token(32))
 ensure('BETTER_AUTH_SECRET', () => token(32))
+ensure('AUTH_TOKEN_ENCRYPTION_KEY', () => token(32))
+ensure('RESTORE_EPOCH', () => token(12))
 ensure('SEED_DEMO_PASSWORD', () => token(12))
 
 await writeEnvFile(env)
@@ -61,6 +105,7 @@ await Bun.write(
     .replaceAll('{{GARAGE_METRICS_TOKEN}}', metricsToken),
 )
 
+if (added.length > 0) console.log(`added from ${EXAMPLE}: ${added.join(', ')}`)
 console.log(filled.length > 0 ? `generated: ${filled.join(', ')}` : 'all secrets already present')
 console.log(`rendered ${GARAGE_CONFIG}`)
 console.log(

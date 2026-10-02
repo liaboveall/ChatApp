@@ -40,6 +40,8 @@ await check('docker engine', async () => {
 // Configuration
 await check('.env.local', async () => {
   const keys = [
+    'DATABASE_OWNER_URL',
+    'DATABASE_OWNER_URL_TEST',
     'DATABASE_URL',
     'DATABASE_URL_TEST',
     'VALKEY_URL',
@@ -47,6 +49,8 @@ await check('.env.local', async () => {
     'S3_ACCESS_KEY_ID',
     'S3_SECRET_ACCESS_KEY',
     'BETTER_AUTH_SECRET',
+    'AUTH_TOKEN_ENCRYPTION_KEY',
+    'RESTORE_EPOCH',
     'SEED_DEMO_PASSWORD',
   ]
   for (const key of keys) value(key)
@@ -81,8 +85,8 @@ await check('containers', async () => {
 
 // PostgreSQL 18 + extensions (dev and test databases)
 for (const [label, key] of [
-  ['postgres (dev)', 'DATABASE_URL'],
-  ['postgres (test)', 'DATABASE_URL_TEST'],
+  ['postgres (dev)', 'DATABASE_OWNER_URL'],
+  ['postgres (test)', 'DATABASE_OWNER_URL_TEST'],
 ] as const) {
   await check(label, async () => {
     const sql = new SQL(value(key))
@@ -100,6 +104,33 @@ for (const [label, key] of [
       await sql.close()
     }
   })
+}
+
+// The unprivileged application role exists only after `bun run db:migrate`, hence optional.
+for (const [label, key] of [
+  ['postgres app role (dev)', 'DATABASE_URL'],
+  ['postgres app role (test)', 'DATABASE_URL_TEST'],
+] as const) {
+  await check(
+    label,
+    async () => {
+      const sql = new SQL(value(key))
+      try {
+        const [row] = await sql`
+          select current_user as role, rolsuper, rolcreatedb, rolcreaterole
+          from pg_roles where rolname = current_user`
+        if (row.rolsuper || row.rolcreatedb || row.rolcreaterole)
+          throw new Error('role is privileged')
+        return `connects as ${row.role}, unprivileged`
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error)
+        throw new Error(`${message.split('\n')[0]} (run: bun run db:migrate)`)
+      } finally {
+        await sql.close()
+      }
+    },
+    true,
+  )
 }
 
 // Valkey
