@@ -33,3 +33,6 @@ Thumbs.db
 .vscode/*
 !.vscode/extensions.json
 !.vscode/settings.json
+
+# per-run fault-test instances: manifests hold credentials
+/.test-runs/
