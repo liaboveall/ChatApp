@@ -1,0 +1,83 @@
+name: e2e
+
+# Browser tests (docs/08 sections 2 and 5): the app built and served with the production Content Security Policy, the API and
+# worker in the test environment, real Postgres/Valkey/Garage/Mailpit. Chromium and WebKit run everything, Firefox the
+# smoke tests. The visual job compares Storybook screenshots inside the official Playwright image.
+on:
+  push:
+    branches: [main, v2]
+  pull_request:
+    branches: [main, v2]
+  schedule:
+    - cron: "41 18 * * *" # every night, 02:41 in Asia/Shanghai
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: e2e-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  e2e:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v7
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version-file: package.json
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 26
+      - run: bun install --frozen-lockfile
+      - name: Create the local environment (secrets are generated, never printed)
+        run: bun run setup
+      - name: Start Postgres, Valkey, Garage and Mailpit
+        run: bun run infra:up
+      - run: bun run infra:bootstrap
+      - name: Install the browsers and their system libraries
+        run: node_modules/.bin/playwright install --with-deps chromium webkit firefox
+        working-directory: apps/web
+      - name: End-to-end tests
+        run: bun run test:e2e
+        env:
+          CI: "true"
+      - name: Report and traces
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: e2e-report
+          path: |
+            apps/web/playwright-report
+            apps/web/test-results
+          retention-days: 7
+      - name: Service logs
+        if: failure()
+        run: docker compose -f infra/compose.dev.yml --env-file .env.local logs --no-color --tail=200
+      - name: Stop services
+        if: always()
+        run: bun run infra:down
+
+  visual:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v7
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version-file: package.json
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 26
+      - run: bun install --frozen-lockfile
+      - name: Screenshot comparison in the Playwright image
+        run: bun run test:visual
+      - name: Differences
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: visual-diff
+          path: apps/web/test-results
+          retention-days: 7
