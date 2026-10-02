@@ -5,7 +5,7 @@
 
 ## 当前状态
 
-- **当前阶段**：M0 ✅，开发准备 ✅，规划完善 ✅，**M1a 后端骨架：实现完成，待用户确认（2026-10-01 至 02）**。证据、限制和未做的事见最新交接记录；**没有提交、没有推送**，新增的三个 CI 工作流/作业（`integration`、`security`、`check` 里的 `arm64-smoke`）从未在远端运行过。下一步：D 设计原型（可并行）；M1b 等 D 定稿。
+- **当前阶段**：M0 ✅，开发准备 ✅，规划完善 ✅，**M1a 后端骨架：已提交并推送（8 个提交，`7f73cad` 到 `3cf4488`），远端 CI 全部通过，待用户确认验收（2026-10-01 至 02）**。证据、限制和未做的事见最新交接记录。下一步：D 设计原型（可并行）；M1b 等 D 定稿。
 - **本轮生效**：[15复审](15-planning-rereview-2026-10-01.md)的12项主问题与5项一致性问题全部落实D-076–D-092；新增AT-25–AT-37、V-18–V-21。M1a 范围内的部分已有运行证据（见 M1a 交接记录），其余仍为未开始。
 - **2026-10-01 全面完善**：[独立审查](14-planning-review-2026-10-01.md) 的 11 项 P1、13 项 P2 已逐项落实 D-056–D-075，当前规格已同步；08 的 AT-01–AT-24 是待实施验收，不把设计完成视作运行时通过（M1a 范围内的运行证据见 M1a 交接记录）。
 - **2026-10-01 Docker 补查**：已修复 Mailpit 保留端口冲突；本机 SMTP 为 12525，网页 8025。基础设施 doctor 通过证据见交接记录。
@@ -14,7 +14,7 @@
   - `v2`：已推送到 GitHub，本地跟踪 `origin/v2`，所有开发都在这里进行；
   - `main`：仍是旧版代码，已经过历史清理；
   - 标签 `v1-legacy`：指向 main 的最后一个提交。
-- **CI**：`v2` 上最近一次已核对的运行是 `64d5e57` 的 `check`，通过（run 36820912601，核对过 headSha 一致）；此前 5 次运行也全部成功。之后的提交以各自对应的远端运行为准。
+- **CI**：`v2` 上最近一次已核对的运行是 `3cf4488`（run id 与 headSha 都核对过）：`check`（含 `arm64-smoke`）、`integration`（含 `fault`）、`security` 全部成功；另有一次手动触发的 `security` 完整历史扫描（run 36956977511）也成功。`integration`、`fault`、`security`、`arm64-smoke` 是 M1a 新增的，前一个提交 `af8cfc0` 的 `security` 曾因 gitleaks 失败，已按 D-106 解决（见交接记录）。之后的提交以各自对应的远端运行为准。
 - **下一个会话**：
   - **先决定 M1a 怎么收口**：提交并推送（之后核对远端 CI 的 `check`、`integration`、`security` 三个工作流）；或先让我再看某一块。
   - **D 设计原型**：见 [11-roadmap.md](11-roadmap.md) 的 D 节和 [02-design-system.md](02-design-system.md) 第 9 节（与后端互不依赖）。
@@ -28,7 +28,7 @@
 | 开发准备 | ✅ 完成 | 2026-09-30，提交 `8b74b5c`、`b28dbbe`、`a8f1456`、`77cd6db`、`d723d7b` |
 | 规划审查修订 | ✅ 文档完成 | D-056–D-092及17项复审对照已纳入规格；运行验收待实施 |
 | D 设计原型 | ⚪ 未开始 | **下一步**，可以和 M1a 同时进行 |
-| M1a 后端骨架 | 🟡 实现完成，待确认 | 2026-10-01 至 02；单元 63 / 集成 174 / 故障 11 个测试通过，真实进程走查通过；远端 CI 未跑，Passkey 仪式、arm64 数据等未验证 |
+| M1a 后端骨架 | 🟡 已推送，待确认 | 2026-10-01 至 02；单元 63 / 集成 174 / 故障 11 个测试通过，真实进程走查通过；远端 CI（`3cf4488`）全部通过，含 arm64；Passkey 仪式、真实 ARM 资源数据等未验证 |
 | M1b 前端骨架 | ⚪ 未开始 | 等 D 定稿及 M1a 出口 |
 | M2 核心聊天（M2a / M2b） | ⚪ 未开始 | |
 | M3 富消息 | ⚪ 未开始 | |
@@ -42,15 +42,15 @@
 
 ## 等待用户确认
 
-- **M1a 是否验收通过**，以及**是否提交并推送**（本会话没有提交任何东西；工作区里是 19 个已有文件的改动，加 146 个新文件，含 `apps/`、`packages/`、`infra/compose.test.yml`、`osv-scanner.toml` 等）。建议的提交拆分：工具链与 guard / contracts / db / server 后端 / 测试与故障环境 / CI / 文档。
-- **12 里新增的 D-094–D-105**是我在你既有授权内作出的实现决定，其中有几条改变了规格的写法（认证入口全部受控、不启用 username 插件、限流自研、`account_source`）；如果你不同意其中任何一条，告诉我，我会新增取代它的记录。
+- **M1a 是否验收通过**。已按你的指示提交并推送，共 8 个提交：`7f73cad` 工具链与 guard、`b1fc1c3` contracts、`c2e6c30` db、`7674eb4` server、`dae1f74` 测试与故障环境、`47ef33f` CI、`af8cfc0` 文档、`3cf4488` gitleaks 白名单。
+- **12 里新增的 D-094–D-106**是我在你既有授权内作出的实现决定，其中有几条改变了规格的写法（认证入口全部受控、不启用 username 插件、限流自研、`account_source`）；如果你不同意其中任何一条，告诉我，我会新增取代它的记录。
 
 ## 用户待办
 
 - [x] 删除 Docker Hub 上的公开仓库 `abovealll/chatapp`（2026-09-30）。
 - [x] 作废旧的 DeepSeek key，并把新 key 填进 `.env.local`（2026-09-30）。`bun run doctor --ai` 已验证可用。
 - [ ] 用 `bun run admin:create --email <你的邮箱> --username <用户名> --name <显示名>` 创建自己的管理员账号（密码在你自己的终端里输入）。开发库里现在只有 bootstrap 的 Agent 账号和 `db:seed` 建的三个演示成员 alice / bob / carol（邮箱 `*@example.test`，密码是 `.env.local` 里的 `SEED_DEMO_PASSWORD`）。
-- [ ] 推送之后核对远端 CI：`integration`（含空库迁移、drizzle-kit check、集成/安全/契约/实时测试和 `test:fault`）、`security`（gitleaks、osv-scanner、bun audit）、`check` 里的 `arm64-smoke`。这些作业我只能在本地逐条执行同样的命令，不能代替远端运行。
+- [x] 推送之后核对远端 CI（2026-10-02，我用 `gh` 核对过，结果见交接记录）：`integration`、`fault`、`security`、`arm64-smoke` 都在远端跑过并通过；只有 `security` 首次运行因 gitleaks 失败，已按 D-106 修复。
 - [ ] 可选：在 GitHub 上安装 Renovate App，让 `renovate.json` 生效。
 - [ ] 可选：请 GitHub Support 清除已改写历史中旧提交的缓存（见 D-032 中的"残留风险"）。
 - [ ] 迁移收尾：在 WSL 里用一阵、确认没问题后，自行删除 Windows 的 `D:\ChatApp`（里面还有一份 `.env.local` 密钥副本）。
@@ -74,7 +74,7 @@
 
 ### 2026-10-01 至 02 · M1a 后端骨架（Claude）
 
-**用户的指示**：「开始M1a」，中途因会话中断说了「继续」。按 CLAUDE.md 先读了 PROGRESS、11 的 M1a 节和 03/04/05/07/08/09/12 的相关部分。**没有提交、没有推送**。
+**用户的指示**：「开始M1a」，中途因会话中断说了「继续」。按 CLAUDE.md 先读了 PROGRESS、11 的 M1a 节和 03/04/05/07/08/09/12 的相关部分。收工时我问是否提交并推送，你回复「提交并推送吧」，随后已提交并推送（见下面的“提交、推送与远端 CI”）。
 
 **做出来的东西**（都在工作区，未提交）：
 - **工具链**：`scripts/typecheck.ts`（根目录加每个工作区包各跑自己的 tsconfig）；`guard` 增加架构边界检查（`scripts/lib/boundaries.ts`）；`check` 现在含单元测试；根目录新增 `db:*`、`dev:api`、`dev:worker`、`admin:*`、`test`、`test:integration`、`test:infra:*`、`test:fault`、`smoke:backend` 脚本。
@@ -83,8 +83,8 @@
 - **`apps/server`**：config（zod、生产拒绝弱密钥、测试环境核验目标）、lib（allowlist 日志、IP 解析、crypto、限流、pg 错误解析）、domain（会话与设备撤销、注册状态机与对账、验证/重置/改密、邀请、work_items 状态机、邮件投递、清理）、auth（Better Auth 实例与钩子）、http（路由、请求预算、Origin、路径守卫、安全头、错误处理、OpenAPI + Scalar）、realtime（网关、事件总线、握手）、jobs（派发器、邮件消费者、对账与清理循环）、runtime（ids、`Bun.serve` 绑定）、api.ts、worker.ts、cli.ts（migrate、db:bootstrap、db:seed、admin:create、admin:verify-email）。
 - **环境**：`.env.example` 新增 `DATABASE_OWNER_URL(_TEST)`、`APP_TIMEZONE`、`API_HOST`、`TRUSTED_PROXIES`、`AUTH_TOKEN_ENCRYPTION_KEY`、`RESTORE_EPOCH`；`bun run setup` 把旧布局一次性转成新布局并补齐模板新增的键（没有打印任何值；转换前备份在会话临时目录）。
 - **故障环境**：`infra/compose.test.yml`、`scripts/lib/test-infra.ts`、`apps/server/test/support/fault/*`、AT-34 测试。
-- **CI**：新增 `.github/workflows/integration.yml`（`integration` 与 `fault` 两个作业）、`security.yml`（gitleaks、osv-scanner、`bun audit`），`check.yml` 增加 test compose 文件校验和 `arm64-smoke` 作业；`osv-scanner.toml` 登记一条依赖告警例外（D-105）。
-- **文档**：12 新增 D-094–D-105 与 V-04/05/07/12/13 结论；05 第 3.1 节改成实际契约；04、03、09、01（隐私说明新增“登录设备与 IP”“邀请与注册”两行）、08、11、README、CLAUDE.md 同步。
+- **CI**：新增 `.github/workflows/integration.yml`（`integration` 与 `fault` 两个作业）、`security.yml`（gitleaks、osv-scanner、`bun audit`），`check.yml` 增加 test compose 文件校验和 `arm64-smoke` 作业；`osv-scanner.toml` 登记一条依赖告警例外（D-105）；`.gitleaks.toml` 只放行三个测试夹具字面值（D-106）。
+- **文档**：12 新增 D-094–D-106 与 V-04/05/07/12/13 结论；05 第 3.1 节改成实际契约；04、03、09、01（隐私说明新增“登录设备与 IP”“邀请与注册”两行）、08、11、README、CLAUDE.md 同步。
 
 **依赖**：Drizzle 1.0 仍是 RC，用 0.45.3 / drizzle-kit 0.31.11（V-07）；Better Auth 1.7.7；其余精确版本见 D-104 和 03 第 2 节。`bun audit` 全量有 1 条 moderate（drizzle-kit → 已废弃的 @esbuild-kit → esbuild 0.18.20，开发服务器告警，不可达），没有可升级路径，已在 `osv-scanner.toml` 登记带到期日 2027-01-01 的例外（D-105）。
 
@@ -100,6 +100,22 @@
 | 186 个将被提交的文件拷到全新目录（`git init`，无 `.env.local`）里 `bun install --frozen-lockfile`（124 个包）+ `bun run check` | 全过：Biome 150 文件、4 个 tsc、guard ok、63 个单元测试 |
 | `bun run dev:api` / `dev:worker`（开发库，`--watch`） | 都在 1 s 内就绪，`/api/readyz`、`/api/healthz`、`/api/docs` 均 200；SIGTERM 后 29 ms 内两个进程以 0 退出，无残留进程。**这一类走查早先抓到过一个 bug**：`/api/docs` 在真实服务器上 500（进程内测试没覆盖），已修复并加了测试 |
 | 把 `.env.local` 里 16 个密钥类的值逐个在 186 个将被提交的文件里搜索 | 没有密钥命中（只有 `VALKEY_URL`、`VALKEY_URL_TEST` 因名字含 KEY 被列入，值是无密码的本地地址，与示例文件相同） |
+
+**提交、推送与远端 CI**（2026-10-02，你回复「提交并推送吧」之后）：
+- 提交前，先在临时目录里按累积顺序组装每个提交的文件树，各跑一次 `bun run check`，7 个全部通过；从 `server` 提交起连 `bun install --frozen-lockfile` 也通过（`bun.lock` 随完整的工作区集合一起提交，更早的提交里它还是旧的）。pre-commit 钩子（Biome、guard）每次都真实运行，没有绕过。
+- 推送：`a2c30df..af8cfc0`（7 个提交），随后 `af8cfc0..3cf4488`（1 个提交，修 gitleaks）。
+- 远端结果（run id 都核对过 headSha）：
+
+| 提交 | 工作流（run） | 结果 |
+|---|---|---|
+| `af8cfc0` | `check`（36956701933） | ✓ `check` 10 s、`arm64-smoke` 15 s |
+| `af8cfc0` | `integration`（36956702415） | ✓ `integration` 1 分 7 秒（空库迁移、db:check、集成/安全/契约/实时）、`fault` 53 秒 |
+| `af8cfc0` | `security`（36956701901） | osv-scanner ✓、bun-audit ✓、**gitleaks ✗：13 处 `generic-api-key`** |
+| `3cf4488` | `check`（36956958013）、`integration`（36956957945）、`security`（36956957946） | 全部 ✓ |
+| `3cf4488` | `security` 手动触发的完整历史扫描（36956977511） | ✓ gitleaks 读到 `.gitleaks.toml`，扫描 v2 完整历史的 34 个提交，no leaks found；osv-scanner 读到 `osv-scanner.toml`，扫描 238 个包，过滤 1 条（D-105），无问题；bun-audit ✓ |
+
+- **gitleaks 失败的原因与处理**：13 处全是测试文件里的三个假字面值（假密码、测试应用的占位 secret、占位加密密钥），逐行核对过，不是任何环境的真实值；用 `.gitleaks.toml` 只放行这三个精确字符串，其余默认规则照旧（D-106）。**教训**：push 触发的 gitleaks 只扫这次推送的提交，所以修复推送后的绿灯不能证明配置有效；我给 `security` 加了 `workflow_dispatch` 并手动跑了一次完整历史扫描，才确认配置生效、旧历史里没有别的发现。
+- `arm64-smoke` ✓ 说明：在 `ubuntu-24.04-arm` 上，`bun install --frozen-lockfile` 与 `bun run check` 都通过。这是 V-12 的一部分，原生依赖与真实资源数据仍未验证。
 
 **验收证据对照**（状态用 11 的写法：通过 = 本地已执行且结果如上；限制写在后面）：
 | 项 | 状态 | 证据 | 限制 |
@@ -122,7 +138,7 @@
 | AT-34 | 通过 | `bun run test:fault`（见上） | |
 | 其他 AT | 未开始 | | |
 
-**07 第 4 节自查（M1a）**：接口都有 zod schema、写入走 principal 复核（还没有会话类资源，`authorize()` 属 M2a）；事件只有无内容的撤权提示；`guard` 通过；配置有 zod 校验且生产拒绝弱密钥/占位值（单测）；日志抽查通过；限流按真实 IP 计数，原生接口无绕过；依赖扫描 `bun audit` 通过（osv-scanner、gitleaks 只在 CI 里）；隐私说明已补两行。
+**07 第 4 节自查（M1a）**：接口都有 zod schema、写入走 principal 复核（还没有会话类资源，`authorize()` 属 M2a）；事件只有无内容的撤权提示；`guard` 通过；配置有 zod 校验且生产拒绝弱密钥/占位值（单测）；日志抽查通过；限流按真实 IP 计数，原生接口无绕过；依赖与密钥扫描：本地 `bun audit`（high）通过，远端 osv-scanner、gitleaks 也通过（D-105、D-106）；隐私说明已补两行。
 
 **发现与处理**（实现过程中真实碰到的）：
 - Better Auth 1.7.7 的 Drizzle 适配器带运行时 schema 检查，会拒绝“SDK 从不写入的 NOT NULL 列”（`users.username`），所以 username 要声明为 `required, input:false` 的附加字段（D-095）。
@@ -133,9 +149,9 @@
 - 我写进工具参数里的 `\uXXXX` 转义（`\u200B`、`\u202E` 等）会被写成不可见的真实字符；已发现并改回显式转义，之后涉及不可见字符的源码都用脚本生成并复核。
 - 会话中途电脑/Docker Desktop 重启过一次：开发容器自动恢复，上一次中断的故障实例用校验过的 `test:infra:down` 拆除，开发库里没有残留哨兵。
 
-**没有验证 / 未做**：Passkey 完整仪式；新增 CI 作业的远端运行（含 arm64，以及 osv-scanner 是否按 `osv-scanner.toml` 放行那条例外——本机没装 osv-scanner）；真实 ARM 资源数据（V-12）；topic/Hub、presence、typing（M2）；Passkey 请求体大小校准；`db:studio`；V-01 的 DeepSeek 冒烟（需实验预算）；V-11 邮件送达（缺域名）；除 Postgres 杀死与 Valkey FLUSHALL 外的其他实例故障（杀 API、断网、磁盘满、OOM）；Bun 的 `maxRequestBodySize` 暂为 1 MiB（M3 上传要放宽，D-101）。
+**没有验证 / 未做**：Passkey 完整仪式；真实 ARM 资源数据（V-12；`arm64-smoke` 只证明工具链、锁文件和单元测试在 arm64 Linux 上可用）；topic/Hub、presence、typing（M2）；Passkey 请求体大小校准；`db:studio`；V-01 的 DeepSeek 冒烟（需实验预算）；V-11 邮件送达（缺域名）；除 Postgres 杀死与 Valkey FLUSHALL 外的其他实例故障（杀 API、断网、磁盘满、OOM）；Bun 的 `maxRequestBodySize` 暂为 1 MiB（M3 上传要放宽，D-101）。
 
-**给下个会话的提示**：开工前先确认 Windows 上 Docker Desktop 在运行（`docker` 命令在 WSL 里找不到就是没起来）；集成测试每个文件之后都会清空测试库（含 bootstrap 数据），之后要对测试库起 api/worker 或跑 `smoke:backend`，先 `bun run db:bootstrap:test`；`test:fault` 若报“bind mount outside the run directory (/run/desktop/...)”，是 Docker Desktop 偶发报告内部路径，实例已被拆除，重跑即可（D-103）；M1b 要把 Vite 代理配成 `x-forwarded-for` 透传（现在开发环境所有请求在 API 看来都来自 127.0.0.1）；认证页面按 05 第 3.1 节的契约写，登录失败沿用 `{code,message}`、其余错误是统一的 `{error:{code,message,details,requestId}}`。
+**给下个会话的提示**：开工前先确认 Windows 上 Docker Desktop 在运行（`docker` 命令在 WSL 里找不到就是没起来）；集成测试每个文件之后都会清空测试库（含 bootstrap 数据），之后要对测试库起 api/worker 或跑 `smoke:backend`，先 `bun run db:bootstrap:test`；`test:fault` 若报“bind mount outside the run directory (/run/desktop/...)”，是 Docker Desktop 偶发报告内部路径，实例已被拆除，重跑即可（D-103）；M1b 要把 Vite 代理配成 `x-forwarded-for` 透传（现在开发环境所有请求在 API 看来都来自 127.0.0.1）；认证页面按 05 第 3.1 节的契约写，登录失败沿用 `{code,message}`、其余错误是统一的 `{error:{code,message,details,requestId}}`。 测试里新增“像密钥”的字面值（带 password/secret/key 之类变量名的随机串）会被 gitleaks 的 generic-api-key 规则命中：优先运行时生成，必须写死时加行内 `gitleaks:allow`，不要放宽 `.gitleaks.toml`（D-106）。
 
 ### 2026-10-01 · 推送与勾掉复核待办（Claude）
 
