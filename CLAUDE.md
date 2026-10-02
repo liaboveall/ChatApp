@@ -22,6 +22,7 @@
   - 使用站点 key 的 Agent 运行内容，管理员可以查看；鼓励用户自带 key，但鼓励文案只讲好处，不提管理员能看到内容。
 - 技术选型只看"最新、最好"，不考虑熟悉程度。新增依赖时，先到 registry 核对最新稳定版，锁定精确版本，不用 beta 或 RC（例外须记录在 12）。
 - 技术栈：TypeScript 7；后端 Bun + Hono + zod + Drizzle + PostgreSQL 18（pgvector）+ Valkey + BullMQ + Garage + Better Auth；AI 用 AI SDK 7；前端 React 19 + Vite 8 + TanStack Router/Query + Tailwind 4 + Base UI。
+- 设计（D）已在 2026-10-02 由用户在 D4 确认（D-113）：令牌、玻璃材质和字体（拉丁字母用 Inter）以 `docs/02` 的第 2 到 7 节为准。`design/` 里的原型只是参考实现，M1b 用 React、Tailwind 和 Base UI 重做，不直接搬代码；改令牌要先过 `bun run design:contrast`。
 
 ## 硬性规则
 
