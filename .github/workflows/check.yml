@@ -27,3 +27,28 @@ jobs:
         run: docker compose -f infra/compose.dev.yml config --quiet
         env:
           POSTGRES_PASSWORD: ci-only
+      - name: Validate fault-test compose file
+        run: docker compose -p chatapp-test-00000000 -f infra/compose.test.yml config --quiet
+        env:
+          TEST_RUN_ID: "00000000"
+          TEST_PG_PASSWORD: ci-only
+          TEST_VALKEY_PASSWORD: ci-only
+          TEST_GARAGE_CONFIG: /tmp/garage.toml
+          TEST_PG_PORT: "1"
+          TEST_VALKEY_PORT: "2"
+          TEST_GARAGE_PORT: "3"
+          TEST_SMTP_PORT: "4"
+          TEST_MAILPIT_UI_PORT: "5"
+
+  # V-12 basic smoke: the toolchain, lockfile and unit tests also work on arm64 Linux (the production architecture).
+  # This is evidence for native dependencies only as far as they exist; media/ONNX come with M3/M5b.
+  arm64-smoke:
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version-file: package.json
+      - run: bun install --frozen-lockfile
+      - run: bun run check

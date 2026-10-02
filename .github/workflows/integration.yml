@@ -1,0 +1,67 @@
+name: integration
+
+on:
+  push:
+    branches: [main, v2]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: integration-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  integration:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v7
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version-file: package.json
+      - run: bun install --frozen-lockfile
+      - name: Create the local environment (secrets are generated, never printed)
+        run: bun run setup
+      - name: Start Postgres, Valkey, Garage and Mailpit
+        run: bun run infra:up
+      - run: bun run infra:bootstrap
+      - name: Migrations on an empty database (docs/04 section 9)
+        run: bun run db:migrate:test
+      - name: Migrations match the schema (drizzle-kit check)
+        run: bun run db:check
+      - name: Bootstrap is idempotent
+        run: |
+          bun run db:bootstrap:test
+          bun run db:bootstrap:test
+      - name: Integration, realtime, security and contract tests
+        run: bun run test:integration
+      - name: Service logs
+        if: failure()
+        run: docker compose -f infra/compose.dev.yml --env-file .env.local logs --no-color --tail=200
+      - name: Stop services
+        if: always()
+        run: bun run infra:down
+
+  # Fault injection runs only against its own isolated compose project (D-085); the development services of this job
+  # carry the AT-34 sentinels that must stay untouched.
+  fault:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v7
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version-file: package.json
+      - run: bun install --frozen-lockfile
+      - run: bun run setup
+      - run: bun run infra:up
+      - run: bun run infra:bootstrap
+      - name: Migrate the development database (the AT-34 sentinel lives there)
+        run: bun run db:migrate
+      - name: Fault suite (AT-34 isolation gate)
+        run: bun run test:fault
+      - name: Stop services
+        if: always()
+        run: bun run infra:down
