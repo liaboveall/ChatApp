@@ -1,0 +1,3 @@
+[test]
+# Forces APP_ENV=test before any configuration is loaded (docs/08 section 4).
+preload = ["./apps/server/test/preload.ts"]
