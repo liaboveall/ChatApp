@@ -32,7 +32,7 @@ Events: api/worker ──publish──▶ Valkey channel "events:{APP_ENV}" ─�
 
 ## 2. 技术栈与版本
 
-以下版本于 2026-09-30 在 npm、Docker Hub、endoflife.date 上核实。**M1a 开工时要再核对一次**，锁定当时的最新稳定版（精确版本加锁文件）。原则上不用 beta 或 RC，例外会在表中注明。
+以下版本于 2026-09-30 在 npm、Docker Hub、endoflife.date 上核实。**M1a 开工时要再核对一次**，锁定当时的最新稳定版（精确版本加锁文件）。原则上不用 beta 或 RC，例外会在表中注明。M1a 已于 2026-10-01 核对并锁定，见 D-104。
 
 ### 2.1 运行时与后端
 
@@ -40,12 +40,12 @@ Events: api/worker ──publish──▶ Valkey channel "events:{APP_ENV}" ─�
 |---|---|---|
 | 语言 | TypeScript（Go 原生编译器） | 7.0.2 |
 | 运行时、包管理、后端测试 | Bun | 1.4.2 |
-| Web 框架 | Hono（`hono/bun` 提供 WebSocket 升级） | 4.13.11 |
+| Web 框架 | Hono（路由与中间件；WebSocket 升级由 `runtime/server.ts` 直接用 `Bun.serve` 处理） | 4.13.12 |
 | OpenAPI | `@hono/zod-openapi` | 1.6.3 |
 | 运行时校验、前后端契约 | zod | 4.6.5 |
-| ORM 与迁移 | drizzle-orm / drizzle-kit，驱动用 `drizzle-orm/bun-sql` | 1.0（当前 RC4；GA 后用 1.0，否则先用 0.45.3，见 D-012） |
-| 认证 | better-auth + `@better-auth/passkey` | 1.7.6 |
-| 队列与 Valkey 客户端 | bullmq + ioredis（应用里所有 Valkey 访问统一用 ioredis，D-044） | 6.3.10 / 6.0.0 |
+| ORM 与迁移 | drizzle-orm / drizzle-kit，驱动用 `drizzle-orm/bun-sql` | 0.45.3 / 0.31.11（1.0 仍是 RC，D-104；GA 后另开决策迁移） |
+| 认证 | better-auth + `@better-auth/passkey` | 1.7.7 |
+| 队列与 Valkey 客户端 | bullmq + ioredis（应用里所有 Valkey 访问统一用 ioredis，D-044） | 6.3.11 / 6.0.0 |
 | AI | `ai`（AI SDK）+ `@ai-sdk/deepseek` | 7.0.123 / 3.0.57 |
 | 本地向量模型（M5b 验证） | `@huggingface/transformers` | 4.3.0 |
 | 图片处理 | sharp | 0.35.5 |
@@ -56,7 +56,7 @@ Events: api/worker ──publish──▶ Valkey channel "events:{APP_ENV}" ─�
 | Web Push（M6） | web-push | 3.6.7 |
 | 日志 | pino | 10.3.1 |
 | 错误追踪（M7） | `@sentry/bun`、`@sentry/react` | M7 时核对 |
-| API 文档界面（仅开发环境） | `@scalar/hono-api-reference` | 0.12.7 |
+| API 文档界面（仅开发环境） | `@scalar/hono-api-reference` | 0.12.8 |
 
 ### 2.2 前端
 
@@ -132,11 +132,12 @@ Events: api/worker ──publish──▶ Valkey channel "events:{APP_ENV}" ─�
 │     │                          reconcile, embeddings
 │     ├─ src/storage/            BlobStore interface + S3 (Garage) implementation
 │     ├─ src/auth/               Better Auth config, route allowlist, registration adapter/state, field guards
-│     ├─ src/runtime/            Bun adapters: ids, process/IPC; injected into auth/domain
+│     ├─ src/runtime/            Bun adapters: ids, server (Bun.serve + WebSocket binding), process/IPC; injected into auth/domain
+│     ├─ src/startup.ts · health.ts   start-up self-checks (bootstrap, unprivileged role), readiness probe
 │     ├─ src/config/             env schema (zod), fail-fast loading
 │     ├─ src/lib/                logger, errors, ids, time (injectable clock), rate-limit, client-ip
 │     ├─ evals/                  Agent eval datasets + runner
-│     └─ test/                   integration, realtime, security regression, factories
+│     └─ test/                   integration, realtime, security, contract snapshots, fault (isolated instance only), support
 ├─ packages/
 │  ├─ contracts/                 zod schemas: REST DTOs, WS events, error codes, limits, reserved names
 │  └─ db/                        Drizzle schema, migrations, bootstrap, dev seed, client factory
@@ -313,7 +314,9 @@ work_items 唯一 dedupe_key 与业务事务关联；payload 只存 id、版本�
 | `APP_TIMEZONE` | `Asia/Shanghai` | 业务时区：每日额度重置、月度预算（M1a 新增，D-049） |
 | `API_PORT` | `3100` | |
 | `TRUSTED_PROXIES` | `127.0.0.1,::1` | 只信任这些地址转发的客户端 IP 头（M1a 新增，SEC-28） |
-| `DATABASE_URL` | `postgres://chatapp:…@localhost:5434/chatapp` | 生产环境里应用用普通账号，迁移用拥有者账号 |
+| `DATABASE_URL` | `postgres://chatapp_app:…@localhost:5434/chatapp` | 应用运行时的无特权账号（D-097） |
+| `DATABASE_OWNER_URL` | `postgres://chatapp:…@localhost:5434/chatapp` | 拥有者账号：迁移、bootstrap、CLI 和测试清表；运行中的生产应用不持有它。测试环境读 `DATABASE_(OWNER_)URL_TEST` |
+| `API_HOST` | `127.0.0.1` | API 监听接口；只有容器内才设为 `0.0.0.0` 并把端口只发布到 127.0.0.1 |
 | `VALKEY_URL` | `redis://localhost:6379` | |
 | `S3_ENDPOINT` / `S3_REGION` / `S3_BUCKET` | `http://localhost:3900` / `garage` / `chatapp` | |
 | `S3_ACCESS_KEY_ID` / `S3_SECRET_ACCESS_KEY` | 由 setup 脚本生成 | |

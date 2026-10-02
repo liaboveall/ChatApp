@@ -4,7 +4,7 @@
 
 - **命名**：数据库里用 snake_case，TypeScript 里用 camelCase。在 Drizzle 中配置 `casing: 'snake_case'` 自动转换。表名用复数。
 - **主键**：统一用 `uuid`，默认值为 `uuidv7()`（PostgreSQL 18 内置函数，按时间有序；不把 id 的随机性当作授权）。
-  - Better Auth 的几张表通过配置 `advanced.database.generateId` 注入 `runtime/ids` 的 UUIDv7 工厂，Bun 专用实现不进入 auth/domain（D-090）。**M1a 要验证 Better Auth + Drizzle adapter 能否正常使用 uuid 类型的主键（V-04）。**
+  - Better Auth 的几张表通过配置 `advanced.database.generateId` 注入 `runtime/ids` 的 UUIDv7 工厂，Bun 专用实现不进入 auth/domain（D-090）。M1a 已验证 Better Auth 1.7.7 + Drizzle adapter 可以使用 uuid 主键和 UUIDv7（V-04，D-100）。
 - **时间**：一律用 `timestamptz`，存 UTC。"每天""每月"这类按日期归类的数据，按业务时区 `APP_TIMEZONE`（默认 `Asia/Shanghai`）计算。
 - **大整数**：`seq` 等 bigint 列在 TypeScript 里按 number 处理（Drizzle 的 `mode: 'number'`），实际数值远小于 2^53。
 - **文本比较**：频道名唯一性、保留名比较之前，先做 Unicode NFKC 规范化，再转小写，比如 `lower(normalize(name, NFKC))`。
@@ -25,12 +25,12 @@ Better Auth 的 Drizzle adapter 需要开启 `usePlural: true`，这样表名才
 | email | text | unique, not null | 存小写 |
 | email_verified | boolean | default false | |
 | image | text | null | 头像 URL，由服务端根据头像附件生成 |
-| username | text | unique, not null | 3–20 位 `[a-z0-9_]`（username 插件） |
-| display_username | text | null | 插件自带字段，暂不使用 |
+| username | text | unique, not null | 3–20 位 `[a-z0-9_]`，CHECK 保证格式；由受控注册写入，不启用 username 插件，没有 display_username 列（D-095） |
 | role | text | default `'user'` | `'user'` 或 `'admin'`，应用 domain 管理，客户端不可赋值 |
 | banned / ban_reason / ban_expires | boolean / text / timestamptz | | 应用封禁字段，客户端不可赋值 |
-| registration_id | uuid | unique null → registration_invite_uses，延迟约束 | 普通注册必须在账号首次插入时写入；bootstrap/CLI 账号使用受审计的例外来源 |
-| activation_status | text | not null | pending / active / revoked；登录要求 active 且 email_verified |
+| registration_id | uuid | unique null → registration_invite_uses | 普通注册必须在账号首次插入时写入；与 `registration_invite_uses.user_id` 互为外键，插入顺序（先登记、后账号、再回填）使延迟约束没有必要（D-096） |
+| activation_status | enum | not null，default `pending` | pending / active / revoked；登录要求 active 且 email_verified |
+| account_source | enum | not null，default `registration` | registration / cli / bootstrap。CHECK：active 必须 email_verified；只有 registration 来源带 registration_id。CLI 与 bootstrap 是 INV-18 的受审计例外（D-099） |
 | auth_epoch / user_change_seq | bigint | default 0 | 账号授权世代 / 个人同步水位 |
 | profile_version / me_version | bigint | default 1 | 公开资料版本 / 本人资料与设置版本；所覆盖字段见 05，变化同事务递增 |
 | avatar_attachment_id | uuid | null → attachments | image 只是服务端派生的 URL |
@@ -53,7 +53,7 @@ Better Auth 的 Drizzle adapter 需要开启 `usePlural: true`，这样表名才
 ### Better Auth 的其他表
 - `sessions`：会话令牌、过期时间、IP、User-Agent、auth_epoch、authorization_origin_id（→ authorization_origins）。
   - **会话以 Postgres 为准**：Valkey 只用于缓存和限流，Valkey 丢数据不会让用户掉线（D-044）。
-  - 令牌在库里怎么存，以 M1a 的验证结果为准（V-13）。如果是明文存储，数据库备份必须加密，数据库访问也要严格限制。
+  - 令牌在库里是**明文**（M1a 实测，D-100），Cookie 值是 `令牌.签名`：数据库备份必须加密，数据库访问也要严格限制。
 - `accounts`：`provider_id = 'credential'` 的那一行保存密码哈希。
 - `verifications`：仅保留锁定版 SDK 确实需要的 challenge；应用邮箱验证/密码重置由下方 auth_challenges 控制，不能假设此表能撤销 SDK 的签名邮件 JWT。
 - `passkeys`：Passkey 的公钥、凭证 id、计数器等。
@@ -62,7 +62,7 @@ Better Auth 的 Drizzle adapter 需要开启 `usePlural: true`，这样表名才
 ### auth_challenges（M1a，D-076）
 - 列：id、user_id（FK，删除账号级联）、registration_id（普通注册必填）、purpose（verify_email/reset_password）、email_hash、auth_epoch、restore_epoch、token_hash（unique）、expires_at、consumed_at、revoked_at、created_at。
 - token 为随机256-bit，SHA-256 后查行，按 user_id 定位唯一账号并检查注册关联/邮箱摘要/全部世代；不得仅按邮箱查当前账号。验证和重置默认1小时；重发锁定用户后撤销同用途未消费凭证，旧邮件即使晚到也不能使用。
-- 邮件 worker 所需 token 仅存该受限认证表的 delivery_ciphertext/nonce/key_version，以单独 AUTH_TOKEN_ENCRYPTION_KEY 加密。事务同时创建凭证和仅含 challenge id 的 work_item；发送确认、到期或撤销后清密文。网络结果未知可用同一未过期凭证有限重投，不能把 token/邮件正文写入通用队列或日志。
+- 邮件 worker 所需 token 仅存该受限认证表的 delivery_ciphertext/delivery_nonce（text，base64url）与 delivery_key_version（smallint），用单独的 AUTH_TOKEN_ENCRYPTION_KEY 以 AES-256-GCM 加密，challenge id 作为附加认证数据，密文挪到别的行就解不开。事务同时创建凭证和仅含 challenge id 的 work_item；发送确认、到期或撤销后清密文。网络结果未知可用同一未过期凭证有限重投，不能把 token/邮件正文写入通用队列或日志。
 - 验证消费、email_verified、confirmed 检查及 active 更新同事务；人工验证撤销全部 verify_email 凭证。重置消费、密码哈希写入、auth_epoch 递增、全部 session/origin/delegation 撤销同事务；适配器无法保证时不得开放该原生路径。重复已消费凭证返回通用失效，不登录或重建账号。
 - 消费/过期行保留7天无密文元数据后删除。RESTORE_EPOCH 从备份外重新生成，所有旧凭证默认拒绝；清表与世代校验两层同时执行。
 

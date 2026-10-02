@@ -1,7 +1,7 @@
 # 12 决策记录
 
 > 每条决策都写明：决定了什么、为什么、放弃了哪些方案。要改某个决策时，**新增一条**记录并注明它取代了哪条，不要直接删改旧记录。
-> 标"用户"的是用户亲自拍板的。D-001–D-055 为 2026-09-30 的决策；D-056–D-092 来自 2026-10-01 用户授权“现在全面优化完善项目规划”；D-093 是同日用户另行决定的开发环境变更。旧记录保留历史原因，冲突处以明确取代它的新记录为准。
+> 标"用户"的是用户亲自拍板的。D-001–D-055 为 2026-09-30 的决策；D-056–D-092 来自 2026-10-01 用户授权“现在全面优化完善项目规划”；D-093 是同日用户另行决定的开发环境变更；D-094–D-105 是 2026-10-01 至 02 M1a 实施中由 Claude 在用户既有授权内作出的实现决定与实验结论。旧记录保留历史原因，冲突处以明确取代它的新记录为准。
 
 ## 产品与范围
 
@@ -558,6 +558,68 @@ Base UI 提供无障碍的交互原语（菜单、弹窗、焦点管理等）；
 - **D-029 的端口结论不变**：Docker Desktop 把端口发布在 Windows 主机上，冲突都发生在 Windows 一侧（迁移时核对过：开发端口由 `com.docker.backend` 发布，5432 由 Windows 上的 `postgres` 进程监听）。5434 和 12525 继续使用。
 - **影响**：浏览器仍在 Windows 上访问 `localhost`（已用临时服务验证）；M8 前要把 SSH 私钥和全局说明同步到 WSL（09 第 10 节）；从 WSL 的第一次真实推送已在 2026-10-01 成功（`64d5e57`）。
 
+## M1a 实施决定与实验结论（2026-10-01）
+
+> 以下是 M1a 实施中的决定，均有可重复运行的测试或命令作证据（见 PROGRESS 的 M1a 交接记录）。它们补充或修正对应的旧条款，不改变用户已定的产品方向。
+
+**D-094 认证入口由受控处理器实现，SDK 只转发 Passkey（补充 D-058、D-076，V-13 结论）**
+- `/api/auth/*` 前面是精确的 method + path 允许清单（`packages/contracts/src/auth-endpoints.ts`）。注册、登录、退出、改密、邮箱验证与密码重置共 8 个入口由应用自己的处理器实现：先做请求预算、Origin、限流和 zod strict 校验，再经 domain 事务写入；登录用 `auth.api.signInEmail` 完成口令校验与建会话，响应体去掉令牌。只有 7 个 Passkey 路由在严格校验后转发给 SDK。SDK 注册的其余 28 个 (方法, 路径)，包括 `get-session`、`list-sessions`、`revoke-*`、`update-user`、GET 的 `verify-email` 和 `reset-password/:token`，一律 404。
+- 原因：① 原生 `get-session`/`list-sessions` 的响应带 `session.token`，等于把 HttpOnly 令牌（以及其他设备的令牌）交给脚本；② SDK 的 `after` 钩子在事务提交之后才执行、拿不到事务句柄，无法在首次 INSERT 关联注册，也无法原子消费凭证；③ 原生验证/重置是 GET 链接加 JWT，预取就会消费，也不能绑定注册实例和 restore_epoch。
+- 证据：`test/security/auth-matrix.test.ts` 用匿名、成员、管理员三种身份请求 SDK 注册的全部 39 个 (方法, 路径)，除允许清单外全是 404 且数据库无变化；`test/contract/auth-sdk-endpoints.snapshot.json` 固定 SDK 端点清单，升级后出现新路由会让测试失败；路由变体（大小写、尾斜杠、`%` 编码、双斜杠、`;`、错误方法）全部 404。
+- 设备管理改为 `/api/me/devices` 一组接口（列表、撤销单台、注销其他、安全注销全部），以 origin 作设备，不暴露令牌。
+- 放弃：透传 SDK 加 after hook 关联注册；启用 admin 插件。
+
+**D-095 不启用 username 插件（补充 D-039）**
+- username 由受控注册写入并带 CHECK（`^[a-z0-9_]{3,20}$`），保留名走 contracts 的保留名单和 `username_reservations`；在 SDK 里只声明为 `required: true, input: false` 的用户附加字段。声明还有一个作用：Better Auth 1.7.7 带运行时 Drizzle schema 检查，会拒绝“存在 SDK 从不写入的 NOT NULL 列”，这个检查在升级时也是保险。`display_username` 列不建。
+- 原因：插件的增量只有用户名登录（05 已禁止）和 `is-username-available`；它的校验钩子与受控创建重复。
+
+**D-096 注册在一个事务里完成，中间状态保留为可恢复行（落实 D-059，V-13 结论）**
+- `registerAccount` 在单个事务中按“邀请人 → 邀请码”的锁序占位（条件更新 `use_count` 与 `invites_used`），写入 registration，账号第一次 INSERT 就带 `registration_id` 并保持 pending，随后建立双向关联、转 confirmed，创建验证凭证和 email work_item，写幂等记录和审计。口令哈希在取锁前计算，并且总会计算，已有邮箱与新邮箱耗时一致。已有邮箱返回与成功相同的通用响应，不占名额；用户名冲突返回 409。`reserved`/`account_created` 状态与对账器（`reconcileRegistrations`）仍保留，用来恢复多步创建。
+- 证据（AT-05）：在 registration / accounts / auth_challenges / work_items / audit_logs 各自的 INSERT 上用触发器注入失败，整体回滚、名额不变，同一请求在故障消除后仍可成功；同一单次码 6 个并发恰好 1 人成功；额度 2 的成员 5 个并发恰好 2 人；两个码抢同一邮箱只建 1 个账号、只占 1 个名额；对账器的释放与退额度只发生一次。
+- 放弃：延迟外键的多步流程（共享事务做得到时不需要）；after hook。
+
+**D-097 数据库拥有者账号与应用账号分离（落实 04 约定）**
+- 新增 `DATABASE_OWNER_URL(_TEST)`；`DATABASE_URL(_TEST)` 是无特权的 `chatapp_app`。迁移、bootstrap、CLI、测试清表用拥有者；`db:migrate` 迁移后幂等创建并授权应用账号（默认权限覆盖以后新增的表）。API 与 worker 启动自检：未 bootstrap 就拒绝启动，生产里账号有特权也拒绝。`bun run setup` 会把旧布局一次性转成新布局并补齐模板新增的键。
+- 证据：集成测试用应用账号连接，并断言它不能建表、改表、truncate、建角色、读迁移记录。
+
+**D-098 限流用自有 Valkey 限流器，失败即关闭（落实 SEC-11；修正 03/07 里“Better Auth 限流计数存 Valkey”的说法）**
+- 固定窗口，INCR 与 PEXPIRE 在同一个 Lua 脚本里；键含环境；主体是 IPv6 按 /64 分组后的 IP，或账号邮箱的 HMAC 摘要。Valkey 不可用时返回 503 + Retry-After，不放行。不使用 Better Auth 内置限流，也不使用 `secondaryStorage`（它会让会话读取走缓存，违背“每次请求查当前会话”）。
+- 匿名“请求”类端点（验证重发、找回）至少耗时 300 ms，已有账号与未知邮箱的响应时间相同。
+
+**D-099 `users.account_source` 与 INV-18 的 CHECK**
+- `account_source ∈ {registration, cli, bootstrap}`。CHECK：active 必须 email_verified；只有 registration 来源的账号带 registration_id，并且从第一次 INSERT 起就带。CLI/bootstrap 是 INV-18 里“受审计的例外”，创建时写审计行。
+
+**D-100 会话与 Cookie 的实现结论（V-04、V-05、V-13）**
+- UUID（V-04）：`advanced.database.generateId` 注入 UUIDv7 后，SDK 创建的行（会话、passkey 挑战）用 uuid 主键工作正常；Drizzle 适配器要求 `usePlural`，并可用 `transaction: true` 让整个原生流程共享一个事务。
+- Cookie（V-05）：SDK 默认会生成 `__Secure-` 前缀。要得到 `__Host-`，必须 `useSecureCookies: false`，自己给出名字 `__Host-chatapp.session_token` 并显式设置 `secure`、`path=/`、不设 Domain。https 下实测通过；http 开发环境使用无前缀名。M7 在真实 Nginx 下再复核。
+- 会话令牌在库里是明文，Cookie 值是 `令牌.签名`；因此备份加密与数据库访问限制是硬性要求（04 已写）。
+- 会话带 `auth_epoch` 与 `authorization_origin_id`（SDK 的 additionalFields，`input: false`）：`session.create.before` 钩子在建会话时同时做账号状态闸门并创建 origin；每次请求再由 `resolveSessionPrincipal` 复核账号状态、epoch、origin 与 restore_epoch，写入路径在事务里用 `lockAndRevalidate`（先锁用户行）再次复核。
+
+**D-101 请求预算、路径规范化与日志的实现（落实 D-077、D-078）**
+- 请求预算中间件在任何解析之前读取并计数：不信 Content-Length，总时限 15 s、空闲 5 s，超限 413，压缩 415，Content-Type 只认 UTF-8 JSON，Content-Length 与 Transfer-Encoding 同时出现 400，非法 UTF-8 或 JSON 422。读完后把文本预填进 Hono 的 `bodyCache`，校验器与处理器不再碰原始流（有测试固定这一行为）。Bun 的 `maxRequestBodySize` 暂设 1 MiB；M3 上传需要为该路由放宽，并保持流式计数。
+- 路径守卫：路径含 `%`、`//` 或反斜杠一律 404；点段在 URL 解析时已被规范化，所有层看到同一个 URL，不存在解析差异。
+- 日志：pino 只接受白名单字段；路由记匹配到的模式，通配则记 `unknown`；Drizzle 包装的错误消息里带 SQL 和参数值，所以错误只记类名、SQLSTATE、约束名和栈帧。AT-26 的哨兵测试覆盖成功、4xx、413、415、422、429 与 500。
+
+**D-102 WebSocket 网关：先接受升级再按码关闭，持久撤权加 5 秒复核（落实 05 第 4 节）**
+- Origin、限流和会话在升级前判定，随后接受升级并以 4403/4401/4429/1013 关闭（浏览器看不到被拒升级的 HTTP 状态）。连接绑定 sessionId、originId 与 authEpoch。撤销（退出、设备、改密、重置）在同一事务里写 `realtime` work_item，worker 的 dispatcher 发布到 `events:{env}`，网关立即复核（真实进程走查中退出后 58 ms 关闭，集成测试要求 < 2 s）；hint 丢失时每 5 秒批量复核（实测 ≤ 6 s），复核查询失败即 1013 关闭。帧 64 KiB、每 10 秒 200 条、每用户 10 连接、25 秒心跳、60 秒无响应 4408、256 KiB 发送缓冲。
+- 未做：topic 订阅与 Hub（M2），presence/typing（M2b）。
+
+**D-103 隔离故障环境的实现（落实 D-085，AT-34）**
+- `compose.test.yml` 每次运行一个独立 compose 项目（`chatapp-test-<runId>`），随机密码，每次运行选定后固定的随机回环端口（必须固定：容器重启后 Docker 会重新分配随机端口）；清单 `.test-runs/<runId>/manifest.json` 权限 600、不入库。注入前逐项验证：`APP_ENV=test`、project 与 run-id 标签、完整容器 id、卷与网络标签、只绑 127.0.0.1 且不含开发端口、库名 `chatapp_test`、在三个服务里读回的随机实例标记；动作只经 `act()`，每次重新核对标签；清理只对该项目执行 `compose down -v`，核验失败就什么也不删，也不使用 prune。
+- 证据：`bun run test:fault`（11 项）。开发服务带哨兵，对测试实例 kill Postgres、FLUSHALL Valkey、重启，开发容器的 id 与 StartedAt、哨兵都不变；伪造目标（APP_ENV、开发容器 id、开发端口、错误项目或 run-id、库名、实例标记、开发卷、清单权限与位置）全部被拒且无副作用；对列出开发卷的伪造清单做清理被拒。
+- 已观察到：Docker Desktop 重启后测试容器处于 Exited，清理仍必须成功，所以拆除时允许已停止的容器（只放宽端口检查，标签、id、卷、网络检查不放宽）。
+- 已观察到（2026-10-02）：有一次，Docker Desktop 把 Garage 单文件绑定挂载的 `Source` 报成它的内部路径 `/run/desktop/mnt/host/wsl/docker-desktop-bind-mounts/...`，自检按设计拒绝，半起的实例按项目名拆除，没有残留；同一环境里 `docker run`/`compose` 的探针都报告原始路径，几分钟后重跑 11 项全部通过，原因未查明。结论：不放宽“绑定挂载必须在本次运行目录内”这一检查（它防的是对错误容器做破坏性操作，误拒绝的代价只是重跑），只在拒绝信息里提示重跑。
+
+**D-104 M1a 依赖版本锁定（落实 03 第 2 节“开工时再核对”，V-07 结论）**
+- Drizzle 1.0 仍是 RC（`latest` 是 drizzle-orm 0.45.3、drizzle-kit 0.31.11）→ 用 0.45.3。其余精确版本：better-auth 与 @better-auth/passkey 1.7.7（03 原写 1.7.6）、hono 4.13.12、@hono/zod-openapi 1.6.3、zod 4.6.5、bullmq 6.3.11（ioredis 是它的可选 peer，显式安装 6.0.0）、pino 10.3.1、nodemailer 10.0.13（自带类型，不装 @types）、@scalar/hono-api-reference 0.12.8。
+- 常见弱密码表（SEC-10）：内置 SecLists/NCSC 前十万常用密码中长度 ≥10 的 9,104 条，加结构规则（重复、序列、含邮箱前缀/用户名/显示名/产品名）；登录不应用该规则。
+
+**D-105 依赖告警例外：esbuild 0.18.20（GHSA-67mh-4wv8-2f99，2026-10-02）**
+- `bun audit` 全量有 1 条 moderate：`drizzle-kit@0.31.11 → @esbuild-kit/esm-loader → @esbuild-kit/core-utils（已废弃，并入 tsx）→ esbuild@0.18.20`；告警内容是 esbuild 开发服务器（`serve`）允许任意网站发请求并读取响应（影响 ≤0.24.2）。drizzle-kit 0.31.11 是最新稳定版（更新的都是 1.0 beta，按 D-104 不用），没有可升级的路径；它只用 esbuild 的转换接口，不启动开发服务器，而且是 `packages/db` 的开发依赖，不会进入生产镜像。
+- 处理：CI 的 `bun audit --audit-level=high` 本地通过；`osv-scanner` 默认会报这一条，所以在 `bun.lock` 同目录的 `osv-scanner.toml` 里登记例外，写明理由，到期日 2027-01-01（到期后会重新报警）。drizzle-kit 1.0 稳定后升级，并删除这条例外。
+- 没有用 `overrides` 强行换版本：那条 loader 链路已被上游废弃，强换的收益只是消掉一条不可达的告警，却可能让 `db:generate` 出现不易察觉的问题。
+- **未验证**：本机没有安装 osv-scanner（装软件要先征得同意），配置格式按官方文档核对，远端首次运行结果待核对。
+
 ## 待验证事项（结论出来后补成新的决策记录）
 
 | 编号 | 事项 | 在哪个里程碑验证 |
@@ -565,16 +627,16 @@ Base UI 提供无障碍的交互原语（菜单、弹窗、焦点管理等）；
 | V-01 | DeepSeek 五项实测，外加思考/图片可计费 token 上界与 unknown 请求策略；不可靠模态不得先开放站点付费调用 | M1a 后冒烟，M4 准入验收 |
 | V-02 | SDK 审批、修改参数与持久恢复；失败时显式工具循环适配，不能取消审批 | M4 原型，M5a 验收 |
 | V-03 | 本地向量模型能否达标，能否在 Bun 里运行 | M5b |
-| V-04 | Better Auth 能否使用 uuid 主键和 UUIDv7 | M1a |
-| V-05 | Better Auth 能否使用 `__Host-` 前缀的 Cookie | M1a / M7 |
+| V-04 | Better Auth 能否使用 uuid 主键和 UUIDv7 **→ 2026-10-01 通过（D-100）。** | M1a |
+| V-05 | Better Auth 能否使用 `__Host-` 前缀的 Cookie **→ 2026-10-01 https 下通过，`__Host-` 需 `useSecureCookies:false` 加自定义名（D-100）；M7 在真实网关下复核。** | M1a / M7 |
 | V-06 | 能否开启 Trusted Types（已并入 V-08，提前到 M2b） | M2b |
-| V-07 | Drizzle 1.0 是否已正式发布 | M1a |
+| V-07 | Drizzle 1.0 是否已正式发布 **→ 2026-10-01 结论：1.0 仍是 RC，用 0.45.3（D-104）。** | M1a |
 | V-08 | Markdown 渲染管线在最终 CSP 下能否正常工作；是否开启 Trusted Types（D-047） | M2b |
 | V-09 | react-virtuoso 能否胜任聊天场景：向上加载历史、图片加载后变高、流式文本不断变长（先做一个小实验） | M2b |
 | V-10 | 网页推送在中国大陆网络下能否送达（Chrome、Edge、Safari 分别测） | M6 |
 | V-11 | QQ/163 验证与重置邮件送达，记录网络、延迟、垃圾箱；缺域名/SMTP 时记阻塞 | 凭据齐备即测，M8 必过 |
-| V-12 | 实际 arm64 Debian 原生依赖与峰值资源；onnxruntime/Bun 失败改 Node 子进程，模型不达标换备选 | M1a 基础冒烟，M3/M5b 实测 |
-| V-13 | 精确认证路由白名单、UUID/受控字段、首次 INSERT 注册关联与锁；一次性验证/重置凭证绑定注册实例和 restore_epoch；认证事务与设备 origin/委托撤销；原生 JWT 和管理路径不可旁路 | M1a 首个阻断性实验 |
+| V-12 | 实际 arm64 Debian 原生依赖与峰值资源；onnxruntime/Bun 失败改 Node 子进程，模型不达标换备选 **→ M1a：arm64 CI 冒烟已写入 check 工作流（arm64-smoke），尚无远端运行结果；真实 ARM 资源数据仍待 M3/M5b。** | M1a 基础冒烟，M3/M5b 实测 |
+| V-13 | 精确认证路由白名单、UUID/受控字段、首次 INSERT 注册关联与锁；一次性验证/重置凭证绑定注册实例和 restore_epoch；认证事务与设备 origin/委托撤销；原生 JWT 和管理路径不可旁路 **→ 2026-10-01 M1a 实验通过（D-094–D-096、D-100、D-101，AT-04/05/25/26/27/28 契约部分的证据见 PROGRESS）；Passkey 完整仪式需浏览器，留到 M1b 验证。** | M1a 首个阻断性实验 |
 | V-14 | Playwright 的 `setOffline` 能否断开已经建立的 WebSocket；不能的话，改用服务端测试接口或 `routeWebSocket` | M2a |
 | V-15 | pg_trgm 处理 2 个字的中文查询时的实际性能（EXPLAIN），必要时改用 pg_bigm | M4 |
 | V-16 | 各个快捷键在 Chrome、Edge、Safari、Firefox 的标签页和 PWA 窗口里是否可用 | M1b / M6 |
