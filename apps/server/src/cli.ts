@@ -7,15 +7,22 @@
  *   bun apps/server/src/cli.ts admin:verify-email --email E                    mark an email as verified (audited)
  * Secrets are never printed. Run through the root scripts, which load .env.local.
  */
+import { AppError, LIMITS } from '@chatapp/contracts'
 import { runBootstrap } from '@chatapp/db/bootstrap'
 import { createDatabase } from '@chatapp/db/client'
 import { runMigrations } from '@chatapp/db/migrate'
 import { sdkPasswords } from './auth/passwords.ts'
 import { readSecret } from './cli/secret-prompt.ts'
 import { type Config, ConfigError, loadConfig } from './config/index.ts'
-import { createAccountFromCli } from './domain/admin.ts'
+import {
+  type CheckedIdentity,
+  checkAccountFields,
+  checkAccountPassword,
+  createAccountFromCli,
+} from './domain/admin.ts'
 import { verifyEmailManually } from './domain/credentials.ts'
 import type { Deps } from './domain/deps.ts'
+import type { PasswordProblem } from './domain/password-policy.ts'
 import { systemClock } from './lib/clock.ts'
 import { silentLogger } from './lib/logger.ts'
 import { uuidv7 } from './runtime/ids.ts'
@@ -91,24 +98,60 @@ function cliDeps(config: Config, db: Deps['db']): Deps {
   }
 }
 
+const FIELD_RULES = {
+  email: 'a valid email address',
+  username: `${LIMITS.usernameMinLength} to ${LIMITS.usernameMaxLength} characters; lower-case letters, digits and underscores only`,
+  name: `1 to ${LIMITS.displayNameMaxGraphemes} characters, no control or invisible characters`,
+} as const
+
+/** Why a password was refused. Says what rule it broke, never what was typed. */
+const PASSWORD_ADVICE: Record<PasswordProblem, string> = {
+  too_short: `use at least ${LIMITS.passwordMinLength} characters`,
+  too_long: `use at most ${LIMITS.passwordMaxLength} characters`,
+  too_common: 'it is on the list of common passwords',
+  too_simple: 'it is too simple (repeated or sequential characters, or too few different ones)',
+  contains_identity: 'it contains your email name, username, display name or the product name',
+}
+
+/** Asks until the password is acceptable: three tries at a terminal, one for a piped password. */
+async function promptNewPassword(config: Config, identity: CheckedIdentity): Promise<string> {
+  const tries = process.stdin.isTTY ? 3 : 1
+  for (let attempt = 1; attempt <= tries; attempt += 1) {
+    const password = await readSecret('Password: ')
+    const problem = checkAccountPassword(config.product, identity, password)
+    if (problem !== null) {
+      console.error(`password not accepted: ${PASSWORD_ADVICE[problem]}`)
+    } else if (!process.stdin.isTTY || password === (await readSecret('Repeat password: '))) {
+      return password
+    } else {
+      console.error('passwords do not match')
+    }
+  }
+  return fail('no acceptable password was entered')
+}
+
 async function adminCreate(config: Config): Promise<void> {
-  const email = requireOption('email')
-  const username = requireOption('username')
-  const displayName = requireOption('name')
-  const password = await readSecret('Password: ')
-  if (process.stdin.isTTY && password !== (await readSecret('Repeat password: ')))
-    fail('passwords do not match')
+  // The fields are checked with the registration rules before any password is asked for.
+  const checked = checkAccountFields(config.product, {
+    email: requireOption('email'),
+    username: requireOption('username'),
+    displayName: requireOption('name'),
+  })
+  if (!checked.ok) {
+    const { field, reason } = checked.problem
+    fail(`--${field}: ${reason}\n  rule: ${FIELD_RULES[field]}`)
+  }
+  const identity = checked.value
+  const password = await promptNewPassword(config, identity)
   const { db, close } = createDatabase(ownerUrl(config), { max: 2, applicationName: 'chatapp-cli' })
   try {
     const created = await createAccountFromCli(cliDeps(config, db), {
-      email,
-      username,
-      displayName,
+      ...identity,
       password,
       role: 'admin',
       actor: 'cli',
     })
-    console.log(`administrator "${username}" created (${created.id})`)
+    console.log(`administrator "${identity.username}" created (${created.id})`)
   } finally {
     await close()
   }
@@ -176,6 +219,15 @@ try {
   await run(loadConfig(process.env))
 } catch (error) {
   if (error instanceof ConfigError) fail(error.message)
+  // Our own errors carry text we wrote plus the offending field and rule; database errors can quote submitted values.
+  if (error instanceof AppError) {
+    const { field, reason } = error.details ?? {}
+    const where =
+      typeof field === 'string'
+        ? ` (${field}${typeof reason === 'string' ? `: ${reason}` : ''})`
+        : ''
+    fail(`${command} failed: ${error.message}${where}`)
+  }
   // Database errors can quote submitted values; show only the class name and a short code.
   const name = error instanceof Error ? error.name : 'Error'
   const code = (error as { code?: unknown }).code
