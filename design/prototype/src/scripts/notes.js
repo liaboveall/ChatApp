@@ -40,7 +40,7 @@ export const NOTE_PAGES = [
   { id: 'contrast', label: '对比度', icon: 'contrast', hint: 'AT-21' },
   { id: 'glass', label: '玻璃对照板', icon: 'layers', hint: 'AT-21' },
   { id: 'fonts', label: '字体对比', icon: 'type', hint: 'D1' },
-  { id: 'icon', label: '应用图标', icon: 'app-window', hint: '草案' },
+  { id: 'icon', label: '应用图标', icon: 'app-window', hint: '选 A' },
   { id: 'components', label: '组件', icon: 'sliders-horizontal', hint: 'D5' },
 ]
 
@@ -217,9 +217,9 @@ function principles() {
           ],
         ],
       ),
-      banner('warning', 'triangle-alert', [
-        h('b', '需要你确认（D4）：'),
-        '规格里「清透 45%」放在工具栏和输入栏上，文字对比度无法保证（背后是纯黑图片时只有约 3.5:1）。我按规格里允许的做法处理：文字承载层取不低于上面这个值，档位主要影响侧栏。如果你更想要通透感，可以放宽，代价是个别背景下的文字会不达标。',
+      banner('info', 'info', [
+        h('b', 'D4 已确认（2026-10-02，D-109）：'),
+        '规格里「清透 45%」放在工具栏和输入栏上，背后是纯黑图片时浅色玻璃上的次要文字只有 1.50:1，保证不了对比度。所以文字承载层不低于上面这个值，四档透明度只影响侧栏。想要更通透，要先放宽这个下限，代价是个别背景下的文字不达标。',
       ]),
     ),
   ]
@@ -297,7 +297,7 @@ function tokens() {
   })
   return [
     pageHead(
-      '设计令牌（D2 候选）',
+      '设计令牌（D4 已确认）',
       '下面的值由 tools/tokens.mjs 生成，同一份数据驱动样式、对比度脚本和这些表格。规格里写死的值保持不变，规格没定的值用脚本算出并标注。',
     ),
     section('颜色：表面、文字、控件', table(['令牌', '浅色', '深色'], neutralRows)),
@@ -572,6 +572,11 @@ function fonts() {
       widthWith(`"${name}", serif`) !== widthWith('serif')
     )
   }
+  // Inter is embedded in the page, so it counts as available even before its first use decodes it.
+  const found = (n) => {
+    if (n === 'Inter') return '内嵌'
+    return probe(n) ? '有' : ''
+  }
   const names = [
     'SF Pro Text',
     'Segoe UI Variable Text',
@@ -586,20 +591,20 @@ function fonts() {
   ]
   return [
     pageHead(
-      '字体对比（D1）',
-      'Windows 上没有 SF 字体。这里比较两种方案：系统字体栈（Windows 11 是 Segoe UI Variable），和 Inter（OFL 协议，只含拉丁字符；Apple 设备上仍然先用 SF）。中文始终用系统字体。',
+      '字体对比（D1，D4 选 Inter）',
+      'Windows 上没有 SF 字体。D1 比较了两种方案：系统字体栈（Windows 11 是 Segoe UI Variable），和 Inter（OFL 协议，只含拉丁字符；Apple 设备上仍然先用 SF）。D4（2026-10-02）选定 Inter，中文始终用系统字体。',
     ),
     h(
       'div.n-compare',
       sample(
         fontStacks.system,
-        '方案 A：系统字体栈',
+        '方案 A：系统字体栈（原先的规格）',
         'system-ui, -apple-system, BlinkMacSystemFont, "PingFang SC", "Segoe UI Variable Text", …',
       ),
       sample(
         `${fontStacks.inter}`,
-        '方案 B：Inter 在前',
-        '-apple-system, BlinkMacSystemFont, "Inter", "PingFang SC", …（Inter 已内嵌，不需要联网）',
+        '方案 B：Inter 在前（D4 选定）',
+        '-apple-system, BlinkMacSystemFont, "Inter", system-ui, "PingFang SC", …（Inter 已内嵌，不需要联网）',
       ),
     ),
     section(
@@ -614,14 +619,14 @@ function fonts() {
               'div',
               { style: { display: 'flex', justifyContent: 'space-between', gap: '8px' } },
               h('span.t-callout', n),
-              probe(n) ? h('span.n-pass', icon('check', 14), '有') : h('span.n-fail', '没有'),
+              found(n) ? h('span.n-pass', icon('check', 14), found(n)) : h('span.n-fail', '没有'),
             ),
           ),
         ),
       ),
       h(
         'p.t-sub.t-secondary',
-        '检测方式是比较渲染宽度，Inter 是内嵌的拉丁子集，不需要联网；只有在下面的开关打开后才会被用到。',
+        '检测方式是比较渲染宽度。Inter 是内嵌的拉丁子集，不需要联网；整个界面默认使用它，下面的开关切到「系统字体」后就不再用到。',
       ),
     ),
     h(
@@ -641,7 +646,7 @@ function fonts() {
     banner(
       'info',
       'info',
-      '结论要在 Windows（Chrome、Edge）和 macOS（Safari）上对比后才能写进规格。先看这里的两栏，再用上面的开关把整个应用换成 Inter 比较消息列表的实际观感。',
+      'D4 已选定 Inter（2026-10-02，D-113）：拉丁字母和数字用 Inter，中文用系统字体，Apple 设备上仍然先用 SF。上面的开关留着方便对比。',
     ),
   ]
 }
@@ -657,6 +662,7 @@ function iconPage() {
           'div.n-icon-tile',
           h('div.n-icon-stage', appIcon(key, 160, v.name), safe ? h('i.n-safe') : null),
           h('b', v.name),
+          v.chosen ? h('span.n-pass', icon('check', 14), 'D4 选定') : null,
           h(
             'div',
             { style: { display: 'flex', gap: '10px', alignItems: 'flex-end' } },
@@ -669,8 +675,8 @@ function iconPage() {
   draw()
   return [
     pageHead(
-      '应用图标草案',
-      '给 M6 的 PWA 用。三个方向，都是原创图形，没有用 Apple 的图标或 SF Symbols。选一个或告诉我怎么混合，定稿后再导出 192、512、maskable 和 favicon。',
+      '应用图标（D4 选 A）',
+      'D4（2026-10-02）暂定 A，B 和 C 留作对比。三个方向都是原创图形，没有用 Apple 的图标或 SF Symbols。导出 192、512、maskable 和 favicon 在 M6 的 PWA 里做，到时还可以调整。',
     ),
     h(
       'div',

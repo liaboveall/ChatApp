@@ -195,11 +195,13 @@ export const type = {
 }
 
 export const fontStacks = {
+  // The stack the spec had before D4. It stays only for the comparison switch (data-font="system").
   system:
     'system-ui, -apple-system, BlinkMacSystemFont, "PingFang SC", "Segoe UI Variable Text", "Segoe UI", "Microsoft YaHei UI", "Noto Sans SC", sans-serif',
-  // Inter only covers Latin. Apple platforms still hit the system font first; CJK always falls through to system fonts.
+  // The stack D4 chose (2026-10-02, docs/12 D-113). Inter only covers Latin: Apple platforms still hit their system
+  // font first, Latin falls back to system-ui while Inter loads, and CJK always comes from the system fonts.
   inter:
-    '-apple-system, BlinkMacSystemFont, "Inter", "PingFang SC", "Microsoft YaHei UI", "Noto Sans SC", sans-serif',
+    '-apple-system, BlinkMacSystemFont, "Inter", system-ui, "PingFang SC", "Segoe UI Variable Text", "Segoe UI", "Microsoft YaHei UI", "Noto Sans SC", sans-serif',
   mono: 'ui-monospace, "SF Mono", "Cascadia Code", Menlo, Consolas, monospace',
 }
 

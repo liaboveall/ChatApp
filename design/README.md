@@ -1,6 +1,6 @@
 # 设计原型（D 阶段）
 
-ChatApp v2 的可点击设计原型，对应 [docs/02-design-system.md](../docs/02-design-system.md) 第 9 节的 D1 到 D4。它是评审用的**参考实现，不是产品代码**：M1b 会按它用 React、Tailwind 和 Base UI 重新实现。D 阶段的成果、候选令牌和待确认的事见 02 的[第 10 节](../docs/02-design-system.md#10-d-阶段成果2026-10-02候选值待-d4-确认)。
+ChatApp v2 的可点击设计原型，对应 [docs/02-design-system.md](../docs/02-design-system.md) 第 9 节的 D1 到 D4。它是评审用的**参考实现，不是产品代码**：M1b 会按它用 React、Tailwind 和 Base UI 重新实现。D 阶段的成果和用户在 D4（2026-10-02）确认的令牌见 02 的[第 10 节](../docs/02-design-system.md#10-d-阶段成果2026-10-02d4-已确认)；确认后的值已并入 02 的第 2 到 7 节。
 
 ## 看原型
 
@@ -52,8 +52,8 @@ design/prototype/tools/browser-checks/run.sh fonts      # 字体比较
 
 ## 约定
 
-- 颜色只用令牌；改令牌先改 `tools/tokens.mjs`，再跑 `bun run design:contrast`，通过才算改完。
-- 玻璃只有三种（见 02 第 10.2 节）；同屏至多 4 个 `backdrop-filter` 层。
+- 颜色只用令牌；改令牌先改 `tools/tokens.mjs`，再跑 `bun run design:contrast`，通过才算改完。令牌已在 D4 确认，改动要同步 02 和 12（D-113）。
+- 玻璃只有三种（见 02 第 2 节）；同屏至多 4 个 `backdrop-filter` 层。
 - 新增图标：把名字加到 `tools/icons.list`，用 `gen-icons.mjs` 重新生成（需要解开的 lucide-static 包路径）。
 - 不引入 `innerHTML` 和同类写法（项目规则 SEC-05）；原型的 Markdown 渲染器自己解析，只支持规格里的子集。
 - Biome 对 `design/**` 关闭了四条风格规则（逗号表达式、表达式内赋值、`!important`、选择器特异性顺序），其余规则照常。

@@ -28,12 +28,6 @@ body {
   height: 100%;
 }
 
-:root[data-font="inter"] {
-  --font-sans:
-    -apple-system, BlinkMacSystemFont, "Inter", "PingFang SC", "Microsoft YaHei UI", "Noto Sans SC",
-    sans-serif;
-}
-
 button,
 input,
 textarea,

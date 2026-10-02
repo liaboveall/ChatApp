@@ -73,7 +73,7 @@ export function tokensCss() {
     add(`lh-${key}`, `calc(${line / 16}rem * var(--type-scale))`)
     add(`fw-${key}`, String(weight))
   }
-  add('font-sans', fontStacks.system)
+  add('font-sans', fontStacks.inter)
   add('font-mono', fontStacks.mono)
 
   for (const [key, spring] of Object.entries(springs)) {
@@ -101,6 +101,9 @@ export function tokensCss() {
   color-scheme: light;
 }`,
   )
+
+  // The comparison switch in the review bar: Inter is the default, this puts the pre-D4 stack back.
+  out.push(`:root[data-font="system"] {\n  --font-sans: ${fontStacks.system};\n}`)
 
   for (const key of Object.keys(accents)) {
     out.push(

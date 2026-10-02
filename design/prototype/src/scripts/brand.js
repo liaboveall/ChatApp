@@ -127,8 +127,10 @@ function iconC(id) {
   ]
 }
 
+// D4 (2026-10-02, docs/12 D-113) picked A: it is the only one that stays recognizable at 16-32 px and on both
+// light and dark backgrounds. B and C stay for comparison.
 export const ICON_VARIANTS = {
-  a: { name: 'A · 气泡与星', build: iconA },
+  a: { name: 'A · 气泡与星', build: iconA, chosen: true },
   b: { name: 'B · 叠层玻璃', build: iconB },
   c: { name: 'C · 环形气泡', build: iconC },
 }
