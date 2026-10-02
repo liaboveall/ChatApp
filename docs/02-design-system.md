@@ -1,6 +1,6 @@
 # 02 设计规范（Apple Liquid Glass 风格，桌面优先）
 
-> 设计阶段 D 已在 **2026-10-02** 定稿：用户在 D4 确认了视觉和交互（D-113），确认的值已并入下面的第 2 到 7 节。依据、实测数据和没有验证的事见[第 10 节](#10-d-阶段成果2026-10-02d4-已确认)。M1b 起把组件落到 Storybook。
+> 设计阶段 D 已在 **2026-10-02** 定稿：用户在 D4 确认了视觉和交互（D-113），确认的值已并入下面的第 2 到 7 节。依据、实测数据和没有验证的事见[第 10 节](#10-d-阶段成果2026-10-02d4-已确认)。M1b（2026-10-03）已把第一批组件落到 Storybook，见第 8 节。
 > 可点击原型在 `design/prototype/`，只是评审用的参考实现；它和本文冲突时以本文为准。令牌的数据源是 `design/prototype/tools/tokens.mjs`，改令牌要先过 `bun run design:contrast`（D-111）。
 
 ## 1. 风格来源
@@ -111,7 +111,7 @@
 
 ## 4. 设计令牌（D4 确认）
 
-以 Tailwind v4 的 `@theme` 变量实现，颜色使用 OKLCH，深浅模式通过 `light-dark()` 切换。原型里的数据源 `tools/tokens.mjs` 生成 CSS，并驱动 `bun run design:contrast`（3018 组对比度检查）；M1b 把它移进 `apps/web` 时保留这个脚本，改令牌必须先过它（D-111）。
+以 Tailwind v4 的 `@theme` 变量实现，颜色以 sRGB 的十六进制或 `rgb()` 书写（D 阶段的令牌表即如此，对比度脚本按 sRGB 计算；这里原先写的 OKLCH 没有采用），深浅模式通过 `light-dark()` 切换。数据源是 `apps/web/src/design/tokens.ts`（M1b 起，D-114）：它生成运行时 CSS 和 Tailwind 主题，并驱动 `bun run design:contrast`（3018 组对比度检查，包含在 `bun run check` 里）；改令牌必须先过它（D-111）。原型里的 `tools/tokens.mjs` 只是转出口。
 
 ### 4.1 颜色（语义命名，仿照 Apple 系统色的思路）
 
@@ -186,7 +186,7 @@ D4 确认（2026-10-02，D-113）：**拉丁字母和数字用 Inter，中文用
 
 - **正文字体栈**：`-apple-system, BlinkMacSystemFont, "Inter", system-ui, "PingFang SC", "Segoe UI Variable Text", "Segoe UI", "Microsoft YaHei UI", "Noto Sans SC", sans-serif`
 - **等宽字体栈**：`ui-monospace, "SF Mono", "Cascadia Code", Menlo, Consolas, monospace`
-- **Inter 自托管**：OFL 1.1 许可证，取 `@fontsource-variable/inter` 的拉丁子集（variable，约 48 KB），`font-display: swap`，随产物附带许可证文本。CSP 的 `font-src 'self'` 已够用（07 SEC-06）。M1b 里把 woff2 放进 `apps/web` 的静态资源并预加载。
+- **Inter 自托管**：OFL 1.1 许可证，取 `@fontsource-variable/inter` 的拉丁子集（variable，约 48 KB），`font-display: swap`，随产物附带许可证文本。CSP 的 `font-src 'self'` 已够用（07 SEC-06）。M1b 已完成：woff2 在 `apps/web/src/assets/fonts/`（48 KB，随构建带哈希），`index.html` 里预加载，许可证文本在 `public/licenses/Inter-OFL.txt`。
 - **解析顺序**：Apple 设备上 `-apple-system` 排在最前，所以用 SF，Inter 不会被用到；Windows 和 Linux 上拉丁字母和数字用 Inter，Inter 加载前先用 `system-ui`；中文始终用系统字体（PingFang SC、Microsoft YaHei UI、Noto Sans SC）。
 - 除 Inter 外**不下载任何字体文件**，也不打包 SF Pro / SF Mono（第 1 节的红线）。
 - 比较数据见第 10.4 节：Inter 的宽度是系统字体栈的约 99%，换字体几乎不改变布局。
@@ -221,7 +221,7 @@ D4 确认（2026-10-02，D-113）：**拉丁字母和数字用 Inter，中文用
 | `bouncy` | stiffness 400, damping 22 | 新消息插入、发送 |
 | 淡入淡出 | 150–250 ms | 提示、遮罩 |
 
-原型把三个弹簧的精确解导出成 CSS `linear()`，时长约 snappy 392 ms、smooth 506 ms、bouncy 631 ms（算法在 `tokens.mjs`）；M1b 用 Motion 13 驱动时参数不变。
+原型把三个弹簧的精确解导出成 CSS `linear()`，时长约 snappy 392 ms、smooth 506 ms、bouncy 631 ms（算法在 `tokens.mjs`）；M1b 用 Motion 14 驱动，参数不变（用到的 `layoutId` 和 `MotionConfig reducedMotion` 在 14 上正常，D-115）；系统的「减少动态效果」和设置里的开关都会让它退化为淡入淡出。
 
 - **切换路由和会话**：优先用 View Transitions API 做过渡，浏览器不支持时直接切换。
 - **元素入场**：用 `@starting-style` 实现。
@@ -318,6 +318,8 @@ D4 确认（2026-10-02，D-113）：**拉丁字母和数字用 Inter，中文用
 
 ## 8. 组件清单（M1b 起在 Storybook 中逐个实现）
 
+**M1b 已实现（2026-10-03）**：基础——Button（filled、tinted、plain、glass）、IconButton、TextField、PasswordField、Switch、Checkbox、SegmentedControl、Slider、Badge、Avatar、Tooltip、Menu、Dialog（含 Sheet 形态）、Toast、Skeleton、Spinner、Banner、EmptyState（含错误形态）；布局——AppShell、Sidebar、Toolbar、Inspector（占位）、Splitter、Wallpaper；CommandPalette；应用图标（方向 A）；页面——登录、注册、验证邮箱（含发送后页）、找回密码、重置密码、设置面板（外观、账号、邀请）。每个组件都有 Storybook 的 story，浅色与深色的截图基线（64 张）在 Playwright 官方镜像里生成和比较（D-123）。**尚未实现，等用到它们的里程碑**：SearchField、TextArea、ContextMenu、Popover，以及下面的聊天、Agent、通知组件和 AdminConsole。
+
 每个组件都要展示以下状态：默认、悬停、按下、聚焦、禁用、加载、空、错误、长内容、深色模式。
 
 M1b 只实现 M1b 页面用到的组件，主要是"基础"和"布局"两组中的一部分。其余组件在用到它们的里程碑再实现（D-053）。
@@ -344,7 +346,7 @@ M1b 只实现 M1b 页面用到的组件，主要是"基础"和"布局"两组中�
 | D4 评审迭代 | 修改记录 | **用户确认视觉和交互** |
 | D5 组件落地 | 在 M1b 中完成第一批 Storybook 组件 | M1b 页面用到的组件完成 |
 
-**状态（2026-10-02）**：D1 到 D4 已完成，用户在 D4 确认（见第 10.6 节和 D-113）；D5 在 M1b。
+**状态（2026-10-03）**：D1 到 D4 已完成，用户在 D4 确认（见第 10.6 节和 D-113）；D5 在 M1b 完成实现（第一批组件见第 8 节），**等用户在浏览器里看过应用外壳、确认与原型一致**才算收尾。
 
 **D3 原型要包含的界面**
 - 登录页、带邀请码的注册页；

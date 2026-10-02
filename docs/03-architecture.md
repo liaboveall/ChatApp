@@ -32,7 +32,7 @@ Events: api/worker ──publish──▶ Valkey channel "events:{APP_ENV}" ─�
 
 ## 2. 技术栈与版本
 
-以下版本于 2026-09-30 在 npm、Docker Hub、endoflife.date 上核实。**M1a 开工时要再核对一次**，锁定当时的最新稳定版（精确版本加锁文件）。原则上不用 beta 或 RC，例外会在表中注明。M1a 已于 2026-10-01 核对并锁定，见 D-104。
+以下版本于 2026-09-30 在 npm、Docker Hub、endoflife.date 上核实。**每个里程碑开工时要再核对一次**，锁定当时的最新稳定版（精确版本加锁文件）。原则上不用 beta 或 RC，例外会在表中注明。M1a 已于 2026-10-01 核对并锁定（D-104）；前端部分（2.2、2.3）于 M1b 在 2026-10-03 核对，`apps/web` 的 36 个依赖都等于 npm 的 `latest` 标签（D-115）。
 
 ### 2.1 运行时与后端
 
@@ -63,17 +63,18 @@ Events: api/worker ──publish──▶ Valkey channel "events:{APP_ENV}" ─�
 | 用途 | 选型 | 版本 |
 |---|---|---|
 | UI 框架 | React + React Compiler（`babel-plugin-react-compiler`） | 19.3.0 / 1.0.0 |
-| 构建 | Vite（基于 Rolldown）+ `@vitejs/plugin-react` | 8.3.1 / 6.1.1 |
-| 路由 | `@tanstack/react-router` + `@tanstack/router-plugin`（按文件自动生成路由） | 1.170.40 / 1.168.41 |
-| 服务端数据 | `@tanstack/react-query` + `react-query-persist-client`（M6 离线） | 5.104.0 |
+| 构建 | Vite（基于 Rolldown）+ `@vitejs/plugin-react`；React Compiler 经 `@rolldown/plugin-babel`（加 `@babel/core`）接入（plugin-react 6 不再内置 Babel） | 8.3.2 / 6.1.1 / 0.2.4 / 8.0.6 |
+| 路由 | `@tanstack/react-router` + `@tanstack/router-plugin`（按文件自动生成路由） | 1.170.41 / 1.168.42 |
+| 服务端数据 | `@tanstack/react-query` + `react-query-persist-client`（M6 离线） | 5.104.1 |
 | 客户端状态 | zustand | 5.0.15 |
 | 样式 | tailwindcss + `@tailwindcss/vite` | 4.3.3 |
 | 组件原语 | `@base-ui/react`（Radix 备选） | 1.8.0 |
-| 动效 | motion | 13.4.6 |
-| 图标 | lucide-react | 1.49.0 |
+| 动效 | motion | 14.0.0 |
+| 图标 | lucide-react | 1.50.0 |
 | 虚拟列表 | react-virtuoso（M2b 开头先验证聊天场景，V-09） | 4.18.16 |
 | Markdown（流式也安全） | streamdown（代码高亮用 shiki 4.4.3，配置见 D-047） | 2.6.0 |
-| 国际化 | `@inlang/paraglide-js` | 2.25.4 |
+| 国际化 | `@inlang/paraglide-js` + `@inlang/plugin-message-format` | 2.25.4 / 4.4.4 |
+| 字体（自托管） | `@fontsource-variable/inter`（拉丁子集，OFL） | 5.3.0 |
 | PWA（M6） | vite-plugin-pwa | 1.3.0 |
 | 本地存储（M6） | idb-keyval | 6.3.0 |
 | 组件目录 | storybook + `@storybook/react-vite` | 10.6.1 |
@@ -84,11 +85,11 @@ Events: api/worker ──publish──▶ Valkey channel "events:{APP_ENV}" ─�
 |---|---|---|
 | 代码检查与格式化 | `@biomejs/biome` | 2.5.14 |
 | Git 钩子 | lefthook | 2.1.15 |
-| 前端单元测试 | vitest | 5.0.2 |
+| 前端单元测试 | vitest + jsdom + Testing Library（`react` 16.3.3、`dom` 10.4.2、`jest-dom` 7.0.1、`user-event` 14.6.7） | 5.0.3 / 30.1.1 |
 | 端到端测试 | `@playwright/test` + `@axe-core/playwright` | 1.63.0 / 4.13.0 |
 | 视觉测试运行环境 | Playwright 官方 Docker 镜像（与 `@playwright/test` 同版本） | 同上 |
 | 压力测试 | grafana/k6（Docker 镜像） | M7 时锁定当时的精确版本 |
-| Node（Playwright、Storybook 等工具需要） | Node | ≥ 24（本机为 26） |
+| Node（Vite、Vitest、Playwright、Storybook 等工具需要） | Node | ≥ 24；本机与 CI 的 web 相关作业都用 26 |
 
 ### 2.4 基础设施镜像（均支持 arm64）
 
@@ -107,13 +108,22 @@ Events: api/worker ──publish──▶ Valkey channel "events:{APP_ENV}" ─�
 /
 ├─ apps/
 │  ├─ web/                       React SPA
-│  │  ├─ src/routes/             TanStack Router file routes
-│  │  ├─ src/features/           auth, conversations, timeline, composer, attachments,
-│  │  │                          presence, agent, command-palette, notifications, settings, admin
-│  │  ├─ src/design/             design tokens (CSS), glass materials, motion presets
-│  │  ├─ src/components/         design-system components (Apple style)
-│  │  ├─ src/lib/                api client, ws client, query client, i18n, store
-│  │  ├─ messages/               Paraglide translations (zh-CN, en)
+│  │  ├─ src/routes/             TanStack Router file routes: _guest (login, register, forgot-password,
+│  │  │                          check-email), _public (verify-email, reset-password), _app (the shell);
+│  │  │                          routeTree.gen.ts is generated and committed
+│  │  ├─ src/features/           M1b: auth, settings, shell, command-palette; later: conversations, timeline,
+│  │  │                          composer, attachments, presence, agent, notifications, admin
+│  │  ├─ src/design/             tokens.ts (single source, D-114), tokens-css.ts (generator),
+│  │  │                          tokens.generated.css (git-ignored)
+│  │  ├─ src/components/         ui/ (Base UI primitives, styled), layout/ (shell, sidebar, toolbar, inspector),
+│  │  │                          brand/ (app icon)
+│  │  ├─ src/styles/             app.css and the layered stylesheets (glass, shell, components, overlays, pages)
+│  │  ├─ src/lib/                api client, ws client (realtime.ts), session end (session.ts), tab sync, storage,
+│  │  │                          appearance, shortcuts, URL fragments, queries
+│  │  ├─ src/app/                router and the realtime singleton
+│  │  ├─ src/assets/fonts/       Inter (OFL), self-hosted
+│  │  ├─ messages/               Paraglide translations (zh-CN, en), generated from tools/messages-source.ts
+│  │  ├─ tools/                  contrast check, colour maths, CSP, token plugin, message generator
 │  │  ├─ e2e/ · visual/          Playwright specs (visual baselines are generated in the Linux container)
 │  │  └─ .storybook/
 │  └─ server/
@@ -169,7 +179,7 @@ Events: api/worker ──publish──▶ Valkey channel "events:{APP_ENV}" ─�
 
 | 进程 | 开发环境 | 生产环境 |
 |---|---|---|
-| web | Vite 开发服务器 :5173，把 `/api` 和 `/ws` 代理到 :3100（前后端同源，Cookie 才能正常工作） | 静态文件，由宿主机 Nginx 提供 |
+| web | Vite 开发服务器 :5173，把 `/api` 和 `/ws` 代理到 :3100（前后端同源，Cookie 才能正常工作；`xfwd` 让 API 看到真实地址）。浏览器用 `http://localhost:5173`。E2E 另有 `vite preview` :4173（生产构建加生产 CSP）和测试环境 API :3102；Storybook :6006 | 静态文件，由宿主机 Nginx 提供 |
 | api | `bun --watch src/api.ts` :3100 | 容器，绑定 `127.0.0.1:3100` |
 | worker | M1a宿主机热重载；M3起Linux容器热重载，以便和media共享Unix socket | 与api同server镜像；1536MiB。向量若不兼容Bun（V-12），在本容器内用Node子进程，仍受总预算 |
 | media（M3） | Linux 容器，network_mode=none，无TCP端口 | 独立镜像；仅私有Unix socket，512 MiB上限；不挂应用密钥或对象卷 |
@@ -380,13 +390,15 @@ work_items 唯一 dedupe_key 与业务事务关联；payload 只存 id、版本�
   - 所有GET/写响应/补发使用05的实体版本合并；请求捕获账号/恢复世代/membership/本地cacheGeneration。reset、退出或重入后旧响应直接丢弃；移除墓碑不能被旧HTTP覆盖；
   - 收到消息更新时，同时更新引用它的回复和会话预览；
   - 收到conversation.removed提示先对账；仅接受较新viewerVersion且匹配关系的移除墓碑后清缓存，迟到提示不能删除重新加入后的关系。
-- **全局状态**（zustand）：当前会话、Inspector 是否打开、输入框草稿（按会话保存，M6 起持久化到 IndexedDB）、外观设置。
+- **全局状态**（zustand）：当前会话、Inspector 是否打开、输入框草稿（按会话保存，M6 起持久化到 IndexedDB）、外观设置。M1b 已有：实时连接状态与时钟偏移（`lib/realtime.ts`）、外观（`lib/appearance.ts`，设备级，D-117）、外壳布局（`lib/shell-state.ts`：侧栏宽度、抽屉、Inspector）。
 - **WebSocket 客户端**：
   - 单例；
   - 断线后按指数退避重连（1、2、4、8 秒，最长 30 秒，带随机抖动），每次重连都执行第 5.2 节的补发流程；
   - 用 `hello.serverTime` 校正本地时钟，撤回按钮等时限判断以校正后的时间为准；
   - 切换会话、页面前后台变化时，上报 `focus`。
+  - M1b 已实现：单例（`app/realtime.ts`）、退避重连（1 秒起、翻倍、上限 30 秒、±20% 抖动）、应用层心跳（`ping` 超过 10 秒没有 `pong` 就重连）、用 `hello` 与 `pong` 里的 `serverTime` 校正时钟（`serverNow()`）、按关闭码处理（4401 不重连并先探测 `/api/me`，4403 停止，4408 立即重连，4409 在后台标签页保持安静、前台退避重试，4429、1012、1013 与网络中断退避重连，D-121）。`focus` 的状态已跟踪，但服务端支持它（M2/M6）之前不发送。
 - **输入法**：组字期间（`isComposing` 为 true，或 `keyCode` 为 229）回车不发送（D-050）。
-- **本地身份隔离（D-070）**：Query key、IndexedDB、草稿和离线队列使用 userId + authEpoch + membershipId 命名空间。退出先设置共享注销墓碑，通过 BroadcastChannel/SW 通知其他标签页停止渲染、发送和重连，再清缓存及订阅；远程失效在联网复核时执行同样流程。SW 只缓存公共外壳。
+- **本地身份隔离（D-070）**：Query key、IndexedDB、草稿和离线队列使用 userId + authEpoch + membershipId 命名空间（M1b：本地存储键为 `chatapp.u.<userId>.<authEpoch>.*`，会话结束时整体清除；外观是设备级的，保留）。退出先设置共享注销墓碑，通过 BroadcastChannel/SW 通知其他标签页停止渲染、发送和重连，再清缓存及订阅；远程失效在联网复核时执行同样流程。SW 只缓存公共外壳。
 - **离线边界**：初次冷启动未联网验证时只显示外壳；已验证且仍打开的标签页可看已缓存内容。消息缓存最多 7 天/每会话 200 条/总 50 MiB，草稿 7 天，待发纯文本 24 小时。重新联网先验证身份与成员世代再发；换账号、重新入群、过期项保留为需人工处理的草稿，不自动发送。不能清除失联设备或用户另存的副本。
-- **表单**：每个输入框使用 contracts 里的同一份 zod schema，前后端校验规则保持一致。
+- **表单**：每个输入框使用 contracts 里的同一份 zod schema，前后端校验规则保持一致（密码规则的结构部分也在 contracts，D-119）。
+- **CSP 约束（D-116）**：页面没有内联脚本和样式；Zod 以 `jitless` 运行，入口最先导入 `lib/zod-config.ts`；Rolldown 开启 `strictExecutionOrder`。新增依赖若需要 `unsafe-eval` 或内联样式，改依赖，不放宽策略。

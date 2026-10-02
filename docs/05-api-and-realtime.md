@@ -126,7 +126,7 @@ Page<T>      { items: T[], nextCursor|null }  // message lists instead return { 
 | `POST /api/auth/verification/request` / `POST /api/auth/verification/consume` | 前者请求/重发验证邮件（通用响应）；后者`{token}`，原子消费绑定凭证并验证激活条件，不自动登录 | M1 |
 | `POST /api/auth/password/request-reset` / `POST /api/auth/password/consume-reset` | 前者请求找回（通用响应）；后者`{token,newPassword}`，消费/改密/撤销会话和委托同事务 | M1 |
 | `POST /api/invites/check` | `{code}`，注册页用它校验邀请码是否可用；按 IP 限流 | M1 |
-| `GET /api/me` / `PATCH /api/me` | 查看或修改自己的资料和设置：用户名（检查冷却期、保留名）、显示名（检查保留名）、简介、时区、偏好设置 | M1 / M2 |
+| `GET /api/me` / `PATCH /api/me` | 查看或修改自己的资料和设置：用户名（检查冷却期、保留名）、显示名（检查保留名）、简介、时区、偏好设置。**M1b ✅ 已实现的 PATCH**：strict 请求体 `{expectedMeVersion, timezone?, settings?: {timezoneAuto?}}`，至少改一项；`timezone` 是 IANA 名；`settings` 按键合并；条件是 `meVersion` 等于 `expectedMeVersion`，过期返回 409 `VERSION_CONFLICT`；响应是新的 Me。条件写入本身防重复，不带 `Idempotency-Key`（D-118）。用户名、显示名、简介在 M2 加入。外观偏好是设备级的，不在这里（D-117） | M1b ✅ / M2 |
 | `POST /api/me/avatar` | `{attachmentId}`，把一个 `purpose=avatar` 的附件设为头像 | M3 |
 | `PUT /api/me/ai-key` / `DELETE /api/me/ai-key` | `{provider: 'deepseek', apiKey}`：保存自带 key，保存前先调用模型列表接口验证。只返回末 4 位 | M5 |
 | `DELETE /api/me` | 注销账号，需要再次输入密码或验证 Passkey | M7 |
@@ -248,7 +248,7 @@ Page<T>      { items: T[], nextCursor|null }  // message lists instead return { 
 
 | 关闭码 | 含义 | 客户端处理 |
 |---|---|---|
-| 4401 | 未登录，或会话已失效、被注销 | 清除本地缓存，跳转到登录页，不要重连 |
+| 4401 | 未登录，或会话已失效、被注销 | 不要直接重连。先请求一次 `/api/me` 确认（D-121）：返回 401 才清除本地缓存、跳转到登录页；仍是已登录（例如在这台设备上改了密码，服务端会关掉旧连接）就刷新身份并重新连接 |
 | 4403 | 来源不被允许 | 不要重连 |
 | 4408 | 心跳超时 | 立即重连 |
 | 4409 | 连接数超限（最早的连接被踢） | 如果当前页面在后台，就不重连 |

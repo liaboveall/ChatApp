@@ -22,7 +22,7 @@
   - 使用站点 key 的 Agent 运行内容，管理员可以查看；鼓励用户自带 key，但鼓励文案只讲好处，不提管理员能看到内容。
 - 技术选型只看"最新、最好"，不考虑熟悉程度。新增依赖时，先到 registry 核对最新稳定版，锁定精确版本，不用 beta 或 RC（例外须记录在 12）。
 - 技术栈：TypeScript 7；后端 Bun + Hono + zod + Drizzle + PostgreSQL 18（pgvector）+ Valkey + BullMQ + Garage + Better Auth；AI 用 AI SDK 7；前端 React 19 + Vite 8 + TanStack Router/Query + Tailwind 4 + Base UI。
-- 设计（D）已在 2026-10-02 由用户在 D4 确认（D-113）：令牌、玻璃材质和字体（拉丁字母用 Inter）以 `docs/02` 的第 2 到 7 节为准。`design/` 里的原型只是参考实现，M1b 用 React、Tailwind 和 Base UI 重做，不直接搬代码；改令牌要先过 `bun run design:contrast`。
+- 设计（D）已在 2026-10-02 由用户在 D4 确认（D-113）：令牌、玻璃材质和字体（拉丁字母用 Inter）以 `docs/02` 的第 2 到 7 节为准。`design/` 里的原型只是参考实现，M1b 已用 React、Tailwind 和 Base UI 重做（不是搬代码）；令牌的数据源是 `apps/web/src/design/tokens.ts`，改令牌要先过 `bun run design:contrast`（D-114）。
 
 ## 硬性规则
 
@@ -69,7 +69,7 @@
 - **端口冲突，两个占用方都不能停**。它们都在 Windows 主机上，而 Docker Desktop 把端口发布在 Windows 主机上，所以搬到 WSL 后依然适用：
   - 5432 被 Windows 上原生的 PostgreSQL 占用，所以开发库用 **5434**；
   - 1025 被 Cisco VPN（`vpnagent`）占用；Mailpit 默认用 **2525**，但 2525 又落入 Windows 保留范围，现通过 `.env.local` 的 `SMTP_PORT` 改用 **12525**。Compose 与应用共用该变量。
-- 其他端口：web 5173、api 3100、Valkey 6379、Garage 3900 和 3903、Mailpit 网页 8025。Windows 浏览器可以直接访问 WSL 里的 `localhost:<端口>`。
+- 其他端口：web 5173、api 3100、Valkey 6379、Garage 3900 和 3903、Mailpit 网页 8025、Storybook 6006；`bun run test:e2e` 期间另有预览服务器 4173 和测试环境 API 3102。Windows 浏览器可以直接访问 WSL 里的 `localhost:<端口>`；访问应用必须用 `http://localhost:5173`（不是 127.0.0.1，服务端要求 Origin 等于 `APP_ORIGIN`）。
 - `.env.local` 由 `bun run setup` 生成（WSL 里的这份是从迁移前的 Windows 副本原样复制来的），已被 git 忽略，**不要在输出中打印其中的值**。
 - 本仓库的 git 提交身份在仓库级配置：`liaboveall <2628370933@qq.com>`。推送凭据由仓库级的 credential helper 通过 Windows 的 `gh.exe` 提供（见 docs/09 第 10 节）。
 
@@ -77,13 +77,13 @@
 
 - **已经可用**：
   - 环境与基础设施：`bun run setup` · `doctor`（加 `--ai` 可以检查 DeepSeek key）· `infra:up` / `infra:down` / `infra:ps` / `infra:logs` · `infra:bootstrap` · `infra:reset --yes`（会删除全部本地数据，执行前先征得用户同意）
-  - 检查：`lint` / `lint:fix` · `typecheck`（所有工作区包）· `guard`（含架构边界）· `check`（以上加单元测试，不需要任何服务）
+  - 检查：`lint` / `lint:fix` · `typecheck`（所有工作区包，含 `apps/web`）· `guard`（含架构边界）· `check`（以上加单元测试、令牌对比度、文案一致性，不需要任何服务）
   - 数据库（M1a）：`db:generate` / `db:check` · `db:migrate` / `db:migrate:test` · `db:bootstrap`（生产也可用）/ `db:bootstrap:test` · `db:seed`（仅开发）
   - 后端（M1a）：`dev:api` · `dev:worker` · `admin:create`（密码在用户自己的终端输入）· `admin:verify-email`
   - 测试（M1a）：`test:integration`（集成、安全、契约、实时；需要先 `infra:up`、`infra:bootstrap`、`db:migrate:test`）· `test` · `test:infra:up` / `test:infra:down <runId>` · `test:fault`（只在独立实例里做故障注入，D-085）· `smoke:backend`（对运行中的 api/worker 做真实进程验收走查，用法见脚本头部）
-  - 设计原型（D，见 `design/README.md`）：`design:build`（`-- --minify` 是发布版）· `design:contrast`（令牌对比度自查）；用真实 Windows Edge 做的浏览器检查：`design/prototype/tools/browser-checks/run.sh <keyboard|layout|media|flows|audit>`
+  - 前端（M1b）：`dev`（api、worker、Vite 一起；`-- api web` 选进程）· `dev:web` · `build` · `storybook` · `web:messages`（生成文案，`-- --check` 只核对）· `test:e2e`（Playwright 对生产构建运行，需要先 `infra:up`、`infra:bootstrap`；**不能和集成测试同时跑**，共用测试库；第一次要装浏览器和系统库，见 docs/09 第 2 节）· `test:visual`（在 Playwright 官方镜像里比较 Storybook 截图，需要 Docker；`-- --update-snapshots` 重新生成基线）
+  - 设计原型（D，见 `design/README.md`）：`design:build`（`-- --minify` 是发布版）· `design:contrast`（令牌对比度自查，脚本在 `apps/web/tools`）；用真实 Windows Edge 做的浏览器检查：`design/prototype/tools/browser-checks/run.sh <keyboard|layout|media|flows|audit>`
 - **以下命令到对应的里程碑才会创建，在那之前不要假定它们存在**：
-  - M1b：`dev` · `dev:web` · `test:e2e` · `test:visual` · `storybook` · `build`
   - M2b：`edge:up` / `edge:down`
   - M3：`media:up` / `media:down`（worker容器与私有IPC）
   - M4：`eval`

@@ -1,6 +1,6 @@
 # 设计原型（D 阶段）
 
-ChatApp v2 的可点击设计原型，对应 [docs/02-design-system.md](../docs/02-design-system.md) 第 9 节的 D1 到 D4。它是评审用的**参考实现，不是产品代码**：M1b 会按它用 React、Tailwind 和 Base UI 重新实现。D 阶段的成果和用户在 D4（2026-10-02）确认的令牌见 02 的[第 10 节](../docs/02-design-system.md#10-d-阶段成果2026-10-02d4-已确认)；确认后的值已并入 02 的第 2 到 7 节。
+ChatApp v2 的可点击设计原型，对应 [docs/02-design-system.md](../docs/02-design-system.md) 第 9 节的 D1 到 D4。它是评审用的**参考实现，不是产品代码**：M1b 已按它用 React、Tailwind 和 Base UI 重新实现（在 `apps/web`），令牌的数据源和对比度自查也已搬到那里（D-114）。D 阶段的成果和用户在 D4（2026-10-02）确认的令牌见 02 的[第 10 节](../docs/02-design-system.md#10-d-阶段成果2026-10-02d4-已确认)；确认后的值已并入 02 的第 2 到 7 节。
 
 ## 看原型
 
@@ -24,10 +24,9 @@ design/prototype/
   src/scripts/       界面模块（用 createElement 构建，不用 innerHTML）；main.js 是入口
   src/fonts/         Inter 拉丁子集（OFL）和说明
   tools/
-    tokens.mjs       令牌的单一数据源（颜色、玻璃、圆角、字号、弹簧）
-    tokens-css.mjs   把令牌生成 CSS
-    contrast.mjs     令牌对比度自查（WCAG 2.2），退出码非零即失败
-    color.mjs        颜色计算
+    tokens.mjs       转出口：令牌的单一数据源是 apps/web/src/design/tokens.ts（M1b 起，D-114）
+    tokens-css.mjs   把令牌生成原型自己的 CSS
+    color.mjs        转出口：颜色计算在 apps/web/tools/color.ts
     build.mjs        构建：artifact.html（Artifact 要求的片段形式）、index.html（本地）
     gen-icons.mjs    从 lucide-static 生成图标模块（icons.list 列出用到的图标）
     browser-checks/  用真实浏览器做的检查，见下
@@ -37,7 +36,7 @@ design/prototype/
 ## 检查
 
 ```bash
-bun run design:contrast                       # 令牌静态对比度：3000 多组，不需要浏览器
+bun run design:contrast                       # 令牌静态对比度（apps/web/tools/contrast.ts）：3018 组，不需要浏览器，退出码非零即失败
 
 design/prototype/tools/browser-checks/run.sh keyboard   # 键盘主流程、焦点、输入法组字、鼠标点模态内容
 design/prototype/tools/browser-checks/run.sh layout     # 各档宽度无溢出、320 宽度主流程、点击目标 ≥ 28px
@@ -52,7 +51,7 @@ design/prototype/tools/browser-checks/run.sh fonts      # 字体比较
 
 ## 约定
 
-- 颜色只用令牌；改令牌先改 `tools/tokens.mjs`，再跑 `bun run design:contrast`，通过才算改完。令牌已在 D4 确认，改动要同步 02 和 12（D-113）。
+- 颜色只用令牌；改令牌先改 `apps/web/src/design/tokens.ts`（原型的 `tools/tokens.mjs` 只是转出口），再跑 `bun run design:contrast`，通过才算改完。令牌已在 D4 确认，改动要同步 02 和 12（D-113）。
 - 玻璃只有三种（见 02 第 2 节）；同屏至多 4 个 `backdrop-filter` 层。
 - 新增图标：把名字加到 `tools/icons.list`，用 `gen-icons.mjs` 重新生成（需要解开的 lucide-static 包路径）。
 - 不引入 `innerHTML` 和同类写法（项目规则 SEC-05）；原型的 Markdown 渲染器自己解析，只支持规格里的子集。

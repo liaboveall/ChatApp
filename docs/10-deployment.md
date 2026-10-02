@@ -79,7 +79,7 @@
   - `/assets/*` 从独立追加的共享哈希目录提供，缓存 1 年（immutable）；至少保留 7 天且至少最近 3 版，不仅切换 current 后把旧资源藏起来。资源缺失返回真实 404，不回退 index.html；
   - `index.html` 设置 `no-cache`。
 - **安全响应头**（SEC-06、SEC-22）：
-  - 静态文件的 CSP 等头写在 `infra/nginx/security-headers.conf` 片段里，在每个需要的 location 中 `include`。这样可以避开 `add_header` 在子 location 中不继承的问题。
+  - 静态文件的 CSP 等头写在 `infra/nginx/security-headers.conf` 片段里，在每个需要的 location 中 `include`。这样可以避开 `add_header` 在子 location 中不继承的问题。取值以 `apps/web/tools/csp.ts` 为准（M1b 的 E2E 就在这份策略下运行，D-116）；M2b 要加测试核对 Nginx 片段与它逐字一致。
   - HSTS 写独立 transport-security.conf 片段，add_header 加 always，在每个 HTTPS location（含 assets、API、attachments、WS、错误页）显式 include；不能仅靠 server 级继承。
   - 静态 CSP 等由 security-headers.conf 设置；API/附件的 CSP 等由应用负责，HSTS 仍只由 Nginx 设置，避免重复。
 - **`location /api/`**：`proxy_pass http://127.0.0.1:3100`，并设置：

@@ -1,7 +1,7 @@
 # 12 决策记录
 
 > 每条决策都写明：决定了什么、为什么、放弃了哪些方案。要改某个决策时，**新增一条**记录并注明它取代了哪条，不要直接删改旧记录。
-> 标"用户"的是用户亲自拍板的。D-001–D-055 为 2026-09-30 的决策；D-056–D-092 来自 2026-10-01 用户授权“现在全面优化完善项目规划”；D-093 是同日用户另行决定的开发环境变更；D-094–D-107 是 2026-10-01 至 02 M1a 实施中由 Claude 在用户既有授权内作出的实现决定与实验结论。旧记录保留历史原因，冲突处以明确取代它的新记录为准。
+> 标"用户"的是用户亲自拍板的。D-001–D-055 为 2026-09-30 的决策；D-056–D-092 来自 2026-10-01 用户授权“现在全面优化完善项目规划”；D-093 是同日用户另行决定的开发环境变更；D-094–D-107 是 2026-10-01 至 02 M1a 实施中由 Claude 在用户既有授权内作出的实现决定与实验结论；D-108–D-112 来自 D 设计阶段，D-113 是用户在 D4 的确认；D-114–D-124 是 2026-10-02 至 03 M1b 实施中由 Claude 在用户既有授权内作出的实现决定与实验结论。旧记录保留历史原因，冲突处以明确取代它的新记录为准。
 
 ## 产品与范围
 
@@ -667,6 +667,76 @@ Base UI 提供无障碍的交互原语（菜单、弹窗、焦点管理等）；
 - **布局与选中行**：保持现状（三块圆角面板、间隔 8px、外层圆角 16px；选中行 8% 底色加 3px 色条）。用户说的是"目前"，以后可以再调；要调就改 `tokens.mjs`，先过 `bun run design:contrast`，并同步 02。
 - **没有因此变成已验证的**：macOS Safari 与 Firefox 的真机渲染、读屏、V-16 快捷键冲突、系统高对比度、真实照片垫在玻璃后面（02 第 10.7 节）。它们留给 M1b 的 E2E（Chromium、WebKit，Firefox 冒烟）和真机验收。
 
+## M1b 实施决定与实验结论（2026-10-02 至 03）
+
+以下出自 M1b 的实现和实测，命令、结果和限制见 [PROGRESS](PROGRESS.md) 的 M1b 交接记录。它们是「开始 M1b」授权内的工程做法与规格细化，属于我的决定；改了规格文字的，已同步到 02、03、04、05、07、08、09 和 01 的隐私说明。要改动其中任何一条，告诉我，我会新增取代它的记录。
+
+**D-114 令牌的唯一数据源移进 `apps/web`（兑现 D-111 的安排）**
+- 数据源是 `apps/web/src/design/tokens.ts`（纯数据加纯函数，浏览器里也运行）。`tokens-css.ts` 生成运行时的 CSS 自定义属性和 Tailwind 4 的 `@theme`，由 Vite 插件 `tools/design-tokens-plugin.ts` 写成 git 忽略的真实文件 `src/design/tokens.generated.css`（Tailwind 的 `@import` 引不到 Vite 的虚拟模块）。`tools/contrast.ts` 和 `tools/color.ts` 在旁边，`bun run design:contrast` 包含在 `bun run check` 里，退出码非零即失败。
+- 原型 `design/prototype/tools/tokens.mjs` 和 `color.mjs` 只剩转出口，`contrast.mjs` 删除；`bun run design:build` 仍能构建原型。**取值没有改**：D4 确认的值原样移入，检查仍是 3018 组、0 组低于阈值（与原型阶段的组数相同）。原型在 Windows Edge 上的浏览器检查（`run.sh`）这次没有重跑。
+- `@theme` 先清空 Tailwind 的默认颜色、字号、阴影、圆角、字体和缓动（`--color-*: initial` 等），所以不在令牌里的值没有对应的工具类；`tokens.test.ts` 核对生成物。改令牌的手续不变：改 `tokens.ts`，跑 `bun run design:contrast`，再同步 02。
+
+**D-115 前端栈的版本与兼容结论（M1b 任务 1）**
+- **版本**：`apps/web` 的 36 个依赖都是精确版本，没有 beta 或 RC；2026-10-03 逐个对照 npm 的 `latest` 标签，全部相同。`@rolldown/plugin-babel` 0.2.4 的版本号在 1.0 之前，但它是 `@vitejs/plugin-react` 6 文档里接入 React Compiler 的方式，也是 npm 的 latest，不算 beta/RC。版本表见 03 第 2.2 节。
+- **一起工作的组合与注意点**（都有运行证据：构建、单元测试、Storybook 构建、E2E）：
+  1. Vite 8.3.2 加 `@vitejs/plugin-react` 6.1.1：React Compiler 通过 `@rolldown/plugin-babel` 的 `reactCompilerPreset()` 接入（plugin-react 6 不再内置 Babel）。`vite.config.ts` 和 `vitest.config.ts` 写法相同，Storybook 沿用 `vite.config.ts`，只去掉 TanStack Router 的代码生成插件。
+  2. Tailwind 4.3.3：`@tailwindcss/vite` 是默认导出；令牌样式见 D-114。
+  3. Base UI 1.8.0：状态样式用 `data-starting-style`、`data-ending-style`、`data-checked`、`data-highlighted` 等属性选择器；CSP 下要 `CSPProvider disableStyleElements`（D-116）；浮层定位元素的层级由我们的样式设置。
+  4. **Motion 14.0.0**（03 原写 13.4.6，npm 的 latest 已是 14）：用到的 `layoutId`、`MotionConfig reducedMotion` 在 14 上正常，弹簧参数仍是 02 第 5 节的同一组数字。
+  5. TanStack Router 1.170.41：文件路由加自动代码拆分；`routeTree.gen.ts` 提交入库，`check` 工作流用 `git diff --exit-code` 确认它是最新的。
+  6. Paraglide 2.25.4 加本地的 message-format 插件：文案的唯一来源是 `tools/messages-source.ts`（中文为基准语言，复数用 plural 变体），`bun run web:messages` 生成 `messages/*.json`，`check` 里用 `--check` 确认没有过期；语言策略 `localStorage → preferredLanguage → baseLocale`，切换语言会重新载入页面；编译产物 `src/paraglide/` 被 git 忽略。
+  7. TypeScript 7.0.2 能检查整个 web 工程（`.tsx`、`allowImportingTsExtensions`、`@/` 别名）；Vite 8 用 `resolve.tsconfigPaths`，不需要别名插件。
+  8. Storybook 10.6.1（`@storybook/react-vite`）与 Vite 8 一起构建，`check` 工作流里的 `storybook:build` 保证每个 story 都能编译。a11y 插件处于 `todo` 模式（面板里报告、不阻断）；阻断式的 axe 检查在 E2E（`a11y.spec.ts`）。
+  9. Vitest 5.0.3 加 jsdom 30.1.1 和 Testing Library：经 React Compiler 编译的组件可以测试。
+  10. Node：Vite、Vitest、Storybook、Playwright 跑在 Node 上。本机是 26.8.1，CI 里与 web 相关的作业也用 26（03 写的是 ≥ 24）；CI 里的 Node 26 还没有在远端跑过。
+- 与 Bun 的分工：后端和脚本用 Bun；`vitest`、`vite`、`playwright`、`storybook` 的可执行文件以 `node` 为解释器，由 `bun run` 调用时跑在 Node 上（所以 CI 的 `check` 作业也要装 Node）。Bun 的隔离式 linker 让每个工作区有自己的 `node_modules`：代码里只能从 `@playwright/test` 导入（`playwright` 包不能被直接解析），命令行用 `apps/web/node_modules/.bin/playwright`。
+
+**D-116 CSP 下前端的做法（落实 07 SEC-06）**
+- 策略与 SEC-06 逐字相同，定义在 `apps/web/tools/csp.ts`，连同 `Referrer-Policy: no-referrer`、`X-Content-Type-Options: nosniff`、`Cross-Origin-Opener-Policy: same-origin` 和 `Permissions-Policy`；`vite preview` 在 E2E 里发送这些头，生产的 Nginx（M2b）用同样的值。
+- 页面没有内联脚本和内联样式：`index.html` 里的 `theme-init.js` 是同源外部脚本，在第一次绘制之前按本机保存的外观给 `<html>` 加属性，并与 `applyToRoot` 保持一致（单元测试比对两者）；Base UI 用 `CSPProvider disableStyleElements`；样式属性只通过 CSSOM 设置（React 的 `style` 和 Motion），不受 `style-src 'self'` 限制。
+- **Zod 4 的 JIT 探测违反 CSP**：Zod 会用 `new Function('')` 探测是否能即时编译，没有 `unsafe-eval` 时 Chromium 会发出 `securitypolicyviolation`，Firefox 在控制台报错。处理：`lib/zod-config.ts` 调用 `z.config({ jitless: true })`，并在 `main.tsx`（与 Storybook 的 preview）里最先导入；Rolldown 还要 `output.strictExecutionOrder: true`，否则按 chunk 拆分后配置模块可能晚于创建 schema 的模块执行（我真实遇到过）。
+- **验证方式**：每个 E2E 测试都自动断言页面没有记录到任何 `securitypolicyviolation`，也没有意外的控制台错误和页面异常（Firefox、WebKit 的 CSP 拦截会进控制台）。**WebSocket 在 `connect-src 'self'` 下在 Chromium、WebKit、Firefox 都能连接并保持**（`realtime.spec.ts`），所以 SEC-06 里「不能的话显式加上 `wss://`」的备选不需要。Trusted Types 仍留给 M2b（V-08）。
+
+**D-117 外观偏好是设备级的（修改 04 对 `users.settings` 的设想）**
+- 主题、强调色、透明度档位、字号、减少动态效果和紧凑侧栏，存在本机 `localStorage`（键 `chatapp.appearance`），**不上传服务器**，退出登录后保留。账号相关的本地数据都放在 `chatapp.u.<userId>.<authEpoch>.*` 之下，退出或会话丢失时整体清掉（D-121）。
+- 理由：登录页也要有主题，而且必须在第一次绘制之前生效，不能等接口；一台设备上的外观选择通常就是这台设备的；不增加接口和同步冲突。
+- 04 原写 `users.settings` 放「外观、Agent 默认模式、timezoneAuto」，现已改成：该列现在只有 `timezoneAuto`，外观不在其中。将来要跨设备同步，就在 `settings` 里加 `appearance` 键并另开决策，本机值作为未登录时的回退；现在没有这个键，不需要迁移。01 第 4.11 节「范围切换与本地数据」一行补了一句。
+
+**D-118 `PATCH /api/me`（时区与「跟随浏览器」）**
+- 请求体是 strict 的 `{expectedMeVersion, timezone?, settings?: {timezoneAuto?}}`，至少改一项，时区用 IANA 名校验。`settings` 按键合并（jsonb 的 `||`，序列化后用 `::text::jsonb`，遵守 D-107），`meVersion` 加 1，条件是当前版本等于 `expectedMeVersion`；版本过期返回 409 `VERSION_CONFLICT`，同一版本上的两个并发写入只有一个成功；响应是新的 Me。逻辑在 `domain/me.ts` 的 `updateMe`，路由很薄；OpenAPI 快照已更新。
+- 条件写入本身防止重复生效，所以这个端点不带 `Idempotency-Key`（05 的规则：已有版本号的实体用 `expectedVersion`）。显示名、用户名和简介在 M2 加入。
+- 客户端：设置页的时区、「跟随浏览器」开关和 `use-auto-timezone.ts`。`timezoneAuto` 为 true 时，浏览器的时区变化会提交；一旦固定，任何设备都不覆盖（沿用 12 里已有的规则）。E2E 的 `shell.spec.ts` 覆盖默认跟随和固定后不被覆盖，`me-settings.test.ts`（真实 Postgres）覆盖合并、版本冲突、并发和非法输入。
+
+**D-119 密码规则的结构部分移进 `packages/contracts`**
+- 长度、过于简单（字符种类少、重复或连续序列）、含账号标识（邮箱前缀、用户名、显示名、产品名，各 4 个字符以上）这几条是纯函数，前后端共用一份（`packages/contracts/src/password-policy.ts`），注册和重置页据此实时列出规则（图标加文字，不只靠颜色）。常见密码表体积大，只留在服务端，由 `domain/password-policy.ts` 传入；表单看不到它，所以「常见密码」只在提交后由服务端拒绝，并显示在字段上。
+- 登录从不套用密码策略（沿用 SEC-10）。
+
+**D-120 认证页的一次性令牌、重定向和路由**
+- **令牌只在 URL 片段里**：验证邮箱、重置密码和邀请码（`#invite=`）都从 `window.location.hash` 读进内存，随即用 `history.replaceState` 抹掉（不经过路由的 `replace`，那会换掉历史项的 key 并重新挂载页面）。同一个标签页里再粘贴新链接（只触发 `hashchange`）也能读到。
+- **路由分组**：`_guest`（未登录者的页面：登录、注册、找回密码、`/check-email`；已登录的人会被送进应用）、`_public`（从邮件链接打开的页面：`/verify-email`、`/reset-password`，登录与否都能用，因为把已登录的人重定向走会丢掉地址里的一次性凭据）、`_app`（需要登录）。路由守卫以 `/api/me` 的回答为准，不看浏览器里存了什么。`/check-email` 是「验证邮件已发出，可以重发」的页面，独立成路由，因为它不带令牌，也不应在片段变化时重新挂载；05 的接口没有变化。设置是应用页面上的一层面板，用 `?settings=<分区>` 表示打开了哪一页。
+- **`?redirect=`** 只接受本站内的路径（`/` 开头、不含 `//`、反斜杠、空白）；`https://…`、`//host` 一律丢弃，登录页不会变成开放重定向。
+
+**D-121 客户端会话结束的处理（落实 D-070、SEC-34）**
+- 任何「会话没了」的信号（退出登录、API 的 401、WebSocket 的 4401、别的标签页的退出）都走同一条路：取消并清空查询缓存、停止实时连接、清掉账号范围的本地存储、通知其他标签页（BroadcastChannel，外加 localStorage 墓碑，覆盖没有 BroadcastChannel 的情况），然后回到登录页并说明原因。设备级的外观设置保留。
+- 同一次丢失可能被多个信号同时报告，只有第一个起作用：用显式的 `active` 标记，而不是查询缓存（探测登录状态时缓存里已经写进了 `null`）。每次重置 `generation` 加 1（`currentGeneration()` 有单元测试，但 M1b 还没有使用者：查询的取消和清空由 TanStack Query 完成；M2 的消息缓存按 03 第 11 节「旧响应直接丢弃」的要求接上它）。
+- **4401 要先探测**：在自己这台设备上改密码，服务端也会关掉这台设备的连接（4401）；客户端直接请求一次 `/api/me`（探测的答案不写进查询缓存）：仍是已登录就刷新身份并重新连接；返回 401 才算会话结束、回到登录页；API 不可达时保留会话，让连接退避重试。
+- 另一个标签页登录时，本标签页的路由守卫要重新判断（先用 staleTime 0 重新取一次 `/api/me`，再让路由失效）。
+
+**D-122 开发与 E2E 环境的做法**
+- **开发**：`bun run dev` 同时启动 api、worker 和 Vite（`scripts/dev.ts`）；Vite 把 `/api`、`/ws` 代理到 3100 并带 `xfwd`，API 把 127.0.0.1 当作可信代理，限流按转发过来的真实地址计数（兑现 M1a 留下的提示）。浏览器必须用 `http://localhost:5173`：`Origin` 要等于 `APP_ORIGIN`，用 127.0.0.1 访问会被拒绝（Vite 监听 127.0.0.1，是因为 WSL 只把 IPv4 回环转发给 Windows）。
+- **E2E**（`apps/web/e2e/`）：对**生产构建**跑——`vite build` 加 `vite preview`（4173，发送生产的 CSP），API 与 worker 用测试环境（`scripts/e2e-stack.ts`，API 端口 3102），真实的 Postgres、Valkey、Garage，邮件取自 Mailpit 的 API。启动时它重置并 bootstrap 测试库、建一个管理员、清空限流计数，**所以 E2E 运行期间不能同时跑集成测试**（共用测试库）。管理员凭据写进 `.test-runs/e2e/admin.json`（权限 600，git 忽略），不打印。每个测试带一个假的 `X-Forwarded-For`，各自独立计数，一个测试的限流不会影响另一个。串行执行（1 个 worker），CI 里失败重试 1 次。
+- **浏览器**：Chromium 和 WebKit 全量，Firefox 只跑带 `@smoke` 的用例（08 第 2 节的约定）。WSL 里缺浏览器的系统库（如 libnspr4），用户同意后用 `sudo playwright install-deps` 装好，之后 `playwright install` 不需要 sudo；CI 用 `--with-deps`。
+- **CI**：新增 `e2e` 工作流（`e2e` 与 `visual` 两个作业），`check` 工作流增加构建、`routeTree.gen.ts` 一致性和 `storybook:build`，并装 Node。**这些工作流还没有在远端跑过**。
+
+**D-123 视觉基线（落实 L-08）**
+- 范围：Storybook 里 M1b 页面用到的组件和页面的 story，浅色与深色（64 张 PNG，约 5.8 MB，在 `apps/web/visual/__screenshots__/`）。基线只在官方镜像 `mcr.microsoft.com/playwright:v1.63.0-noble` 里生成和比较（`bun run test:visual`），本机的字体渲染不同，直接截图永远对不上。
+- **比较是逐像素严格的**（`maxDiffPixels: 0`）。我先试过 0.2% 的容差，它放过了一处真实的变化；动画由 `data-no-anim` 冻结后，同一份基线连续比对 3 次都稳定，所以不需要容差。要更新基线，必须在容器里重新生成并看过差异。
+- 限制：只有 Chromium 的截图；WebKit、Firefox 没有视觉基线。
+
+**D-124 Passkey 请求体大小（落实 D-078 留给 M1b 的校准，部分）**
+- Chromium 的虚拟认证器（CDP `WebAuthn.addVirtualAuthenticator`，平台型、支持常驻凭据与用户验证）下实测：`verify-registration` 请求体 1169 字节，`verify-authentication` 649 字节，只占 128 KiB 解析前限额的 1% 以内，**不需要放宽任何端点**。服务端（`@better-auth/passkey` 1.7.7 默认 `attestationType: "none"`）不要求证明材料，所以真实设备的响应也不会带上厂商证书链。E2E 把这两个数字写进报告，并断言各自小于 16 KiB（限额的八分之一）。
+- **没有验证**：真实硬件（Windows Hello、Touch ID、手机跨设备）的实际大小；虚拟认证器只存在于 Chromium，WebKit 与 Firefox 的 Passkey 仪式没有自动化（相应用例按设计跳过）。留给 V-22。
+
 ## 待验证事项（结论出来后补成新的决策记录）
 
 | 编号 | 事项 | 在哪个里程碑验证 |
@@ -683,12 +753,13 @@ Base UI 提供无障碍的交互原语（菜单、弹窗、焦点管理等）；
 | V-10 | 网页推送在中国大陆网络下能否送达（Chrome、Edge、Safari 分别测） | M6 |
 | V-11 | QQ/163 验证与重置邮件送达，记录网络、延迟、垃圾箱；缺域名/SMTP 时记阻塞 | 凭据齐备即测，M8 必过 |
 | V-12 | 实际 arm64 Debian 原生依赖与峰值资源；onnxruntime/Bun 失败改 Node 子进程，模型不达标换备选 **→ M1a：arm64 CI 冒烟（check 工作流的 arm64-smoke）2026-10-02 在 `ubuntu-24.04-arm` 上通过（冻结安装加 `bun run check`，run 36956701933）；真实 ARM 资源数据仍待 M3/M5b。** | M1a 基础冒烟，M3/M5b 实测 |
-| V-13 | 精确认证路由白名单、UUID/受控字段、首次 INSERT 注册关联与锁；一次性验证/重置凭证绑定注册实例和 restore_epoch；认证事务与设备 origin/委托撤销；原生 JWT 和管理路径不可旁路 **→ 2026-10-01 M1a 实验通过（D-094–D-096、D-100、D-101，AT-04/05/25/26/27/28 契约部分的证据见 PROGRESS）；Passkey 完整仪式需浏览器，留到 M1b 验证。** | M1a 首个阻断性实验 |
+| V-13 | 精确认证路由白名单、UUID/受控字段、首次 INSERT 注册关联与锁；一次性验证/重置凭证绑定注册实例和 restore_epoch；认证事务与设备 origin/委托撤销；原生 JWT 和管理路径不可旁路 **→ 2026-10-01 M1a 实验通过（D-094–D-096、D-100、D-101，AT-04/05/25/26/27/28 契约部分的证据见 PROGRESS）；Passkey 完整仪式需浏览器，留到 M1b 验证。→ 2026-10-03 M1b：Chromium 虚拟认证器下的完整仪式通过（在设置里添加、退出后仅凭 Passkey 登录、重命名、移除，`apps/web/e2e/passkey.spec.ts`），请求体大小见 D-124；真实硬件与 WebKit/Firefox 的仪式未验证，并入 V-22。** | M1a 首个阻断性实验 |
 | V-14 | Playwright 的 `setOffline` 能否断开已经建立的 WebSocket；不能的话，改用服务端测试接口或 `routeWebSocket` | M2a |
 | V-15 | pg_trgm 处理 2 个字的中文查询时的实际性能（EXPLAIN），必要时改用 pg_bigm | M4 |
-| V-16 | 各个快捷键在 Chrome、Edge、Safari、Firefox 的标签页和 PWA 窗口里是否可用 | M1b / M6 |
+| V-16 | 各个快捷键在 Chrome、Edge、Safari、Firefox 的标签页和 PWA 窗口里是否可用 **→ 2026-10-03 M1b：四个快捷键（⌘K、⌘J、⌘,、⌘/）的处理逻辑有单元测试，E2E 在 Chromium、WebKit、Firefox 三个引擎里用键盘事件走通（Linux 上的修饰键是 Ctrl）；Playwright 的按键不经过浏览器自己的快捷键层，所以「真实浏览器会不会先截走」没有验证，改为 V-22 的逐浏览器手工清单（08 第 10 节）。PWA 窗口属 M6。** | M1b / M6 |
 | V-17 | 用户自带的 DeepSeek key 出错时（无效、余额不足、限流），接口分别返回什么 | M5a |
 | V-18 | media 无网络容器、Unix socket、凭据/文件隔离、进程组终止、tmpfs 与 cgroup 峰值；Docker Desktop 及实际 ARM Linux | M3 准入，M7 混合负载 |
 | V-19 | 独立删除 journal 的追加/条件写/完整性/密钥恢复；原主机完全丢失后重放确认删除及外发隔离 | M1a 定接口，M7 阻断性验收 |
 | V-20 | 中文检索与总结语料标注、分割、质量阈值冻结，记忆阈值校准与留出集验收 | M4 建数据，M5b 检索验收 |
 | V-21 | 代表任务的调用轮数/计费/unknown/缓存成本与低中高容量场景，实际预算可覆盖人数 | M4 至少30任务，M8 复核 |
+| V-22 | M1b 留下的真机与辅助技术验收（自动化测试替代不了，清单见 08 第 10 节）：V-16 逐浏览器快捷键；Passkey 在真实硬件（Windows Hello、Touch ID、手机跨设备）上的注册与登录，以及 WebKit/Firefox 的仪式；读屏（NVDA/Narrator/VoiceOver）读外壳与认证页；macOS Safari 与 Firefox 的真机渲染；系统高对比度；400% 缩放与最大字号的人工走查；真实照片垫在玻璃后面（M3 有图片之后） | M1b 验收时由用户做第一轮，M7 前补齐 |

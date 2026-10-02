@@ -14,18 +14,18 @@
 | 单元 | bun test（后端）、Vitest 5（前端） | 与源文件放在一起，文件名为 `*.test.ts` | 纯逻辑：权限策略、可见性判断、时限计算、Markdown 规则、版本合并与完整同步水位、预算计算、保留名规范化 |
 | 集成（API） | bun test，加上真实的 Postgres、Valkey、Garage | `apps/server/test/integration/` | 每个接口的正常路径、校验失败、无权访问（404/403）、幂等、限流、并发（邀请名额、存储配额） |
 | 实时（WS） | bun test 在随机端口启动 api，用真实的 WebSocket 客户端连接 | `apps/server/test/realtime/` | 认证、来源校验、会话失效断开、订阅隔离、事件结构、不泄露加入前的内容、正在输入和在线状态、多实例经 Valkey 转发 |
-| 安全回归 | bun test 和 Playwright | `apps/server/test/security/`、`apps/web/e2e/security.spec.ts` | L-01 到 L-24，以及每条 SEC 要求（见 07） |
+| 安全回归 | bun test 和 Playwright | `apps/server/test/security/`、`apps/web/e2e/`（M1b：`isolation`、`realtime`、`scenario-11-devices`） | L-01 到 L-24，以及每条 SEC 要求（见 07） |
 | 契约 | bun test | `apps/server/test/contract/` | 由路由生成 OpenAPI 快照并与上次比对，接口的变化必须是有意为之 |
 | 数据库迁移 | CI 脚本 | — | 空库迁移、上一发布版含真实关系的数据夹具升级、bootstrap 幂等、新旧应用兼容、drizzle-kit check；演示 seed 单独验证 |
-| 端到端 | Playwright 1.63 | `apps/web/e2e/` | 多人场景：用两到三个互相隔离的浏览器环境同时登录。Chromium 和 WebKit 全量运行，Firefox 只跑冒烟（场景 1、2） |
-| 无障碍 | `@axe-core/playwright` | 与端到端测试一起 | 关键页面没有严重违规 |
-| 视觉 | Playwright 截图，对象是 Storybook 中的关键组件 | `apps/web/visual/` | 防止设计还原走样；浅色和深色模式都要截。**基线只在 Playwright 官方 Linux 镜像里生成和比对**，本机（WSL 与 Windows）的字体不同，直接截图永远对不上 |
+| 端到端 | Playwright 1.63 | `apps/web/e2e/` | 多人场景：用两到三个互相隔离的浏览器环境同时登录。Chromium 和 WebKit 全量运行，Firefox 只跑冒烟（带 `@smoke` 标记的用例）。**对生产构建运行**：`vite preview` 发送生产的 CSP，API 与 worker 用测试环境，邮件取自 Mailpit 的 API，每个测试自动断言零 CSP 违规和零意外控制台错误（D-122）。M1b 有 8 个文件：`scenario-1-registration`、`scenario-11-devices`、`auth-flows`、`shell`、`isolation`、`realtime`、`passkey`、`a11y` |
+| 无障碍 | `@axe-core/playwright` | 与端到端测试一起（`a11y.spec.ts`） | 关键页面没有 WCAG 2.2 A/AA 与 best-practice 违规；M1b 覆盖登录前的页面、外壳及其对话框、设置面板，浅色与深色各一遍。Storybook 的 a11y 面板是 `todo` 模式，只报告不阻断 |
+| 视觉 | Playwright 截图，对象是 Storybook 中的关键组件 | `apps/web/visual/` | 防止设计还原走样；浅色和深色模式都要截。**基线只在 Playwright 官方 Linux 镜像里生成和比对**（`bun run test:visual`），本机（WSL 与 Windows）的字体不同，直接截图永远对不上。M1b：64 张基线，逐像素严格比较，只有 Chromium（D-123） |
 | Agent 评测 | `bun run eval`（调用真实的 DeepSeek） | `apps/server/evals/` | 见 06 第 12 节 |
 | 压力 | k6（Docker 镜像，锁定版本） | `infra/load/` | M7：500 个 WebSocket 连接、每秒 20 条消息，p95 < 300 ms；彩排时把容器的 CPU 限制到接近服务器的 2 核 |
 
 ## 3. 端到端测试必须覆盖的场景
 
-1. 管理员生成邀请码 → 新用户通过注册链接注册 → 在 Mailpit 中打开验证邮件 → 登录。（M1b）
+1. 管理员生成邀请码 → 新用户通过注册链接注册 → 在 Mailpit 中打开验证邮件 → 登录。（M1b ✅ `scenario-1-registration.spec.ts`，Chromium、WebKit、Firefox 都通过）
 2. A 创建频道，B 加入；双方实时收发消息，都能看到"正在输入"，未读数正确。（M2b）
 3. B 断线，A 在此期间发消息、编辑消息；B 恢复后，这些变化都补齐，没有重复。（M2b）断线用服务端测试接口或 `page.routeWebSocket` 模拟，不依赖 `context.setOffline`（V-14）。
 4. A 在 2 分钟内撤回一条消息，B 看到撤回提示；超过时限后，撤回按钮不再出现。（M2b）
@@ -35,7 +35,7 @@
 8. 让 Agent 代发一条消息 → 当前回复收尾并显示"等待批准" → 出现审批卡片 → 点批准 → 消息以本人身份发出，并标注"经助手代发"。（M5a）
 9. C 关闭页面后收到私信推送（在测试中模拟推送服务来验证）。（M6）
 10. D 在群里有一段历史之后才加入：D 看不到加入前的消息；引用了旧消息的回复显示"原消息不可见"；D 被"移出并封禁"后，用群邀请链接无法再加入。（M2b）
-11. 用户在设备甲注销设备乙：设备乙的实时连接被关闭，HTTP 会话接口拒绝并跳转登录页（M1b）；“注销后收不到聊天内容”在 M2b 消息功能存在后扩展验证。
+11. 用户在设备甲注销设备乙：设备乙的实时连接被关闭，HTTP 会话接口拒绝并跳转登录页（M1b ✅ `scenario-11-devices.spec.ts`）；“注销后收不到聊天内容”在 M2b 消息功能存在后扩展验证。
 12. 用中文输入法组字时按回车，只确认候选词，不发送消息。Chromium 里通过 CDP 模拟输入法组字过程。（M2b）
 13. 用户填写自带key（模拟模型）：不扣站点额度；key失效时“使用站点额度发起新请求”打开空白新段。原私有prompt/图片/摘要/记忆不能通过历史或全范围工具进入site运行。（M5a）
 14. 本人普通退出后定时消息仍执行但不推进已读；撤销发起设备/改密后相应任务取消，已提交效果不重复。（M5a）
@@ -65,16 +65,16 @@
 
 | 工作流 | 什么时候跑 | 内容 |
 |---|---|---|
-| `check` | 每次 push 和 PR | 安装依赖 → Biome 检查 → TS 7 类型检查 → 单元测试 → 构建前端 → 依赖边界检查（03 第 3 节）→ `guard` 扫描禁用写法和被跟踪的密钥文件 |
+| `check` | 每次 push 和 PR | 安装依赖 → Biome 检查 → TS 7 类型检查 → 单元测试（含前端 Vitest）→ 令牌对比度与文案一致性 → 依赖边界检查（03 第 3 节）→ `guard` 扫描禁用写法和被跟踪的密钥文件 → 构建前端 → 确认 `routeTree.gen.ts` 是最新的 → Storybook 构建 |
 | `integration` | 每个 PR | 真实 Postgres/Valkey/Garage/Mailpit → 空库及上一发布夹具升级 → bootstrap 幂等/旧版兼容 → drizzle-kit check → 集成、实时、安全与故障矩阵 |
-| `e2e` | M1b 起每个目标为 v2/main 的 PR，以及每晚 | 构建并启动整个应用 → Playwright（Chromium 和 WebKit 全量，Firefox 冒烟）→ 无障碍检查 → 在 Playwright 官方镜像里做视觉截图对比 |
+| `e2e` | M1b 起每个目标为 v2/main 的 PR，以及每晚 | 构建并启动整个应用 → Playwright（Chromium 和 WebKit 全量，Firefox 冒烟）→ 无障碍检查 → 在 Playwright 官方镜像里做视觉截图对比。**M1b 已写好**（`e2e`、`visual` 两个作业，推送到 main/v2、PR、每晚和手动触发），**还没有在远端运行过** |
 | `security` | 每个 PR 和每周一次 | gitleaks、osv-scanner；M7 起加上 trivy 扫描镜像 |
 | `eval` | 手动触发，以及每周一次 | Agent 评测，需要仓库密钥 `DEEPSEEK_API_KEY` |
 | `load` | 手动触发 | k6 压力测试 |
 | `image`（M7 起） | 推送到 main 或打版本标签时 | 在 GitHub 的 `ubuntu-24.04-arm` 机器上构建 arm64 镜像（另外构建 amd64，供本地彩排）→ 扫描 → 在同一台 arm64 机器上用 `compose.prod.yml` 启动整套服务，执行迁移和冒烟测试 → 推送到 GHCR |
 
 - CI 里所有工具的版本都和本地一致：Bun 版本写在 `package.json` 的 `packageManager` 字段里，并且提交锁文件；Docker 镜像锁定精确版本。
-- 合并到 v2/main 前，当前合并 SHA 的 check、integration、security，以及 M1b 起启用的 e2e 必须通过；M7 的发布候选另要求 image/arm64 与恢复、混合负载证据。未创建的工作流必须在对应里程碑建立，当前仅 check 存在。
+- 合并到 v2/main 前，当前合并 SHA 的 check、integration、security，以及 M1b 起启用的 e2e 必须通过；M7 的发布候选另要求 image/arm64 与恢复、混合负载证据。未创建的工作流必须在对应里程碑建立；现有 `check`、`integration`、`security`、`e2e`（M1b 创建，尚无远端运行记录），`eval`、`load`、`image` 未创建。
 - CI 必过项与路径过滤保持一致，不能因为跳过工作流就显示完成；失败后的修复必须重跑修复 SHA。只改文档时允许契约/链接检查替代业务重跑，但不得据此更新运行时通过记录。
 
 ## 6. 完成标准（Definition of Done）
@@ -100,7 +100,7 @@
 
 ## 8. 独立复审故障验收矩阵
 
-AT-01–AT-24对应14的历史F发现，AT-25–AT-37覆盖15的复审与一致性修订；下列都是要求；**应用验收只执行了 M1a 范围内的部分**（AT-04、05、25、26 应用部分、27 API 部分、28 契约部分、34，以及 01/02/13/16/23 的 M1a 子集，证据和限制见 PROGRESS 的 M1a 交接记录），其余尚未执行。使用可控屏障/时钟和真实依赖，实例故障先通过AT-34隔离门槛。每项证据记录负责人、SHA、测试名/命令、环境、结果和限制，未创建测试不可标通过。
+AT-01–AT-24对应14的历史F发现，AT-25–AT-37覆盖15的复审与一致性修订；下列都是要求；**应用验收只执行了 M1a、M1b 范围内的部分**（M1a：AT-04、05、25、26 应用部分、27 API 部分、28 契约部分、34，以及 01/02/13/16/23 的 M1a 子集，证据和限制见 PROGRESS 的 M1a 交接记录；M1b：AT-17 的账号命名空间、AT-21 的自动化部分、AT-37 的时区部分，以及 AT-23 的 `e2e` 工作流，证据和限制见 PROGRESS 的 M1b 交接记录），其余尚未执行。使用可控屏障/时钟和真实依赖，实例故障先通过AT-34隔离门槛。每项证据记录负责人、SHA、测试名/命令、环境、结果和限制，未创建测试不可标通过。
 
 | 编号 | 最晚阶段 | 故障/输入 | 必须断言 |
 |---|---|---|---|
@@ -151,3 +151,15 @@ AT-01–AT-24对应14的历史F发现，AT-25–AT-37覆盖15的复审与一致�
 - worker≤1536MiB、media≤512MiB，两者合计≤2GiB（包括tmpfs/IPC），api≤1GiB，ChatApp总量约6GiB；向量子进程≤1GiB且计入worker。宿主机其他站点/OS另留实测余量；只在真实ARM上判资源通过。
 - 向量/媒体队列最老任务>5分钟或worker cgroup使用量>其上限80%时暂停批量索引；>90%拒绝新AI/媒体任务并告警，低于70%持续1分钟恢复。media独立上限及两者合计同时检查，不只看RSS忽略tmpfs。模型并发可从4降至2，实际可用并发写配置与决策。
 - 磁盘与站点 quota、Valkey 内存、模型 unknown、备份超时均做故障注入；允许明确的 429/503 背压，不允许先返回成功再丢工作。
+
+## 10. 手工验收清单（真机与辅助技术，V-22）
+
+自动化测试替代不了这些：Playwright 的按键不经过浏览器自己的快捷键层，虚拟认证器不是真实硬件，axe 只能发现一部分无障碍问题。M1b 验收时由用户做第一轮，其余在 M7 前补齐。做法：`bun run dev`，浏览器打开 `http://localhost:5173`（必须是 `localhost`，D-122），用管理员生成邀请码、注册一个新账号。把结果（浏览器和版本、通过与否、报错文字或截图）告诉我，我记入 PROGRESS。
+
+1. **外壳与原型对比（M1b 验收项）**：浅色、深色各看一遍登录页、外壳和设置的三页，对照原型；换几个强调色和透明度档位，把窗口从宽拖到窄（到 320 宽）。哪里与原型不一致，写下来。
+2. **V-16 快捷键，逐浏览器**（Chrome、Edge、Firefox、Safari，在普通标签页里；PWA 窗口属 M6）。在应用里依次按：⌘K / Ctrl+K（命令面板）、⌘J / Ctrl+J（助手面板）、⌘, / Ctrl+,（设置）、⌘/ / Ctrl+/（快捷键帮助）。每个键记录两件事：应用的面板有没有出现；浏览器有没有先把它用掉（比如聚焦地址栏或搜索栏、打开下载或设置页）。有冲突就告诉我，我给出替代键并更新 02 第 7 节。
+3. **Passkey 真实硬件**：设置 → 账号 → Passkey → 添加；退出；在登录页点「使用 Passkey 登录」；重命名；移除。至少在 Windows Hello（Edge 或 Chrome）上做一遍；有 Mac 时再做 Touch ID（Safari）；有手机时试跨设备（扫码）。记录浏览器、认证器、是否成功、失败时的提示。
+4. **读屏**：NVDA（Windows，Firefox 或 Chrome）或 VoiceOver（macOS，Safari）读登录页、注册页、外壳、设置面板和命令面板：阅读顺序合理，按钮和表单字段有名字，错误提示与操作结果（toast）会被播报。
+5. **缩放与对比度**：浏览器缩放到 400%（窗口约 320 CSS 像素宽）、把字号调到最大一档，登录、进入外壳、打开设置都能完成；Windows 的高对比度主题下仍可读。
+6. **macOS Safari 与 Firefox 的真机渲染**：玻璃（模糊与透明）、圆角、容器查询在这两个浏览器里是否与 Chromium 一致。
+7. **真实照片垫在玻璃后面**：图片上传在 M3 才有，那时再补。
