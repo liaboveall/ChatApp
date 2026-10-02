@@ -100,3 +100,28 @@ describe('layer import rules (docs/03 section 3)', () => {
     expect(checkFile('apps/server/src/domain/me.ts', text)[0]).toContain(':4:')
   })
 })
+
+describe('jsonb columns (D-107)', () => {
+  test("Drizzle's jsonb() is refused, jsonbValue is the way", () => {
+    const schema = 'packages/db/src/schema/tables.ts'
+    expect(
+      checkFile(schema, "import { jsonb, pgTable } from 'drizzle-orm/pg-core'\n"),
+    ).toHaveLength(1)
+    expect(
+      checkFile(
+        schema,
+        "import {\n  integer,\n  jsonb,\n  pgTable,\n} from 'drizzle-orm/pg-core'\n",
+      ),
+    ).toHaveLength(1)
+    expect(
+      checkFile('apps/server/src/domain/x.ts', "import { jsonb } from 'drizzle-orm/pg-core'\n"),
+    ).toHaveLength(1)
+    expect(checkFile(schema, "import { jsonbValue } from './json.ts'\n")).toEqual([])
+    expect(
+      checkFile(
+        'packages/db/src/schema/json.ts',
+        "import { customType } from 'drizzle-orm/pg-core'\n",
+      ),
+    ).toEqual([])
+  })
+})

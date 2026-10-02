@@ -13,7 +13,6 @@ import {
   check,
   index,
   integer,
-  jsonb,
   pgTable,
   smallint,
   text,
@@ -34,6 +33,7 @@ import {
   workKind,
   workStatus,
 } from './enums.ts'
+import { jsonbValue } from './json.ts'
 
 const id = () => uuid().primaryKey().default(sql`uuidv7()`)
 const ts = () => timestamp({ withTimezone: true })
@@ -85,7 +85,7 @@ export const users = pgTable(
     locale: text().notNull().default('zh-CN'),
     timezone: text().notNull().default('Asia/Shanghai'),
     lastSeenAt: ts(),
-    settings: jsonb().$type<Record<string, unknown>>().notNull().default({}),
+    settings: jsonbValue<Record<string, unknown>>().notNull().default({}),
     deletedAt: ts(),
     createdAt: createdAt(),
     updatedAt: updatedAt(),
@@ -405,7 +405,7 @@ export const registrationInviteUses = pgTable(
 
 export const appSettings = pgTable('app_settings', {
   key: text().primaryKey(),
-  value: jsonb().$type<unknown>().notNull(),
+  value: jsonbValue<unknown>().notNull(),
   version: integer().notNull().default(1),
   updatedBy: uuid().references(() => users.id, { onDelete: 'set null' }),
   updatedAt: updatedAt(),
@@ -420,7 +420,7 @@ export const auditLogs = pgTable(
     action: text().notNull(),
     targetType: text(),
     targetId: uuid(),
-    metadata: jsonb().$type<Record<string, unknown>>().notNull().default({}),
+    metadata: jsonbValue<Record<string, unknown>>().notNull().default({}),
     requestId: text(),
     createdAt: createdAt(),
   },
@@ -440,7 +440,7 @@ export const workItems = pgTable(
     entityId: uuid(),
     entityVersion: bigint({ mode: 'number' }),
     /** Identifiers and non-sensitive parameters only; never bodies, tokens or passwords. */
-    payload: jsonb().$type<Record<string, unknown>>().notNull().default({}),
+    payload: jsonbValue<Record<string, unknown>>().notNull().default({}),
     status: workStatus().notNull().default('pending'),
     /** Bumped on every redelivery so a retained completed BullMQ job cannot block a new delivery. */
     deliverySeq: integer().notNull().default(0),

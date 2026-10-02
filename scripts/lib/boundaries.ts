@@ -70,6 +70,8 @@ function packageRoot(path: string): string | undefined {
   return match?.[0]
 }
 
+const PLAIN_JSONB_IMPORT = /import\s*\{[^}]*\bjsonb\b[^}]*\}\s*from\s*['"]drizzle-orm\/pg-core['"]/
+
 export function checkFile(path: string, text: string): string[] {
   const problems: string[] = []
   const lines = text.split('\n')
@@ -84,6 +86,13 @@ export function checkFile(path: string, text: string): string[] {
         )
       }
     })
+  }
+
+  // Drizzle's own jsonb() double-encodes through Bun's driver; jsonb columns are declared with jsonbValue (D-107).
+  if (inScope && !/\.test\.ts$/.test(path) && PLAIN_JSONB_IMPORT.test(text)) {
+    problems.push(
+      `${path}: import jsonbValue from packages/db/src/schema/json.ts instead of Drizzle's jsonb() (docs/12 D-107)`,
+    )
   }
 
   // Test files may use the test runner and fixtures; they only have to stay inside their package.
