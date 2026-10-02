@@ -1,0 +1,89 @@
+/* The review frame around the prototype: control bar and stage. Not part of the product. */
+
+:root {
+  --stage-bg: light-dark(#d9d9e0, #060608);
+  --bar-bg: light-dark(#f8f8fb, #141418);
+}
+
+.proto {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  background: var(--stage-bg);
+}
+.proto__overlay {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+.proto__bar {
+  flex: none;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 10px;
+  min-height: 44px;
+  background: var(--bar-bg);
+  box-shadow: 0 1px 0 var(--separator);
+  z-index: 5;
+}
+.proto__brand {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-right: 6px;
+  font-size: var(--fs-callout);
+}
+.proto__spacer {
+  flex: 1;
+}
+.proto__count {
+  font-size: var(--fs-subheadline);
+  color: var(--label-secondary);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.proto__bar .seg__item {
+  min-height: 26px;
+  padding: 0 10px;
+}
+.proto__stage {
+  flex: 1;
+  min-height: 0;
+  display: grid;
+  place-items: stretch center;
+}
+.proto[data-width]:not([data-width="fit"]) .proto__stage {
+  padding: 12px;
+  place-items: center;
+}
+.proto__stage > .window {
+  width: var(--frame-w, 100%);
+  max-width: 100%;
+}
+.proto[data-width]:not([data-width="fit"]) .proto__stage > .window {
+  border-radius: 14px;
+  box-shadow:
+    0 0 0 1px var(--separator),
+    0 18px 50px rgb(0 0 0 / 0.25);
+}
+
+@media (max-width: 720px) {
+  .proto__brand b,
+  .proto__count {
+    display: none;
+  }
+}
+
+.proto__bar .btn {
+  min-width: 0;
+  max-width: 100%;
+}
+.proto__bar .scene-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: min(46vw, 360px);
+}

@@ -43,7 +43,9 @@
     "test:infra:up": "bun scripts/test-infra.ts up",
     "test:infra:down": "bun scripts/test-infra.ts down",
     "test:fault": "bun scripts/test-fault.ts",
-    "smoke:backend": "bun --env-file=.env.local scripts/smoke-backend.ts"
+    "smoke:backend": "bun --env-file=.env.local scripts/smoke-backend.ts",
+    "design:build": "bun design/prototype/tools/build.mjs",
+    "design:contrast": "bun design/prototype/tools/contrast.mjs"
   },
   "devDependencies": {
     "@biomejs/biome": "2.5.14",
