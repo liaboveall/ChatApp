@@ -1,0 +1,15 @@
+# Read by the gitleaks job (.github/workflows/security.yml) from the repository root; see docs/12 D-106.
+# The syntax is the one CI's gitleaks (8.24.x) understands.
+title = "ChatApp gitleaks configuration"
+
+[extend]
+useDefault = true
+
+[allowlist]
+description = "Literal fixtures that only the test suites use. They are not secrets of any environment."
+# Matched against the detected secret itself, so a real key pasted into a test file is still reported.
+regexes = [
+  '''tomato-umbrella-47-lantern''',
+  '''k3Jx9QvLm2ZpWn8RtYb4HcDf7GsAe1UoIiTqVyPz''',
+  '''q83vEjS0m1xZk7UwYpHn2LcRtBdA9fGoIeJ4aVhN5Xs''',
+]
