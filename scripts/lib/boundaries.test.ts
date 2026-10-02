@@ -57,6 +57,25 @@ describe('layer import rules (docs/03 section 3)', () => {
   test('web must not reach db or server', () => {
     expect(checkFile('apps/web/src/a.ts', "import x from '@chatapp/db'\n")).toHaveLength(1)
     expect(checkFile('apps/web/src/a.ts', "import x from '@chatapp/contracts'\n")).toEqual([])
+    expect(checkFile('apps/web/vite.config.ts', "import x from '@chatapp/server'\n")).toHaveLength(
+      1,
+    )
+  })
+
+  test('browser code has no Node or Bun modules; the tooling around it does', () => {
+    expect(checkFile('apps/web/src/lib/a.ts', "import { join } from 'node:path'\n")).toHaveLength(1)
+    expect(checkFile('apps/web/src/lib/a.ts', "import { sql } from 'bun'\n")).not.toEqual([])
+    for (const path of [
+      'apps/web/vite.config.ts',
+      'apps/web/playwright.config.ts',
+      'apps/web/e2e/support/mailpit.ts',
+      'apps/web/tools/contrast.ts',
+      'apps/web/.storybook/main.ts',
+      'apps/web/src/lib/a.test.ts',
+      'apps/web/src/lib/a.test.tsx',
+    ]) {
+      expect(checkFile(path, "import { join } from 'node:path'\n"), path).toEqual([])
+    }
   })
 
   test('thin server layers must not touch tables', () => {

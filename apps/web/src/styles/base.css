@@ -1,0 +1,145 @@
+/* Base: typography, focus, scrolling, motion. Only tokens, no literal colours. Loaded into Tailwind's base layer. */
+
+html,
+body {
+  height: 100%;
+}
+
+body {
+  margin: 0;
+  background: var(--bg-app);
+  color: var(--label);
+  font-family: var(--font-sans);
+  font-size: var(--fs-body);
+  line-height: var(--lh-body);
+  font-weight: 400;
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+  overflow: hidden;
+}
+
+#root {
+  height: 100%;
+}
+
+button {
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+
+a {
+  color: var(--accent-text);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  text-decoration-thickness: 1px;
+}
+
+::selection {
+  background: color-mix(in srgb, var(--accent-solid) 30%, transparent);
+}
+
+::placeholder {
+  color: var(--placeholder);
+  opacity: 1;
+}
+
+:focus {
+  outline: none;
+}
+
+/* 2px ring, 2px away from the control (spec 7). Inside clipped containers use .focus-inset. */
+:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 2px;
+}
+
+.focus-inset:focus-visible {
+  outline-offset: -2px;
+}
+
+[hidden] {
+  display: none !important;
+}
+
+.skip-link {
+  position: absolute;
+  left: 12px;
+  top: -48px;
+  z-index: 1000;
+  padding: 8px 14px;
+  border-radius: var(--radius-control);
+  background: var(--bg-elevated);
+  color: var(--label);
+  box-shadow: 0 0 0 1px var(--control-border);
+}
+
+.skip-link:focus {
+  top: 12px;
+}
+
+kbd {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 1.5em;
+  padding: 0 0.4em;
+  height: 1.55em;
+  border-radius: 6px;
+  border: 1px solid var(--separator);
+  background: var(--fill);
+  color: var(--label-secondary);
+  font: 600 0.78em / 1 var(--font-sans);
+  white-space: nowrap;
+}
+
+/* Thin overlay-style scrollbars. */
+.scroll {
+  overflow: auto;
+  scrollbar-width: thin;
+  scrollbar-color: color-mix(in srgb, var(--label) 30%, transparent) transparent;
+  overscroll-behavior: contain;
+}
+
+/* Reduced motion (spec 4.5): every animation becomes a short plain fade. Applies when the browser asks for it or when
+   the user turns it on in Settings (<html data-reduce-motion="true">). */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-property: opacity, background-color, color, border-color, box-shadow !important;
+    transition-duration: 120ms !important;
+    transition-timing-function: ease !important;
+    scroll-behavior: auto !important;
+  }
+}
+
+:root[data-reduce-motion="true"] *,
+:root[data-reduce-motion="true"] *::before,
+:root[data-reduce-motion="true"] *::after {
+  animation-duration: 0.01ms !important;
+  animation-iteration-count: 1 !important;
+  transition-property: opacity, background-color, color, border-color, box-shadow !important;
+  transition-duration: 120ms !important;
+  transition-timing-function: ease !important;
+  scroll-behavior: auto !important;
+}
+
+/* Used by tests so screenshots are not caught mid-animation. */
+:root[data-no-anim="true"] *,
+:root[data-no-anim="true"] *::before,
+:root[data-no-anim="true"] *::after {
+  animation: none !important;
+  transition: none !important;
+}
+
+/* Containers that receive focus only from a skip link or from code do not need a ring around the whole area: the main
+   panel, and the popups of dialogs, the settings sheet and the command palette, which take focus when they open. */
+#main:focus,
+#main:focus-visible,
+.dialog:focus-visible,
+.sheet:focus-visible,
+.palette:focus-visible {
+  outline: none;
+}
