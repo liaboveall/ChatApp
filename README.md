@@ -27,15 +27,19 @@ bun run setup            # 生成 .env.local 和本地密钥（不会打印出�
 bun run infra:up         # 启动 Postgres、Valkey、Garage、Mailpit
 bun run infra:bootstrap  # 初始化 Garage 的存储桶和访问密钥
 bun run doctor           # 检查各项服务是否正常
+bun run db:migrate       # 迁移，并创建无特权的应用数据库账号
+bun run db:seed          # 仅开发：Agent 账号、保留名和 3 个演示成员
+bun run dev:api          # 后端（API 与 WebSocket）：http://127.0.0.1:3100/api/docs
+bun run dev:worker       # 另一个终端：邮件队列、定时对账与清理
 ```
 
-详见 [docs/09-local-dev.md](docs/09-local-dev.md)。应用本身的代码还在开发中，路线图见 [docs/11-roadmap.md](docs/11-roadmap.md)。
+详见 [docs/09-local-dev.md](docs/09-local-dev.md)。后端骨架（M1a）已实现；前端尚未开始，路线图见 [docs/11-roadmap.md](docs/11-roadmap.md)。
 
 ## 文档
 
 从 [docs/00-overview.md](docs/00-overview.md) 开始阅读。
 
-最新规划已将两轮独立审查落实到规格、决策和阶段验收，见[本轮修订对照](docs/15-planning-rereview-2026-10-01.md)。下一步为设计原型与M1a认证切片；规划完成不表示应用功能或故障验收已经通过。
+最新规划已将两轮独立审查落实到规格、决策和阶段验收，见[本轮修订对照](docs/15-planning-rereview-2026-10-01.md)。当前进度与每项验收的证据见 [PROGRESS.md](docs/PROGRESS.md)：规划完成不表示功能已通过验收，以 PROGRESS 记录的实际运行证据为准。
 
 ## 许可证与来源
 

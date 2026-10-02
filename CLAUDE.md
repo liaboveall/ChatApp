@@ -74,12 +74,16 @@
 
 ## 常用命令
 
-- **已经可用**：`bun run setup` · `doctor`（加 `--ai` 可以检查 DeepSeek key）· `infra:up` / `infra:down` / `infra:ps` / `infra:logs` · `infra:bootstrap` · `infra:reset --yes`（会删除全部本地数据，执行前先征得用户同意）· `lint` / `lint:fix` · `typecheck` · `guard` · `check`
+- **已经可用**：
+  - 环境与基础设施：`bun run setup` · `doctor`（加 `--ai` 可以检查 DeepSeek key）· `infra:up` / `infra:down` / `infra:ps` / `infra:logs` · `infra:bootstrap` · `infra:reset --yes`（会删除全部本地数据，执行前先征得用户同意）
+  - 检查：`lint` / `lint:fix` · `typecheck`（所有工作区包）· `guard`（含架构边界）· `check`（以上加单元测试，不需要任何服务）
+  - 数据库（M1a）：`db:generate` / `db:check` · `db:migrate` / `db:migrate:test` · `db:bootstrap`（生产也可用）/ `db:bootstrap:test` · `db:seed`（仅开发）
+  - 后端（M1a）：`dev:api` · `dev:worker` · `admin:create`（密码在用户自己的终端输入）· `admin:verify-email`
+  - 测试（M1a）：`test:integration`（集成、安全、契约、实时；需要先 `infra:up`、`infra:bootstrap`、`db:migrate:test`）· `test` · `test:infra:up` / `test:infra:down <runId>` · `test:fault`（只在独立实例里做故障注入，D-085）· `smoke:backend`（对运行中的 api/worker 做真实进程验收走查，用法见脚本头部）
 - **以下命令到对应的里程碑才会创建，在那之前不要假定它们存在**：
-  - M1a：`db:*`（含生产安全的 db:bootstrap、仅开发的 db:seed）· `dev:api` · `dev:worker` · `test` / `test:unit` / `test:integration` · `admin:create` · `admin:verify-email`
-  - M1a首次故障前：`test:infra:up` / `test:infra:down` / `test:fault`；M3：`media:up` / `media:down`（worker容器与私有IPC）
   - M1b：`dev` · `dev:web` · `test:e2e` · `test:visual` · `storybook` · `build`
   - M2b：`edge:up` / `edge:down`
+  - M3：`media:up` / `media:down`（worker容器与私有IPC）
   - M4：`eval`
 - lefthook 的 pre-commit 钩子会运行 Biome 和 guard，提交时 PATH 里必须能找到 `bun`。
 

@@ -117,7 +117,12 @@ Page<T>      { items: T[], nextCursor|null }  // message lists instead return { 
 ### 3.1 认证与账号
 | 方法和路径 | 说明 | 里程碑 |
 |---|---|---|
-| `/api/auth/*` | 仅按下方方法/能力清单转发；未列明路由默认 404。注册沿用 POST /api/auth/sign-up/email，但经受控注册 adapter 与激活状态机，不直接透传 | M1 |
+| `/api/auth/*` | 精确 method + path 允许清单（`packages/contracts/src/auth-endpoints.ts`）：下列 8 个受控入口由应用实现，7 个 Passkey 路由经严格校验后转发给 SDK，其余一律 404（D-094）。 | M1a ✅ |
+| `POST /api/auth/sign-up/email` | 受控注册：请求体 `{email, username, name, password}`（strict，多余字段 422）；邀请码在请求头 `X-Invite-Code`，幂等键在 `Idempotency-Key`；一个事务内完成占位、建号、关联、验证凭证与邮件工作（D-096）。成功与“邮箱已存在”返回同样的 `{status:'verification_required'}`；邀请无效 400 `INVITE_INVALID`，用户名被占 409。 | M1a ✅ |
+| `POST /api/auth/sign-in/email` | 受控登录：`{email, password, rememberMe?}`（strict）；成功 `{status:'ok'}` 加 Set-Cookie，响应体不含令牌；失败沿用 SDK 的扁平形状 `{code,message}`：401 `INVALID_EMAIL_OR_PASSWORD`（账号不存在与口令错误无差别）、403 `EMAIL_NOT_VERIFIED` / `ACCOUNT_NOT_ACTIVE`（仅在口令正确之后）。按 IP 与账号摘要限流。 | M1a ✅ |
+| `POST /api/auth/sign-out` | 结束当前 session（origin 记 ended，已委托的任务继续）；没有 session 时同样返回 200 并清 Cookie。 | M1a ✅ |
+| `POST /api/auth/change-password` | `{currentPassword,newPassword}`：其他 session 终止，当前 session 换绑新 origin 与新 epoch，旧委托全部撤销。 | M1a ✅ |
+| `GET /api/me/devices` / `DELETE /api/me/devices/:id` / `POST /api/me/devices/revoke-others` / `POST /api/me/devices/revoke-all` | 设备（= 登录 origin）：列表（含当前设备标记）、撤销单台、注销其他设备、安全注销全部设备（epoch+1，含本机）。取代原生 list-sessions / revoke-*（它们的响应带会话令牌，不转发）。 | M1a ✅ |
 | `POST /api/auth/verification/request` / `POST /api/auth/verification/consume` | 前者请求/重发验证邮件（通用响应）；后者`{token}`，原子消费绑定凭证并验证激活条件，不自动登录 | M1 |
 | `POST /api/auth/password/request-reset` / `POST /api/auth/password/consume-reset` | 前者请求找回（通用响应）；后者`{token,newPassword}`，消费/改密/撤销会话和委托同事务 | M1 |
 | `POST /api/invites/check` | `{code}`，注册页用它校验邀请码是否可用；按 IP 限流 | M1 |
@@ -127,20 +132,20 @@ Page<T>      { items: T[], nextCursor|null }  // message lists instead return { 
 | `DELETE /api/me` | 注销账号，需要再次输入密码或验证 Passkey | M7 |
 
 
-**认证允许清单（D-058、V-13）**
+**认证允许清单（D-058、D-094、V-13）**
 
-| 能力 | 放行边界 |
+| 能力 | 入口与边界 |
 |---|---|
-| 邮箱注册 | POST sign-up/email；X-Invite-Code + Idempotency-Key；04 注册状态机；拒绝客户端 role/is_bot/限额/验证状态/registration_id |
-| 登录/退出/本人会话 | 邮箱登录、sign-out、get-session、list-sessions、注销本人单个/其他/全部 session；账号必须 active、非 bot、未封禁 |
-| 验证与找回 | 仅上表四个应用受控POST端点；GET只提供静态确认页，token来自fragment且读取后立即移除。原生verify-email/JWT回调及原生request/reset-password路径不转发；匿名响应不枚举账号 |
-| 本人修改密码 | 需当前凭证与近期认证，注销其他 session；重置注销全部 session |
-| Passkey | 本人的 challenge 生成/校验、登记、登录、列表、改名、删除；所有 challenge 绑定 session/账号、Origin、RP ID，禁止任意 userId |
-| 禁止能力 | 所有 admin/impersonation；无邀请创建用户；替他人设置密码、邮箱；change-email（本版不提供）；update-user；原生 delete-user；username 登录；OAuth/社交登录及其他插件入口 |
+| 邮箱注册 | POST sign-up/email（受控）；`X-Invite-Code` + `Idempotency-Key`；04 注册状态机；拒绝客户端的 role / is_bot / 限额 / 验证状态 / registration_id（strict schema） |
+| 登录 / 退出 / 改密 | POST sign-in/email、sign-out、change-password（受控）；账号必须 active、非 bot、未封禁；退出只结束 session，安全撤销走 `/api/me/devices` |
+| 验证与找回 | 仅 4 个受控 POST：`verification/request`、`verification/consume`、`password/request-reset`、`password/consume-reset`；GET 只显示静态确认页，token 来自 fragment 且读取后立即移除；原生 verify-email / JWT 回调 / reset-password 一律 404；匿名响应不枚举账号 |
+| 本人会话与设备 | 不转发原生 get-session / list-sessions / revoke-*（响应带令牌）；用 `/api/me`、`/api/me/devices` |
+| Passkey | 7 个 SDK 路由：generate-authenticate-options（GET，匿名）、verify-authentication（POST，匿名）、generate-register-options（GET）、verify-registration、list-user-passkeys（GET）、update-passkey、delete-passkey（需 session）；请求体与查询参数 strict，拒绝 `createSession` 与任意 `userId`；SDK 响应中的 token 字段在返回前剔除；所有 challenge 绑定 session/账号、Origin、RP ID |
+| 禁止能力 | 所有 admin / impersonation；无邀请创建用户；替他人设置密码、邮箱；change-email；update-user；原生 delete-user；username 登录；OAuth / 社交登录及其他插件入口 |
 
-M1a 从锁定版 SDK 导出精确 HTTP method/path 清单并提交 contracts/auth-endpoints，以上“能力”仅用于选择该清单，绝不是通配路径放行。端点升级的快照测试必须检查新增路径仍默认拒绝；省略、编码、尾斜杠等路由归一化形式也必须覆盖。后台功能全部用 /api/admin 的 domain 接口，不启用 admin 插件 HTTP 路由。机器人和未确认注册不能通过 Passkey/密码/会话恢复绕过激活。
+锁定版 SDK（Better Auth 1.7.7 加 passkey 插件）共注册 39 个 (方法, 路径)，其中只有上表 7 个 Passkey 路由被转发，清单固定在 `apps/server/test/contract/auth-sdk-endpoints.snapshot.json`：升级后出现新路由会让测试失败，等人工归类；未归类的路由本来就是 404。匹配只认 `new URL()` 解析后的原始 pathname：大小写、尾斜杠、`%` 编码、`//`、`;`、错误的 HTTP 方法都是 404，`%`、`//`、反斜杠的路径在进入任何路由器之前就被拒绝。机器人和未确认注册不能通过 Passkey / 密码 / 会话恢复绕过激活：建会话的钩子统一做账号状态闸门。
 
-普通sign-out与“撤销设备/注销其他或全部设备”按03第5.9节分别映射，不能都调用一个只删除session的原生函数。安全操作撤销origin/delegation；普通退出只结束session。设备页和任务列表显示这一区别，所有身份变更由受控adapter完成。认证页无第三方资源、no-referrer/no-store；fragment token不写localStorage/分析事件/错误报告。
+普通 sign-out 与“撤销设备 / 注销其他或全部设备”按 03 第 5.9 节分别映射，不能都调用一个只删除 session 的函数：安全操作撤销 origin 与委托，普通退出只结束 session。设备页和任务列表显示这一区别。认证页无第三方资源、no-referrer / no-store；fragment token 不写 localStorage / 分析事件 / 错误报告。
 
 ### 3.2 邀请与用户
 | 方法和路径 | 说明 | 里程碑 |
