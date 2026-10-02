@@ -618,7 +618,7 @@ Base UI 提供无障碍的交互原语（菜单、弹窗、焦点管理等）；
 - `bun audit` 全量有 1 条 moderate：`drizzle-kit@0.31.11 → @esbuild-kit/esm-loader → @esbuild-kit/core-utils（已废弃，并入 tsx）→ esbuild@0.18.20`；告警内容是 esbuild 开发服务器（`serve`）允许任意网站发请求并读取响应（影响 ≤0.24.2）。drizzle-kit 0.31.11 是最新稳定版（更新的都是 1.0 beta，按 D-104 不用），没有可升级的路径；它只用 esbuild 的转换接口，不启动开发服务器，而且是 `packages/db` 的开发依赖，不会进入生产镜像。
 - 处理：CI 的 `bun audit --audit-level=high` 本地通过；`osv-scanner` 默认会报这一条，所以在 `bun.lock` 同目录的 `osv-scanner.toml` 里登记例外，写明理由，到期日 2027-01-01（到期后会重新报警）。drizzle-kit 1.0 稳定后升级，并删除这条例外。
 - 没有用 `overrides` 强行换版本：那条 loader 链路已被上游废弃，强换的收益只是消掉一条不可达的告警，却可能让 `db:generate` 出现不易察觉的问题。
-- **未验证**：本机没有安装 osv-scanner（装软件要先征得同意），配置格式按官方文档核对，远端首次运行结果待核对。
+- 验证：本机没有安装 osv-scanner（装软件要先征得同意），所以靠远端运行验证。2026-10-02 的 `security` 运行（run 36956977511，完整扫描）里 osv-scanner v2.6.0 读到了 `osv-scanner.toml`，扫描 `bun.lock` 的 238 个包，该告警被“过滤 1 条”，结果无问题、退出码 0。
 
 **D-106 gitleaks：测试夹具白名单（2026-10-02）**
 - 首次远端 `security` 运行里，gitleaks 8.24.3 对 7 个新提交报了 13 处 `generic-api-key`，全部在测试文件里，只涉及三个字面值：假密码 `tomato-umbrella-47-lantern`（9 处）、测试应用用的占位 secret（3 处）和占位加密密钥（1 处）；是变量名里的 `password`/`SECRET` 触发了通用规则。核对结果：这三个值都不是任何环境的真实值（与 `.env.local` 里密钥类取值逐个比对，一个都不相同），只出现在测试代码里。
@@ -641,7 +641,7 @@ Base UI 提供无障碍的交互原语（菜单、弹窗、焦点管理等）；
 | V-09 | react-virtuoso 能否胜任聊天场景：向上加载历史、图片加载后变高、流式文本不断变长（先做一个小实验） | M2b |
 | V-10 | 网页推送在中国大陆网络下能否送达（Chrome、Edge、Safari 分别测） | M6 |
 | V-11 | QQ/163 验证与重置邮件送达，记录网络、延迟、垃圾箱；缺域名/SMTP 时记阻塞 | 凭据齐备即测，M8 必过 |
-| V-12 | 实际 arm64 Debian 原生依赖与峰值资源；onnxruntime/Bun 失败改 Node 子进程，模型不达标换备选 **→ M1a：arm64 CI 冒烟已写入 check 工作流（arm64-smoke），尚无远端运行结果；真实 ARM 资源数据仍待 M3/M5b。** | M1a 基础冒烟，M3/M5b 实测 |
+| V-12 | 实际 arm64 Debian 原生依赖与峰值资源；onnxruntime/Bun 失败改 Node 子进程，模型不达标换备选 **→ M1a：arm64 CI 冒烟（check 工作流的 arm64-smoke）2026-10-02 在 `ubuntu-24.04-arm` 上通过（冻结安装加 `bun run check`，run 36956701933）；真实 ARM 资源数据仍待 M3/M5b。** | M1a 基础冒烟，M3/M5b 实测 |
 | V-13 | 精确认证路由白名单、UUID/受控字段、首次 INSERT 注册关联与锁；一次性验证/重置凭证绑定注册实例和 restore_epoch；认证事务与设备 origin/委托撤销；原生 JWT 和管理路径不可旁路 **→ 2026-10-01 M1a 实验通过（D-094–D-096、D-100、D-101，AT-04/05/25/26/27/28 契约部分的证据见 PROGRESS）；Passkey 完整仪式需浏览器，留到 M1b 验证。** | M1a 首个阻断性实验 |
 | V-14 | Playwright 的 `setOffline` 能否断开已经建立的 WebSocket；不能的话，改用服务端测试接口或 `routeWebSocket` | M2a |
 | V-15 | pg_trgm 处理 2 个字的中文查询时的实际性能（EXPLAIN），必要时改用 pg_bigm | M4 |
