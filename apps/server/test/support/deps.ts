@@ -1,0 +1,153 @@
+import type { Db } from '@chatapp/db'
+import { accounts, authChallenges, authorizationOrigins, sessions, users } from '@chatapp/db'
+import { and, eq, isNull, sql } from 'drizzle-orm'
+import { sdkPasswords } from '../../src/auth/passwords.ts'
+import type { Deps } from '../../src/domain/deps.ts'
+import { ManualClock } from '../../src/lib/clock.ts'
+import { open } from '../../src/lib/crypto.ts'
+import { silentLogger } from '../../src/lib/logger.ts'
+import { uuidv7 } from '../../src/runtime/ids.ts'
+import { testConfig } from './env.ts'
+
+export const TEST_ORIGIN = 'http://localhost:5173'
+
+/** Domain dependencies for tests: real database, manual clock, silent logger. */
+export function makeDeps(
+  db: Db,
+  overrides: Partial<Omit<Deps, 'clock'>> = {},
+): Deps & { clock: ManualClock } {
+  const config = testConfig()
+  return {
+    db,
+    clock: new ManualClock(Date.now()),
+    newId: uuidv7,
+    config: {
+      origin: TEST_ORIGIN,
+      timezone: config.timezone,
+      auth: {
+        tokenEncryptionKey: config.auth.tokenEncryptionKey,
+        restoreEpoch: config.auth.restoreEpoch,
+      },
+      product: config.product,
+    },
+    passwords: sdkPasswords,
+    log: silentLogger,
+    ...overrides,
+  }
+}
+
+export const TEST_PASSWORD = 'correct-horse-battery-staple'
+
+/** An active, verified account with a password, created the way the admin CLI does (an audited exception). */
+export async function createActiveUser(
+  deps: Deps,
+  input: { email?: string; username: string; password?: string; role?: 'user' | 'admin' },
+): Promise<{ id: string; email: string; username: string; password: string }> {
+  const email = input.email ?? `${input.username}@example.com`
+  const password = input.password ?? TEST_PASSWORD
+  const [user] = await deps.db
+    .insert(users)
+    .values({
+      name: input.username,
+      email,
+      username: input.username,
+      role: input.role ?? 'user',
+      accountSource: 'cli',
+      activationStatus: 'active',
+      emailVerified: true,
+    })
+    .returning({ id: users.id })
+  if (!user) throw new Error('user not created')
+  await deps.db.insert(accounts).values({
+    userId: user.id,
+    accountId: user.id,
+    providerId: 'credential',
+    password: await deps.passwords.hash(password),
+  })
+  return { id: user.id, email, username: input.username, password }
+}
+
+/** A session principal backed by real rows (origin + session), as a login would have created. */
+export async function makePrincipal(
+  deps: Deps,
+  user: { id: string },
+  options: { role?: 'user' | 'admin' } = {},
+): Promise<import('../../src/domain/principal.ts').SessionPrincipal & { token: string }> {
+  const [row] = await deps.db.select().from(users).where(eq(users.id, user.id))
+  if (!row) throw new Error('user not found')
+  const [origin] = await deps.db
+    .insert(authorizationOrigins)
+    .values({ userId: user.id, restoreEpoch: deps.config.auth.restoreEpoch })
+    .returning({ id: authorizationOrigins.id })
+  if (!origin) throw new Error('origin not created')
+  const token = `test-token-${deps.newId()}`
+  const [session] = await deps.db
+    .insert(sessions)
+    .values({
+      userId: user.id,
+      token,
+      expiresAt: new Date(deps.clock.now().getTime() + 30 * 86_400_000),
+      authEpoch: row.authEpoch,
+      authorizationOriginId: origin.id,
+    })
+    .returning({ id: sessions.id })
+  if (!session) throw new Error('session not created')
+  return {
+    kind: 'session',
+    userId: user.id,
+    sessionId: session.id,
+    originId: origin.id,
+    authEpoch: row.authEpoch,
+    restoreEpoch: deps.config.auth.restoreEpoch,
+    role: options.role ?? row.role,
+    token,
+  }
+}
+
+/** Reads the plaintext token of the newest live credential the way the email worker would (decrypts the delivery copy). */
+export async function readLiveToken(
+  deps: Deps,
+  userId: string,
+  purpose: 'verify_email' | 'reset_password',
+): Promise<string> {
+  const [row] = await deps.db
+    .select()
+    .from(authChallenges)
+    .where(
+      and(
+        eq(authChallenges.userId, userId),
+        eq(authChallenges.purpose, purpose),
+        isNull(authChallenges.consumedAt),
+        isNull(authChallenges.revokedAt),
+      ),
+    )
+  if (!row?.deliveryCiphertext || !row.deliveryNonce)
+    throw new Error('no live credential with a delivery copy')
+  return open(
+    deps.config.auth.tokenEncryptionKey,
+    { ciphertext: row.deliveryCiphertext, nonce: row.deliveryNonce },
+    row.id,
+  )
+}
+
+/**
+ * Makes inserts into a table fail, to prove a multi-step operation rolls back completely at that point. Owner
+ * connection only; always call the returned function (in finally) to remove the trigger.
+ */
+export async function injectInsertFailure(owner: Db, table: string): Promise<() => Promise<void>> {
+  const name = `inject_${table}`
+  await owner.execute(
+    sql.raw(
+      `create or replace function ${name}() returns trigger language plpgsql as $$ begin raise exception 'injected failure'; end $$`,
+    ),
+  )
+  await owner.execute(
+    sql.raw(
+      `create trigger ${name} before insert on ${table} for each row execute function ${name}()`,
+    ),
+  )
+  return async () => {
+    await owner.execute(sql.raw(`drop trigger if exists ${name} on ${table}`))
+    await owner.execute(sql.raw(`drop function if exists ${name}()`))
+  }
+}

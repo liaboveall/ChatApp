@@ -1,0 +1,2946 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "ChatApp API",
+    "version": "1.0.0"
+  },
+  "components": {
+    "securitySchemes": {
+      "cookieAuth": {
+        "type": "apiKey",
+        "in": "cookie",
+        "name": "chatapp.session_token"
+      }
+    },
+    "schemas": {},
+    "parameters": {}
+  },
+  "paths": {
+    "/api/healthz": {
+      "get": {
+        "tags": ["health"],
+        "summary": "Liveness: the process is up",
+        "responses": {
+          "200": {
+            "description": "Alive",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "status": {
+                      "type": "string",
+                      "enum": ["ok", "unavailable"]
+                    }
+                  },
+                  "required": ["status"]
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/readyz": {
+      "get": {
+        "tags": ["health"],
+        "summary": "Readiness: Postgres, Valkey and object storage all answer",
+        "responses": {
+          "200": {
+            "description": "Ready",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "status": {
+                      "type": "string",
+                      "enum": ["ok", "unavailable"]
+                    }
+                  },
+                  "required": ["status"]
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Not ready",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "status": {
+                      "type": "string",
+                      "enum": ["ok", "unavailable"]
+                    }
+                  },
+                  "required": ["status"]
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/auth/sign-up/email": {
+      "post": {
+        "tags": ["auth"],
+        "summary": "Register with an invitation (code in the X-Invite-Code header, key in Idempotency-Key)",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "email": {
+                    "type": "string",
+                    "maxLength": 254
+                  },
+                  "username": {
+                    "type": "string",
+                    "minLength": 3,
+                    "maxLength": 20,
+                    "pattern": "^[a-z0-9_]+$"
+                  },
+                  "name": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 160
+                  },
+                  "password": {
+                    "type": "string",
+                    "minLength": 10,
+                    "maxLength": 128
+                  }
+                },
+                "required": ["email", "username", "name", "password"],
+                "additionalProperties": false
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Verification email on its way (same answer if the email is already known)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "status": {
+                      "type": "string",
+                      "enum": ["verification_required"]
+                    }
+                  },
+                  "required": ["status"]
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invitation invalid",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "object",
+                      "properties": {
+                        "code": {
+                          "type": "string",
+                          "enum": [
+                            "UNAUTHENTICATED",
+                            "FORBIDDEN",
+                            "NOT_FOUND",
+                            "VALIDATION_FAILED",
+                            "CONFLICT",
+                            "RATE_LIMITED",
+                            "QUOTA_EXCEEDED",
+                            "AI_BUDGET_EXHAUSTED",
+                            "AI_KEY_INVALID",
+                            "CONVERSATION_BANNED",
+                            "PAYLOAD_TOO_LARGE",
+                            "UNSUPPORTED_MEDIA_TYPE",
+                            "REQUEST_TIMEOUT",
+                            "INVALID_REQUEST_FRAMING",
+                            "AUTH_CHALLENGE_INVALID",
+                            "WINDOW_EXPIRED",
+                            "INVITE_INVALID",
+                            "IDEMPOTENCY_CONFLICT",
+                            "VERSION_CONFLICT",
+                            "RESOURCE_GONE",
+                            "CONTEXT_CHANGED",
+                            "CALL_OUTCOME_UNKNOWN",
+                            "CAPACITY_UNAVAILABLE",
+                            "INTERNAL"
+                          ]
+                        },
+                        "message": {
+                          "type": "string"
+                        },
+                        "details": {
+                          "type": "object",
+                          "additionalProperties": {}
+                        },
+                        "requestId": {
+                          "type": "string"
+                        }
+                      },
+                      "required": ["code", "message", "requestId"]
+                    }
+                  },
+                  "required": ["error"]
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Username taken, or idempotency conflict",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "object",
+                      "properties": {
+                        "code": {
+                          "type": "string",
+                          "enum": [
+                            "UNAUTHENTICATED",
+                            "FORBIDDEN",
+                            "NOT_FOUND",
+                            "VALIDATION_FAILED",
+                            "CONFLICT",
+                            "RATE_LIMITED",
+                            "QUOTA_EXCEEDED",
+                            "AI_BUDGET_EXHAUSTED",
+                            "AI_KEY_INVALID",
+                            "CONVERSATION_BANNED",
+                            "PAYLOAD_TOO_LARGE",
+                            "UNSUPPORTED_MEDIA_TYPE",
+                            "REQUEST_TIMEOUT",
+                            "INVALID_REQUEST_FRAMING",
+                            "AUTH_CHALLENGE_INVALID",
+                            "WINDOW_EXPIRED",
+                            "INVITE_INVALID",
+                            "IDEMPOTENCY_CONFLICT",
+                            "VERSION_CONFLICT",
+                            "RESOURCE_GONE",
+                            "CONTEXT_CHANGED",
+                            "CALL_OUTCOME_UNKNOWN",
+                            "CAPACITY_UNAVAILABLE",
+                            "INTERNAL"
+                          ]
+                        },
+                        "message": {
+                          "type": "string"
+                        },
+                        "details": {
+                          "type": "object",
+                          "additionalProperties": {}
+                        },
+                        "requestId": {
+                          "type": "string"
+                        }
+                      },
+                      "required": ["code", "message", "requestId"]
+                    }
+                  },
+                  "required": ["error"]
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation failed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "object",
+                      "properties": {
+                        "code": {
+                          "type": "string",
+                          "enum": [
+                            "UNAUTHENTICATED",
+                            "FORBIDDEN",
+                            "NOT_FOUND",
+                            "VALIDATION_FAILED",
+                            "CONFLICT",
+                            "RATE_LIMITED",
+                            "QUOTA_EXCEEDED",
+                            "AI_BUDGET_EXHAUSTED",
+                            "AI_KEY_INVALID",
+                            "CONVERSATION_BANNED",
+                            "PAYLOAD_TOO_LARGE",
+                            "UNSUPPORTED_MEDIA_TYPE",
+                            "REQUEST_TIMEOUT",
+                            "INVALID_REQUEST_FRAMING",
+                            "AUTH_CHALLENGE_INVALID",
+                            "WINDOW_EXPIRED",
+                            "INVITE_INVALID",
+                            "IDEMPOTENCY_CONFLICT",
+                            "VERSION_CONFLICT",
+                            "RESOURCE_GONE",
+                            "CONTEXT_CHANGED",
+                            "CALL_OUTCOME_UNKNOWN",
+                            "CAPACITY_UNAVAILABLE",
+                            "INTERNAL"
+                          ]
+                        },
+                        "message": {
+                          "type": "string"
+                        },
+                        "details": {
+                          "type": "object",
+                          "additionalProperties": {}
+                        },
+                        "requestId": {
+                          "type": "string"
+                        }
+                      },
+                      "required": ["code", "message", "requestId"]
+                    }
+                  },
+                  "required": ["error"]
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Rate limited",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "object",
+                      "properties": {
+                        "code": {
+                          "type": "string",
+                          "enum": [
+                            "UNAUTHENTICATED",
+                            "FORBIDDEN",
+                            "NOT_FOUND",
+                            "VALIDATION_FAILED",
+                            "CONFLICT",
+                            "RATE_LIMITED",
+                            "QUOTA_EXCEEDED",
+                            "AI_BUDGET_EXHAUSTED",
+                            "AI_KEY_INVALID",
+                            "CONVERSATION_BANNED",
+                            "PAYLOAD_TOO_LARGE",
+                            "UNSUPPORTED_MEDIA_TYPE",
+                            "REQUEST_TIMEOUT",
+                            "INVALID_REQUEST_FRAMING",
+                            "AUTH_CHALLENGE_INVALID",
+                            "WINDOW_EXPIRED",
+                            "INVITE_INVALID",
+                            "IDEMPOTENCY_CONFLICT",
+                            "VERSION_CONFLICT",
+                            "RESOURCE_GONE",
+                            "CONTEXT_CHANGED",
+                            "CALL_OUTCOME_UNKNOWN",
+                            "CAPACITY_UNAVAILABLE",
+                            "INTERNAL"
+                          ]
+                        },
+                        "message": {
+                          "type": "string"
+                        },
+                        "details": {
+                          "type": "object",
+                          "additionalProperties": {}
+                        },
+                        "requestId": {
+                          "type": "string"
+                        }
+                      },
+                      "required": ["code", "message", "requestId"]
+                    }
+                  },
+                  "required": ["error"]
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/auth/sign-in/email": {
+      "post": {
+        "tags": ["auth"],
+        "summary": "Sign in with email and password; the session is a cookie, the body carries no token",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "email": {
+                    "type": "string",
+                    "maxLength": 254
+                  },
+                  "password": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 256
+                  },
+                  "rememberMe": {
+                    "type": "boolean"
+                  }
+                },
+                "required": ["email", "password"],
+                "additionalProperties": false
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Signed in (Set-Cookie)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "status": {
+                      "type": "string",
+                      "enum": ["ok"]
+                    }
+                  },
+                  "required": ["status"]
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Wrong email or password",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "code": {
+                      "type": "string",
+                      "enum": [
+                        "INVALID_EMAIL_OR_PASSWORD",
+                        "EMAIL_NOT_VERIFIED",
+                        "ACCOUNT_NOT_ACTIVE"
+                      ]
+                    },
+                    "message": {
+                      "type": "string"
+                    }
+                  },
+                  "required": ["code", "message"]
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Account cannot sign in (unverified or inactive)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "code": {
+                      "type": "string",
+                      "enum": [
+                        "INVALID_EMAIL_OR_PASSWORD",
+                        "EMAIL_NOT_VERIFIED",
+                        "ACCOUNT_NOT_ACTIVE"
+                      ]
+                    },
+                    "message": {
+                      "type": "string"
+                    }
+                  },
+                  "required": ["code", "message"]
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Rate limited",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "object",
+                      "properties": {
+                        "code": {
+                          "type": "string",
+                          "enum": [
+                            "UNAUTHENTICATED",
+                            "FORBIDDEN",
+                            "NOT_FOUND",
+                            "VALIDATION_FAILED",
+                            "CONFLICT",
+                            "RATE_LIMITED",
+                            "QUOTA_EXCEEDED",
+                            "AI_BUDGET_EXHAUSTED",
+                            "AI_KEY_INVALID",
+                            "CONVERSATION_BANNED",
+                            "PAYLOAD_TOO_LARGE",
+                            "UNSUPPORTED_MEDIA_TYPE",
+                            "REQUEST_TIMEOUT",
+                            "INVALID_REQUEST_FRAMING",
+                            "AUTH_CHALLENGE_INVALID",
+                            "WINDOW_EXPIRED",
+                            "INVITE_INVALID",
+                            "IDEMPOTENCY_CONFLICT",
+                            "VERSION_CONFLICT",
+                            "RESOURCE_GONE",
+                            "CONTEXT_CHANGED",
+                            "CALL_OUTCOME_UNKNOWN",
+                            "CAPACITY_UNAVAILABLE",
+                            "INTERNAL"
+                          ]
+                        },
+                        "message": {
+                          "type": "string"
+                        },
+                        "details": {
+                          "type": "object",
+                          "additionalProperties": {}
+                        },
+                        "requestId": {
+                          "type": "string"
+                        }
+                      },
+                      "required": ["code", "message", "requestId"]
+                    }
+                  },
+                  "required": ["error"]
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/auth/sign-out": {
+      "post": {
+        "tags": ["auth"],
+        "summary": "End this session (delegated work continues). Always succeeds.",
+        "responses": {
+          "200": {
+            "description": "Signed out",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "status": {
+                      "type": "string",
+                      "enum": ["ok"]
+                    }
+                  },
+                  "required": ["status"]
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/auth/change-password": {
+      "post": {
+        "tags": ["auth"],
+        "summary": "Change the password; other sessions end, this one continues under a new origin",
+        "security": [
+          {
+            "cookieAuth": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "currentPassword": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 256
+                  },
+                  "newPassword": {
+                    "type": "string",
+                    "minLength": 10,
+                    "maxLength": 128
+                  }
+                },
+                "required": ["currentPassword", "newPassword"],
+                "additionalProperties": false
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Changed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "status": {
+                      "type": "string",
+                      "enum": ["ok"]
+                    }
+                  },
+                  "required": ["status"]
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Not signed in",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "object",
+                      "properties": {
+                        "code": {
+                          "type": "string",
+                          "enum": [
+                            "UNAUTHENTICATED",
+                            "FORBIDDEN",
+                            "NOT_FOUND",
+                            "VALIDATION_FAILED",
+                            "CONFLICT",
+                            "RATE_LIMITED",
+                            "QUOTA_EXCEEDED",
+                            "AI_BUDGET_EXHAUSTED",
+                            "AI_KEY_INVALID",
+                            "CONVERSATION_BANNED",
+                            "PAYLOAD_TOO_LARGE",
+                            "UNSUPPORTED_MEDIA_TYPE",
+                            "REQUEST_TIMEOUT",
+                            "INVALID_REQUEST_FRAMING",
+                            "AUTH_CHALLENGE_INVALID",
+                            "WINDOW_EXPIRED",
+                            "INVITE_INVALID",
+                            "IDEMPOTENCY_CONFLICT",
+                            "VERSION_CONFLICT",
+                            "RESOURCE_GONE",
+                            "CONTEXT_CHANGED",
+                            "CALL_OUTCOME_UNKNOWN",
+                            "CAPACITY_UNAVAILABLE",
+                            "INTERNAL"
+                          ]
+                        },
+                        "message": {
+                          "type": "string"
+                        },
+                        "details": {
+                          "type": "object",
+                          "additionalProperties": {}
+                        },
+                        "requestId": {
+                          "type": "string"
+                        }
+                      },
+                      "required": ["code", "message", "requestId"]
+                    }
+                  },
+                  "required": ["error"]
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Current password incorrect",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "object",
+                      "properties": {
+                        "code": {
+                          "type": "string",
+                          "enum": [
+                            "UNAUTHENTICATED",
+                            "FORBIDDEN",
+                            "NOT_FOUND",
+                            "VALIDATION_FAILED",
+                            "CONFLICT",
+                            "RATE_LIMITED",
+                            "QUOTA_EXCEEDED",
+                            "AI_BUDGET_EXHAUSTED",
+                            "AI_KEY_INVALID",
+                            "CONVERSATION_BANNED",
+                            "PAYLOAD_TOO_LARGE",
+                            "UNSUPPORTED_MEDIA_TYPE",
+                            "REQUEST_TIMEOUT",
+                            "INVALID_REQUEST_FRAMING",
+                            "AUTH_CHALLENGE_INVALID",
+                            "WINDOW_EXPIRED",
+                            "INVITE_INVALID",
+                            "IDEMPOTENCY_CONFLICT",
+                            "VERSION_CONFLICT",
+                            "RESOURCE_GONE",
+                            "CONTEXT_CHANGED",
+                            "CALL_OUTCOME_UNKNOWN",
+                            "CAPACITY_UNAVAILABLE",
+                            "INTERNAL"
+                          ]
+                        },
+                        "message": {
+                          "type": "string"
+                        },
+                        "details": {
+                          "type": "object",
+                          "additionalProperties": {}
+                        },
+                        "requestId": {
+                          "type": "string"
+                        }
+                      },
+                      "required": ["code", "message", "requestId"]
+                    }
+                  },
+                  "required": ["error"]
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "New password not acceptable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "object",
+                      "properties": {
+                        "code": {
+                          "type": "string",
+                          "enum": [
+                            "UNAUTHENTICATED",
+                            "FORBIDDEN",
+                            "NOT_FOUND",
+                            "VALIDATION_FAILED",
+                            "CONFLICT",
+                            "RATE_LIMITED",
+                            "QUOTA_EXCEEDED",
+                            "AI_BUDGET_EXHAUSTED",
+                            "AI_KEY_INVALID",
+                            "CONVERSATION_BANNED",
+                            "PAYLOAD_TOO_LARGE",
+                            "UNSUPPORTED_MEDIA_TYPE",
+                            "REQUEST_TIMEOUT",
+                            "INVALID_REQUEST_FRAMING",
+                            "AUTH_CHALLENGE_INVALID",
+                            "WINDOW_EXPIRED",
+                            "INVITE_INVALID",
+                            "IDEMPOTENCY_CONFLICT",
+                            "VERSION_CONFLICT",
+                            "RESOURCE_GONE",
+                            "CONTEXT_CHANGED",
+                            "CALL_OUTCOME_UNKNOWN",
+                            "CAPACITY_UNAVAILABLE",
+                            "INTERNAL"
+                          ]
+                        },
+                        "message": {
+                          "type": "string"
+                        },
+                        "details": {
+                          "type": "object",
+                          "additionalProperties": {}
+                        },
+                        "requestId": {
+                          "type": "string"
+                        }
+                      },
+                      "required": ["code", "message", "requestId"]
+                    }
+                  },
+                  "required": ["error"]
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Rate limited",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "object",
+                      "properties": {
+                        "code": {
+                          "type": "string",
+                          "enum": [
+                            "UNAUTHENTICATED",
+                            "FORBIDDEN",
+                            "NOT_FOUND",
+                            "VALIDATION_FAILED",
+                            "CONFLICT",
+                            "RATE_LIMITED",
+                            "QUOTA_EXCEEDED",
+                            "AI_BUDGET_EXHAUSTED",
+                            "AI_KEY_INVALID",
+                            "CONVERSATION_BANNED",
+                            "PAYLOAD_TOO_LARGE",
+                            "UNSUPPORTED_MEDIA_TYPE",
+                            "REQUEST_TIMEOUT",
+                            "INVALID_REQUEST_FRAMING",
+                            "AUTH_CHALLENGE_INVALID",
+                            "WINDOW_EXPIRED",
+                            "INVITE_INVALID",
+                            "IDEMPOTENCY_CONFLICT",
+                            "VERSION_CONFLICT",
+                            "RESOURCE_GONE",
+                            "CONTEXT_CHANGED",
+                            "CALL_OUTCOME_UNKNOWN",
+                            "CAPACITY_UNAVAILABLE",
+                            "INTERNAL"
+                          ]
+                        },
+                        "message": {
+                          "type": "string"
+                        },
+                        "details": {
+                          "type": "object",
+                          "additionalProperties": {}
+                        },
+                        "requestId": {
+                          "type": "string"
+                        }
+                      },
+                      "required": ["code", "message", "requestId"]
+                    }
+                  },
+                  "required": ["error"]
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/auth/verification/request": {
+      "post": {
+        "tags": ["auth"],
+        "summary": "Send (again) the verification email; the answer never depends on the account",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "email": {
+                    "type": "string",
+                    "maxLength": 254
+                  }
+                },
+                "required": ["email"],
+                "additionalProperties": false
+              }
+            }
+          }
+        },
+        "responses": {
+          "202": {
+            "description": "Accepted",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "status": {
+                      "type": "string",
+                      "enum": ["accepted"]
+                    }
+                  },
+                  "required": ["status"]
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Rate limited",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "object",
+                      "properties": {
+                        "code": {
+                          "type": "string",
+                          "enum": [
+                            "UNAUTHENTICATED",
+                            "FORBIDDEN",
+                            "NOT_FOUND",
+                            "VALIDATION_FAILED",
+                            "CONFLICT",
+                            "RATE_LIMITED",
+                            "QUOTA_EXCEEDED",
+                            "AI_BUDGET_EXHAUSTED",
+                            "AI_KEY_INVALID",
+                            "CONVERSATION_BANNED",
+                            "PAYLOAD_TOO_LARGE",
+                            "UNSUPPORTED_MEDIA_TYPE",
+                            "REQUEST_TIMEOUT",
+                            "INVALID_REQUEST_FRAMING",
+                            "AUTH_CHALLENGE_INVALID",
+                            "WINDOW_EXPIRED",
+                            "INVITE_INVALID",
+                            "IDEMPOTENCY_CONFLICT",
+                            "VERSION_CONFLICT",
+                            "RESOURCE_GONE",
+                            "CONTEXT_CHANGED",
+                            "CALL_OUTCOME_UNKNOWN",
+                            "CAPACITY_UNAVAILABLE",
+                            "INTERNAL"
+                          ]
+                        },
+                        "message": {
+                          "type": "string"
+                        },
+                        "details": {
+                          "type": "object",
+                          "additionalProperties": {}
+                        },
+                        "requestId": {
+                          "type": "string"
+                        }
+                      },
+                      "required": ["code", "message", "requestId"]
+                    }
+                  },
+                  "required": ["error"]
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/auth/verification/consume": {
+      "post": {
+        "tags": ["auth"],
+        "summary": "Consume a verification credential from the email link; does not sign in",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "token": {
+                    "type": "string",
+                    "pattern": "^[A-Za-z0-9_-]{43}$"
+                  }
+                },
+                "required": ["token"],
+                "additionalProperties": false
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Verified",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "status": {
+                      "type": "string",
+                      "enum": ["ok"]
+                    }
+                  },
+                  "required": ["status"]
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Credential invalid, used or expired",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "object",
+                      "properties": {
+                        "code": {
+                          "type": "string",
+                          "enum": [
+                            "UNAUTHENTICATED",
+                            "FORBIDDEN",
+                            "NOT_FOUND",
+                            "VALIDATION_FAILED",
+                            "CONFLICT",
+                            "RATE_LIMITED",
+                            "QUOTA_EXCEEDED",
+                            "AI_BUDGET_EXHAUSTED",
+                            "AI_KEY_INVALID",
+                            "CONVERSATION_BANNED",
+                            "PAYLOAD_TOO_LARGE",
+                            "UNSUPPORTED_MEDIA_TYPE",
+                            "REQUEST_TIMEOUT",
+                            "INVALID_REQUEST_FRAMING",
+                            "AUTH_CHALLENGE_INVALID",
+                            "WINDOW_EXPIRED",
+                            "INVITE_INVALID",
+                            "IDEMPOTENCY_CONFLICT",
+                            "VERSION_CONFLICT",
+                            "RESOURCE_GONE",
+                            "CONTEXT_CHANGED",
+                            "CALL_OUTCOME_UNKNOWN",
+                            "CAPACITY_UNAVAILABLE",
+                            "INTERNAL"
+                          ]
+                        },
+                        "message": {
+                          "type": "string"
+                        },
+                        "details": {
+                          "type": "object",
+                          "additionalProperties": {}
+                        },
+                        "requestId": {
+                          "type": "string"
+                        }
+                      },
+                      "required": ["code", "message", "requestId"]
+                    }
+                  },
+                  "required": ["error"]
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Rate limited",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "object",
+                      "properties": {
+                        "code": {
+                          "type": "string",
+                          "enum": [
+                            "UNAUTHENTICATED",
+                            "FORBIDDEN",
+                            "NOT_FOUND",
+                            "VALIDATION_FAILED",
+                            "CONFLICT",
+                            "RATE_LIMITED",
+                            "QUOTA_EXCEEDED",
+                            "AI_BUDGET_EXHAUSTED",
+                            "AI_KEY_INVALID",
+                            "CONVERSATION_BANNED",
+                            "PAYLOAD_TOO_LARGE",
+                            "UNSUPPORTED_MEDIA_TYPE",
+                            "REQUEST_TIMEOUT",
+                            "INVALID_REQUEST_FRAMING",
+                            "AUTH_CHALLENGE_INVALID",
+                            "WINDOW_EXPIRED",
+                            "INVITE_INVALID",
+                            "IDEMPOTENCY_CONFLICT",
+                            "VERSION_CONFLICT",
+                            "RESOURCE_GONE",
+                            "CONTEXT_CHANGED",
+                            "CALL_OUTCOME_UNKNOWN",
+                            "CAPACITY_UNAVAILABLE",
+                            "INTERNAL"
+                          ]
+                        },
+                        "message": {
+                          "type": "string"
+                        },
+                        "details": {
+                          "type": "object",
+                          "additionalProperties": {}
+                        },
+                        "requestId": {
+                          "type": "string"
+                        }
+                      },
+                      "required": ["code", "message", "requestId"]
+                    }
+                  },
+                  "required": ["error"]
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/auth/password/request-reset": {
+      "post": {
+        "tags": ["auth"],
+        "summary": "Email a password-reset link; the answer never depends on the account",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "email": {
+                    "type": "string",
+                    "maxLength": 254
+                  }
+                },
+                "required": ["email"],
+                "additionalProperties": false
+              }
+            }
+          }
+        },
+        "responses": {
+          "202": {
+            "description": "Accepted",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "status": {
+                      "type": "string",
+                      "enum": ["accepted"]
+                    }
+                  },
+                  "required": ["status"]
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Rate limited",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "object",
+                      "properties": {
+                        "code": {
+                          "type": "string",
+                          "enum": [
+                            "UNAUTHENTICATED",
+                            "FORBIDDEN",
+                            "NOT_FOUND",
+                            "VALIDATION_FAILED",
+                            "CONFLICT",
+                            "RATE_LIMITED",
+                            "QUOTA_EXCEEDED",
+                            "AI_BUDGET_EXHAUSTED",
+                            "AI_KEY_INVALID",
+                            "CONVERSATION_BANNED",
+                            "PAYLOAD_TOO_LARGE",
+                            "UNSUPPORTED_MEDIA_TYPE",
+                            "REQUEST_TIMEOUT",
+                            "INVALID_REQUEST_FRAMING",
+                            "AUTH_CHALLENGE_INVALID",
+                            "WINDOW_EXPIRED",
+                            "INVITE_INVALID",
+                            "IDEMPOTENCY_CONFLICT",
+                            "VERSION_CONFLICT",
+                            "RESOURCE_GONE",
+                            "CONTEXT_CHANGED",
+                            "CALL_OUTCOME_UNKNOWN",
+                            "CAPACITY_UNAVAILABLE",
+                            "INTERNAL"
+                          ]
+                        },
+                        "message": {
+                          "type": "string"
+                        },
+                        "details": {
+                          "type": "object",
+                          "additionalProperties": {}
+                        },
+                        "requestId": {
+                          "type": "string"
+                        }
+                      },
+                      "required": ["code", "message", "requestId"]
+                    }
+                  },
+                  "required": ["error"]
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/auth/password/consume-reset": {
+      "post": {
+        "tags": ["auth"],
+        "summary": "Set a new password with a reset credential; ends every session",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "token": {
+                    "type": "string",
+                    "pattern": "^[A-Za-z0-9_-]{43}$"
+                  },
+                  "newPassword": {
+                    "type": "string",
+                    "minLength": 10,
+                    "maxLength": 128
+                  }
+                },
+                "required": ["token", "newPassword"],
+                "additionalProperties": false
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Password changed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "status": {
+                      "type": "string",
+                      "enum": ["ok"]
+                    }
+                  },
+                  "required": ["status"]
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Credential invalid, used or expired",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "object",
+                      "properties": {
+                        "code": {
+                          "type": "string",
+                          "enum": [
+                            "UNAUTHENTICATED",
+                            "FORBIDDEN",
+                            "NOT_FOUND",
+                            "VALIDATION_FAILED",
+                            "CONFLICT",
+                            "RATE_LIMITED",
+                            "QUOTA_EXCEEDED",
+                            "AI_BUDGET_EXHAUSTED",
+                            "AI_KEY_INVALID",
+                            "CONVERSATION_BANNED",
+                            "PAYLOAD_TOO_LARGE",
+                            "UNSUPPORTED_MEDIA_TYPE",
+                            "REQUEST_TIMEOUT",
+                            "INVALID_REQUEST_FRAMING",
+                            "AUTH_CHALLENGE_INVALID",
+                            "WINDOW_EXPIRED",
+                            "INVITE_INVALID",
+                            "IDEMPOTENCY_CONFLICT",
+                            "VERSION_CONFLICT",
+                            "RESOURCE_GONE",
+                            "CONTEXT_CHANGED",
+                            "CALL_OUTCOME_UNKNOWN",
+                            "CAPACITY_UNAVAILABLE",
+                            "INTERNAL"
+                          ]
+                        },
+                        "message": {
+                          "type": "string"
+                        },
+                        "details": {
+                          "type": "object",
+                          "additionalProperties": {}
+                        },
+                        "requestId": {
+                          "type": "string"
+                        }
+                      },
+                      "required": ["code", "message", "requestId"]
+                    }
+                  },
+                  "required": ["error"]
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "New password not acceptable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "object",
+                      "properties": {
+                        "code": {
+                          "type": "string",
+                          "enum": [
+                            "UNAUTHENTICATED",
+                            "FORBIDDEN",
+                            "NOT_FOUND",
+                            "VALIDATION_FAILED",
+                            "CONFLICT",
+                            "RATE_LIMITED",
+                            "QUOTA_EXCEEDED",
+                            "AI_BUDGET_EXHAUSTED",
+                            "AI_KEY_INVALID",
+                            "CONVERSATION_BANNED",
+                            "PAYLOAD_TOO_LARGE",
+                            "UNSUPPORTED_MEDIA_TYPE",
+                            "REQUEST_TIMEOUT",
+                            "INVALID_REQUEST_FRAMING",
+                            "AUTH_CHALLENGE_INVALID",
+                            "WINDOW_EXPIRED",
+                            "INVITE_INVALID",
+                            "IDEMPOTENCY_CONFLICT",
+                            "VERSION_CONFLICT",
+                            "RESOURCE_GONE",
+                            "CONTEXT_CHANGED",
+                            "CALL_OUTCOME_UNKNOWN",
+                            "CAPACITY_UNAVAILABLE",
+                            "INTERNAL"
+                          ]
+                        },
+                        "message": {
+                          "type": "string"
+                        },
+                        "details": {
+                          "type": "object",
+                          "additionalProperties": {}
+                        },
+                        "requestId": {
+                          "type": "string"
+                        }
+                      },
+                      "required": ["code", "message", "requestId"]
+                    }
+                  },
+                  "required": ["error"]
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Rate limited",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "object",
+                      "properties": {
+                        "code": {
+                          "type": "string",
+                          "enum": [
+                            "UNAUTHENTICATED",
+                            "FORBIDDEN",
+                            "NOT_FOUND",
+                            "VALIDATION_FAILED",
+                            "CONFLICT",
+                            "RATE_LIMITED",
+                            "QUOTA_EXCEEDED",
+                            "AI_BUDGET_EXHAUSTED",
+                            "AI_KEY_INVALID",
+                            "CONVERSATION_BANNED",
+                            "PAYLOAD_TOO_LARGE",
+                            "UNSUPPORTED_MEDIA_TYPE",
+                            "REQUEST_TIMEOUT",
+                            "INVALID_REQUEST_FRAMING",
+                            "AUTH_CHALLENGE_INVALID",
+                            "WINDOW_EXPIRED",
+                            "INVITE_INVALID",
+                            "IDEMPOTENCY_CONFLICT",
+                            "VERSION_CONFLICT",
+                            "RESOURCE_GONE",
+                            "CONTEXT_CHANGED",
+                            "CALL_OUTCOME_UNKNOWN",
+                            "CAPACITY_UNAVAILABLE",
+                            "INTERNAL"
+                          ]
+                        },
+                        "message": {
+                          "type": "string"
+                        },
+                        "details": {
+                          "type": "object",
+                          "additionalProperties": {}
+                        },
+                        "requestId": {
+                          "type": "string"
+                        }
+                      },
+                      "required": ["code", "message", "requestId"]
+                    }
+                  },
+                  "required": ["error"]
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/invites/check": {
+      "post": {
+        "tags": ["invites"],
+        "summary": "Is this invitation code usable? The code travels in the body, never in the URL.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "code": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 64
+                  }
+                },
+                "required": ["code"],
+                "additionalProperties": false
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Usable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "valid": {
+                      "type": "boolean",
+                      "enum": [true]
+                    }
+                  },
+                  "required": ["valid"]
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid, expired, used up or revoked",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "object",
+                      "properties": {
+                        "code": {
+                          "type": "string",
+                          "enum": [
+                            "UNAUTHENTICATED",
+                            "FORBIDDEN",
+                            "NOT_FOUND",
+                            "VALIDATION_FAILED",
+                            "CONFLICT",
+                            "RATE_LIMITED",
+                            "QUOTA_EXCEEDED",
+                            "AI_BUDGET_EXHAUSTED",
+                            "AI_KEY_INVALID",
+                            "CONVERSATION_BANNED",
+                            "PAYLOAD_TOO_LARGE",
+                            "UNSUPPORTED_MEDIA_TYPE",
+                            "REQUEST_TIMEOUT",
+                            "INVALID_REQUEST_FRAMING",
+                            "AUTH_CHALLENGE_INVALID",
+                            "WINDOW_EXPIRED",
+                            "INVITE_INVALID",
+                            "IDEMPOTENCY_CONFLICT",
+                            "VERSION_CONFLICT",
+                            "RESOURCE_GONE",
+                            "CONTEXT_CHANGED",
+                            "CALL_OUTCOME_UNKNOWN",
+                            "CAPACITY_UNAVAILABLE",
+                            "INTERNAL"
+                          ]
+                        },
+                        "message": {
+                          "type": "string"
+                        },
+                        "details": {
+                          "type": "object",
+                          "additionalProperties": {}
+                        },
+                        "requestId": {
+                          "type": "string"
+                        }
+                      },
+                      "required": ["code", "message", "requestId"]
+                    }
+                  },
+                  "required": ["error"]
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Rate limited",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "object",
+                      "properties": {
+                        "code": {
+                          "type": "string",
+                          "enum": [
+                            "UNAUTHENTICATED",
+                            "FORBIDDEN",
+                            "NOT_FOUND",
+                            "VALIDATION_FAILED",
+                            "CONFLICT",
+                            "RATE_LIMITED",
+                            "QUOTA_EXCEEDED",
+                            "AI_BUDGET_EXHAUSTED",
+                            "AI_KEY_INVALID",
+                            "CONVERSATION_BANNED",
+                            "PAYLOAD_TOO_LARGE",
+                            "UNSUPPORTED_MEDIA_TYPE",
+                            "REQUEST_TIMEOUT",
+                            "INVALID_REQUEST_FRAMING",
+                            "AUTH_CHALLENGE_INVALID",
+                            "WINDOW_EXPIRED",
+                            "INVITE_INVALID",
+                            "IDEMPOTENCY_CONFLICT",
+                            "VERSION_CONFLICT",
+                            "RESOURCE_GONE",
+                            "CONTEXT_CHANGED",
+                            "CALL_OUTCOME_UNKNOWN",
+                            "CAPACITY_UNAVAILABLE",
+                            "INTERNAL"
+                          ]
+                        },
+                        "message": {
+                          "type": "string"
+                        },
+                        "details": {
+                          "type": "object",
+                          "additionalProperties": {}
+                        },
+                        "requestId": {
+                          "type": "string"
+                        }
+                      },
+                      "required": ["code", "message", "requestId"]
+                    }
+                  },
+                  "required": ["error"]
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/invites": {
+      "get": {
+        "tags": ["invites"],
+        "summary": "My invitation codes and my registrations that are still unverified",
+        "security": [
+          {
+            "cookieAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Mine",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "invites": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "id": {
+                            "type": "string",
+                            "format": "uuid"
+                          },
+                          "note": {
+                            "type": ["string", "null"]
+                          },
+                          "maxUses": {
+                            "type": ["integer", "null"]
+                          },
+                          "useCount": {
+                            "type": "integer"
+                          },
+                          "expiresAt": {
+                            "type": "string",
+                            "format": "date-time"
+                          },
+                          "revokedAt": {
+                            "type": ["string", "null"],
+                            "format": "date-time"
+                          },
+                          "createdAt": {
+                            "type": "string",
+                            "format": "date-time"
+                          }
+                        },
+                        "required": [
+                          "id",
+                          "note",
+                          "maxUses",
+                          "useCount",
+                          "expiresAt",
+                          "revokedAt",
+                          "createdAt"
+                        ]
+                      }
+                    },
+                    "registrations": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "id": {
+                            "type": "string",
+                            "format": "uuid"
+                          },
+                          "inviteId": {
+                            "type": "string",
+                            "format": "uuid"
+                          },
+                          "status": {
+                            "type": "string",
+                            "enum": ["reserved", "account_created", "confirmed"]
+                          },
+                          "username": {
+                            "type": ["string", "null"]
+                          },
+                          "createdAt": {
+                            "type": "string",
+                            "format": "date-time"
+                          }
+                        },
+                        "required": ["id", "inviteId", "status", "username", "createdAt"]
+                      }
+                    }
+                  },
+                  "required": ["invites", "registrations"]
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Not signed in",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "object",
+                      "properties": {
+                        "code": {
+                          "type": "string",
+                          "enum": [
+                            "UNAUTHENTICATED",
+                            "FORBIDDEN",
+                            "NOT_FOUND",
+                            "VALIDATION_FAILED",
+                            "CONFLICT",
+                            "RATE_LIMITED",
+                            "QUOTA_EXCEEDED",
+                            "AI_BUDGET_EXHAUSTED",
+                            "AI_KEY_INVALID",
+                            "CONVERSATION_BANNED",
+                            "PAYLOAD_TOO_LARGE",
+                            "UNSUPPORTED_MEDIA_TYPE",
+                            "REQUEST_TIMEOUT",
+                            "INVALID_REQUEST_FRAMING",
+                            "AUTH_CHALLENGE_INVALID",
+                            "WINDOW_EXPIRED",
+                            "INVITE_INVALID",
+                            "IDEMPOTENCY_CONFLICT",
+                            "VERSION_CONFLICT",
+                            "RESOURCE_GONE",
+                            "CONTEXT_CHANGED",
+                            "CALL_OUTCOME_UNKNOWN",
+                            "CAPACITY_UNAVAILABLE",
+                            "INTERNAL"
+                          ]
+                        },
+                        "message": {
+                          "type": "string"
+                        },
+                        "details": {
+                          "type": "object",
+                          "additionalProperties": {}
+                        },
+                        "requestId": {
+                          "type": "string"
+                        }
+                      },
+                      "required": ["code", "message", "requestId"]
+                    }
+                  },
+                  "required": ["error"]
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": ["invites"],
+        "summary": "Create an invitation code; the plaintext is returned once",
+        "security": [
+          {
+            "cookieAuth": []
+          }
+        ],
+        "requestBody": {
+          "required": false,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "note": {
+                    "type": "string",
+                    "maxLength": 100
+                  },
+                  "maxUses": {
+                    "type": ["integer", "null"],
+                    "minimum": 1,
+                    "maximum": 1000
+                  },
+                  "expiresInDays": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 90
+                  }
+                },
+                "additionalProperties": false
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Created",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "id": {
+                      "type": "string",
+                      "format": "uuid"
+                    },
+                    "note": {
+                      "type": ["string", "null"]
+                    },
+                    "maxUses": {
+                      "type": ["integer", "null"]
+                    },
+                    "useCount": {
+                      "type": "integer"
+                    },
+                    "expiresAt": {
+                      "type": "string",
+                      "format": "date-time"
+                    },
+                    "revokedAt": {
+                      "type": ["string", "null"],
+                      "format": "date-time"
+                    },
+                    "createdAt": {
+                      "type": "string",
+                      "format": "date-time"
+                    },
+                    "code": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "id",
+                    "note",
+                    "maxUses",
+                    "useCount",
+                    "expiresAt",
+                    "revokedAt",
+                    "createdAt",
+                    "code"
+                  ]
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Not signed in",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "object",
+                      "properties": {
+                        "code": {
+                          "type": "string",
+                          "enum": [
+                            "UNAUTHENTICATED",
+                            "FORBIDDEN",
+                            "NOT_FOUND",
+                            "VALIDATION_FAILED",
+                            "CONFLICT",
+                            "RATE_LIMITED",
+                            "QUOTA_EXCEEDED",
+                            "AI_BUDGET_EXHAUSTED",
+                            "AI_KEY_INVALID",
+                            "CONVERSATION_BANNED",
+                            "PAYLOAD_TOO_LARGE",
+                            "UNSUPPORTED_MEDIA_TYPE",
+                            "REQUEST_TIMEOUT",
+                            "INVALID_REQUEST_FRAMING",
+                            "AUTH_CHALLENGE_INVALID",
+                            "WINDOW_EXPIRED",
+                            "INVITE_INVALID",
+                            "IDEMPOTENCY_CONFLICT",
+                            "VERSION_CONFLICT",
+                            "RESOURCE_GONE",
+                            "CONTEXT_CHANGED",
+                            "CALL_OUTCOME_UNKNOWN",
+                            "CAPACITY_UNAVAILABLE",
+                            "INTERNAL"
+                          ]
+                        },
+                        "message": {
+                          "type": "string"
+                        },
+                        "details": {
+                          "type": "object",
+                          "additionalProperties": {}
+                        },
+                        "requestId": {
+                          "type": "string"
+                        }
+                      },
+                      "required": ["code", "message", "requestId"]
+                    }
+                  },
+                  "required": ["error"]
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Not allowed (for example unlimited codes)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "object",
+                      "properties": {
+                        "code": {
+                          "type": "string",
+                          "enum": [
+                            "UNAUTHENTICATED",
+                            "FORBIDDEN",
+                            "NOT_FOUND",
+                            "VALIDATION_FAILED",
+                            "CONFLICT",
+                            "RATE_LIMITED",
+                            "QUOTA_EXCEEDED",
+                            "AI_BUDGET_EXHAUSTED",
+                            "AI_KEY_INVALID",
+                            "CONVERSATION_BANNED",
+                            "PAYLOAD_TOO_LARGE",
+                            "UNSUPPORTED_MEDIA_TYPE",
+                            "REQUEST_TIMEOUT",
+                            "INVALID_REQUEST_FRAMING",
+                            "AUTH_CHALLENGE_INVALID",
+                            "WINDOW_EXPIRED",
+                            "INVITE_INVALID",
+                            "IDEMPOTENCY_CONFLICT",
+                            "VERSION_CONFLICT",
+                            "RESOURCE_GONE",
+                            "CONTEXT_CHANGED",
+                            "CALL_OUTCOME_UNKNOWN",
+                            "CAPACITY_UNAVAILABLE",
+                            "INTERNAL"
+                          ]
+                        },
+                        "message": {
+                          "type": "string"
+                        },
+                        "details": {
+                          "type": "object",
+                          "additionalProperties": {}
+                        },
+                        "requestId": {
+                          "type": "string"
+                        }
+                      },
+                      "required": ["code", "message", "requestId"]
+                    }
+                  },
+                  "required": ["error"]
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/invites/{id}": {
+      "delete": {
+        "tags": ["invites"],
+        "summary": "Revoke an invitation code",
+        "security": [
+          {
+            "cookieAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "required": true,
+            "name": "id",
+            "in": "path"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Revoked",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "status": {
+                      "type": "string",
+                      "enum": ["ok"]
+                    }
+                  },
+                  "required": ["status"]
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Not signed in",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "object",
+                      "properties": {
+                        "code": {
+                          "type": "string",
+                          "enum": [
+                            "UNAUTHENTICATED",
+                            "FORBIDDEN",
+                            "NOT_FOUND",
+                            "VALIDATION_FAILED",
+                            "CONFLICT",
+                            "RATE_LIMITED",
+                            "QUOTA_EXCEEDED",
+                            "AI_BUDGET_EXHAUSTED",
+                            "AI_KEY_INVALID",
+                            "CONVERSATION_BANNED",
+                            "PAYLOAD_TOO_LARGE",
+                            "UNSUPPORTED_MEDIA_TYPE",
+                            "REQUEST_TIMEOUT",
+                            "INVALID_REQUEST_FRAMING",
+                            "AUTH_CHALLENGE_INVALID",
+                            "WINDOW_EXPIRED",
+                            "INVITE_INVALID",
+                            "IDEMPOTENCY_CONFLICT",
+                            "VERSION_CONFLICT",
+                            "RESOURCE_GONE",
+                            "CONTEXT_CHANGED",
+                            "CALL_OUTCOME_UNKNOWN",
+                            "CAPACITY_UNAVAILABLE",
+                            "INTERNAL"
+                          ]
+                        },
+                        "message": {
+                          "type": "string"
+                        },
+                        "details": {
+                          "type": "object",
+                          "additionalProperties": {}
+                        },
+                        "requestId": {
+                          "type": "string"
+                        }
+                      },
+                      "required": ["code", "message", "requestId"]
+                    }
+                  },
+                  "required": ["error"]
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "object",
+                      "properties": {
+                        "code": {
+                          "type": "string",
+                          "enum": [
+                            "UNAUTHENTICATED",
+                            "FORBIDDEN",
+                            "NOT_FOUND",
+                            "VALIDATION_FAILED",
+                            "CONFLICT",
+                            "RATE_LIMITED",
+                            "QUOTA_EXCEEDED",
+                            "AI_BUDGET_EXHAUSTED",
+                            "AI_KEY_INVALID",
+                            "CONVERSATION_BANNED",
+                            "PAYLOAD_TOO_LARGE",
+                            "UNSUPPORTED_MEDIA_TYPE",
+                            "REQUEST_TIMEOUT",
+                            "INVALID_REQUEST_FRAMING",
+                            "AUTH_CHALLENGE_INVALID",
+                            "WINDOW_EXPIRED",
+                            "INVITE_INVALID",
+                            "IDEMPOTENCY_CONFLICT",
+                            "VERSION_CONFLICT",
+                            "RESOURCE_GONE",
+                            "CONTEXT_CHANGED",
+                            "CALL_OUTCOME_UNKNOWN",
+                            "CAPACITY_UNAVAILABLE",
+                            "INTERNAL"
+                          ]
+                        },
+                        "message": {
+                          "type": "string"
+                        },
+                        "details": {
+                          "type": "object",
+                          "additionalProperties": {}
+                        },
+                        "requestId": {
+                          "type": "string"
+                        }
+                      },
+                      "required": ["code", "message", "requestId"]
+                    }
+                  },
+                  "required": ["error"]
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/invites/registrations/{useId}": {
+      "delete": {
+        "tags": ["invites"],
+        "summary": "Withdraw a registration whose email was never verified: deletes the account and frees the slot",
+        "security": [
+          {
+            "cookieAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "required": true,
+            "name": "useId",
+            "in": "path"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Withdrawn",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "status": {
+                      "type": "string",
+                      "enum": ["ok"]
+                    }
+                  },
+                  "required": ["status"]
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Not signed in",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "object",
+                      "properties": {
+                        "code": {
+                          "type": "string",
+                          "enum": [
+                            "UNAUTHENTICATED",
+                            "FORBIDDEN",
+                            "NOT_FOUND",
+                            "VALIDATION_FAILED",
+                            "CONFLICT",
+                            "RATE_LIMITED",
+                            "QUOTA_EXCEEDED",
+                            "AI_BUDGET_EXHAUSTED",
+                            "AI_KEY_INVALID",
+                            "CONVERSATION_BANNED",
+                            "PAYLOAD_TOO_LARGE",
+                            "UNSUPPORTED_MEDIA_TYPE",
+                            "REQUEST_TIMEOUT",
+                            "INVALID_REQUEST_FRAMING",
+                            "AUTH_CHALLENGE_INVALID",
+                            "WINDOW_EXPIRED",
+                            "INVITE_INVALID",
+                            "IDEMPOTENCY_CONFLICT",
+                            "VERSION_CONFLICT",
+                            "RESOURCE_GONE",
+                            "CONTEXT_CHANGED",
+                            "CALL_OUTCOME_UNKNOWN",
+                            "CAPACITY_UNAVAILABLE",
+                            "INTERNAL"
+                          ]
+                        },
+                        "message": {
+                          "type": "string"
+                        },
+                        "details": {
+                          "type": "object",
+                          "additionalProperties": {}
+                        },
+                        "requestId": {
+                          "type": "string"
+                        }
+                      },
+                      "required": ["code", "message", "requestId"]
+                    }
+                  },
+                  "required": ["error"]
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "object",
+                      "properties": {
+                        "code": {
+                          "type": "string",
+                          "enum": [
+                            "UNAUTHENTICATED",
+                            "FORBIDDEN",
+                            "NOT_FOUND",
+                            "VALIDATION_FAILED",
+                            "CONFLICT",
+                            "RATE_LIMITED",
+                            "QUOTA_EXCEEDED",
+                            "AI_BUDGET_EXHAUSTED",
+                            "AI_KEY_INVALID",
+                            "CONVERSATION_BANNED",
+                            "PAYLOAD_TOO_LARGE",
+                            "UNSUPPORTED_MEDIA_TYPE",
+                            "REQUEST_TIMEOUT",
+                            "INVALID_REQUEST_FRAMING",
+                            "AUTH_CHALLENGE_INVALID",
+                            "WINDOW_EXPIRED",
+                            "INVITE_INVALID",
+                            "IDEMPOTENCY_CONFLICT",
+                            "VERSION_CONFLICT",
+                            "RESOURCE_GONE",
+                            "CONTEXT_CHANGED",
+                            "CALL_OUTCOME_UNKNOWN",
+                            "CAPACITY_UNAVAILABLE",
+                            "INTERNAL"
+                          ]
+                        },
+                        "message": {
+                          "type": "string"
+                        },
+                        "details": {
+                          "type": "object",
+                          "additionalProperties": {}
+                        },
+                        "requestId": {
+                          "type": "string"
+                        }
+                      },
+                      "required": ["code", "message", "requestId"]
+                    }
+                  },
+                  "required": ["error"]
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Already active",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "object",
+                      "properties": {
+                        "code": {
+                          "type": "string",
+                          "enum": [
+                            "UNAUTHENTICATED",
+                            "FORBIDDEN",
+                            "NOT_FOUND",
+                            "VALIDATION_FAILED",
+                            "CONFLICT",
+                            "RATE_LIMITED",
+                            "QUOTA_EXCEEDED",
+                            "AI_BUDGET_EXHAUSTED",
+                            "AI_KEY_INVALID",
+                            "CONVERSATION_BANNED",
+                            "PAYLOAD_TOO_LARGE",
+                            "UNSUPPORTED_MEDIA_TYPE",
+                            "REQUEST_TIMEOUT",
+                            "INVALID_REQUEST_FRAMING",
+                            "AUTH_CHALLENGE_INVALID",
+                            "WINDOW_EXPIRED",
+                            "INVITE_INVALID",
+                            "IDEMPOTENCY_CONFLICT",
+                            "VERSION_CONFLICT",
+                            "RESOURCE_GONE",
+                            "CONTEXT_CHANGED",
+                            "CALL_OUTCOME_UNKNOWN",
+                            "CAPACITY_UNAVAILABLE",
+                            "INTERNAL"
+                          ]
+                        },
+                        "message": {
+                          "type": "string"
+                        },
+                        "details": {
+                          "type": "object",
+                          "additionalProperties": {}
+                        },
+                        "requestId": {
+                          "type": "string"
+                        }
+                      },
+                      "required": ["code", "message", "requestId"]
+                    }
+                  },
+                  "required": ["error"]
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/me": {
+      "get": {
+        "tags": ["me"],
+        "summary": "The signed-in user",
+        "security": [
+          {
+            "cookieAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Me",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "id": {
+                      "type": "string",
+                      "format": "uuid"
+                    },
+                    "profileVersion": {
+                      "type": "integer"
+                    },
+                    "username": {
+                      "type": "string"
+                    },
+                    "displayName": {
+                      "type": "string"
+                    },
+                    "avatarUrl": {
+                      "type": ["string", "null"]
+                    },
+                    "isBot": {
+                      "type": "boolean"
+                    },
+                    "deleted": {
+                      "type": "boolean"
+                    },
+                    "meVersion": {
+                      "type": "integer"
+                    },
+                    "authEpoch": {
+                      "type": "integer"
+                    },
+                    "restoreEpoch": {
+                      "type": "string"
+                    },
+                    "email": {
+                      "type": "string"
+                    },
+                    "role": {
+                      "type": "string",
+                      "enum": ["user", "admin"]
+                    },
+                    "bio": {
+                      "type": ["string", "null"]
+                    },
+                    "locale": {
+                      "type": "string"
+                    },
+                    "timezone": {
+                      "type": "string"
+                    },
+                    "settings": {
+                      "type": "object",
+                      "additionalProperties": {}
+                    },
+                    "inviteQuota": {
+                      "type": "integer"
+                    },
+                    "invitesUsed": {
+                      "type": "integer"
+                    },
+                    "storageUsedBytes": {
+                      "type": "integer"
+                    },
+                    "storageQuotaBytes": {
+                      "type": "integer"
+                    },
+                    "aiDailyTokens": {
+                      "type": "integer"
+                    }
+                  },
+                  "required": [
+                    "id",
+                    "profileVersion",
+                    "username",
+                    "displayName",
+                    "avatarUrl",
+                    "isBot",
+                    "deleted",
+                    "meVersion",
+                    "authEpoch",
+                    "restoreEpoch",
+                    "email",
+                    "role",
+                    "bio",
+                    "locale",
+                    "timezone",
+                    "settings",
+                    "inviteQuota",
+                    "invitesUsed",
+                    "storageUsedBytes",
+                    "storageQuotaBytes",
+                    "aiDailyTokens"
+                  ]
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Not signed in",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "object",
+                      "properties": {
+                        "code": {
+                          "type": "string",
+                          "enum": [
+                            "UNAUTHENTICATED",
+                            "FORBIDDEN",
+                            "NOT_FOUND",
+                            "VALIDATION_FAILED",
+                            "CONFLICT",
+                            "RATE_LIMITED",
+                            "QUOTA_EXCEEDED",
+                            "AI_BUDGET_EXHAUSTED",
+                            "AI_KEY_INVALID",
+                            "CONVERSATION_BANNED",
+                            "PAYLOAD_TOO_LARGE",
+                            "UNSUPPORTED_MEDIA_TYPE",
+                            "REQUEST_TIMEOUT",
+                            "INVALID_REQUEST_FRAMING",
+                            "AUTH_CHALLENGE_INVALID",
+                            "WINDOW_EXPIRED",
+                            "INVITE_INVALID",
+                            "IDEMPOTENCY_CONFLICT",
+                            "VERSION_CONFLICT",
+                            "RESOURCE_GONE",
+                            "CONTEXT_CHANGED",
+                            "CALL_OUTCOME_UNKNOWN",
+                            "CAPACITY_UNAVAILABLE",
+                            "INTERNAL"
+                          ]
+                        },
+                        "message": {
+                          "type": "string"
+                        },
+                        "details": {
+                          "type": "object",
+                          "additionalProperties": {}
+                        },
+                        "requestId": {
+                          "type": "string"
+                        }
+                      },
+                      "required": ["code", "message", "requestId"]
+                    }
+                  },
+                  "required": ["error"]
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/me/devices": {
+      "get": {
+        "tags": ["me"],
+        "summary": "Devices (logins) with a live session",
+        "security": [
+          {
+            "cookieAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Devices",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "devices": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "id": {
+                            "type": "string",
+                            "format": "uuid"
+                          },
+                          "current": {
+                            "type": "boolean"
+                          },
+                          "createdAt": {
+                            "type": "string",
+                            "format": "date-time"
+                          },
+                          "lastActiveAt": {
+                            "type": "string",
+                            "format": "date-time"
+                          },
+                          "ipAddress": {
+                            "type": ["string", "null"]
+                          },
+                          "userAgent": {
+                            "type": ["string", "null"]
+                          }
+                        },
+                        "required": [
+                          "id",
+                          "current",
+                          "createdAt",
+                          "lastActiveAt",
+                          "ipAddress",
+                          "userAgent"
+                        ]
+                      }
+                    }
+                  },
+                  "required": ["devices"]
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Not signed in",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "object",
+                      "properties": {
+                        "code": {
+                          "type": "string",
+                          "enum": [
+                            "UNAUTHENTICATED",
+                            "FORBIDDEN",
+                            "NOT_FOUND",
+                            "VALIDATION_FAILED",
+                            "CONFLICT",
+                            "RATE_LIMITED",
+                            "QUOTA_EXCEEDED",
+                            "AI_BUDGET_EXHAUSTED",
+                            "AI_KEY_INVALID",
+                            "CONVERSATION_BANNED",
+                            "PAYLOAD_TOO_LARGE",
+                            "UNSUPPORTED_MEDIA_TYPE",
+                            "REQUEST_TIMEOUT",
+                            "INVALID_REQUEST_FRAMING",
+                            "AUTH_CHALLENGE_INVALID",
+                            "WINDOW_EXPIRED",
+                            "INVITE_INVALID",
+                            "IDEMPOTENCY_CONFLICT",
+                            "VERSION_CONFLICT",
+                            "RESOURCE_GONE",
+                            "CONTEXT_CHANGED",
+                            "CALL_OUTCOME_UNKNOWN",
+                            "CAPACITY_UNAVAILABLE",
+                            "INTERNAL"
+                          ]
+                        },
+                        "message": {
+                          "type": "string"
+                        },
+                        "details": {
+                          "type": "object",
+                          "additionalProperties": {}
+                        },
+                        "requestId": {
+                          "type": "string"
+                        }
+                      },
+                      "required": ["code", "message", "requestId"]
+                    }
+                  },
+                  "required": ["error"]
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/me/devices/{id}": {
+      "delete": {
+        "tags": ["me"],
+        "summary": "Revoke one device: ends its sessions and cancels the work it started",
+        "security": [
+          {
+            "cookieAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "required": true,
+            "name": "id",
+            "in": "path"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Revoked",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "status": {
+                      "type": "string",
+                      "enum": ["ok"]
+                    }
+                  },
+                  "required": ["status"]
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Not signed in",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "object",
+                      "properties": {
+                        "code": {
+                          "type": "string",
+                          "enum": [
+                            "UNAUTHENTICATED",
+                            "FORBIDDEN",
+                            "NOT_FOUND",
+                            "VALIDATION_FAILED",
+                            "CONFLICT",
+                            "RATE_LIMITED",
+                            "QUOTA_EXCEEDED",
+                            "AI_BUDGET_EXHAUSTED",
+                            "AI_KEY_INVALID",
+                            "CONVERSATION_BANNED",
+                            "PAYLOAD_TOO_LARGE",
+                            "UNSUPPORTED_MEDIA_TYPE",
+                            "REQUEST_TIMEOUT",
+                            "INVALID_REQUEST_FRAMING",
+                            "AUTH_CHALLENGE_INVALID",
+                            "WINDOW_EXPIRED",
+                            "INVITE_INVALID",
+                            "IDEMPOTENCY_CONFLICT",
+                            "VERSION_CONFLICT",
+                            "RESOURCE_GONE",
+                            "CONTEXT_CHANGED",
+                            "CALL_OUTCOME_UNKNOWN",
+                            "CAPACITY_UNAVAILABLE",
+                            "INTERNAL"
+                          ]
+                        },
+                        "message": {
+                          "type": "string"
+                        },
+                        "details": {
+                          "type": "object",
+                          "additionalProperties": {}
+                        },
+                        "requestId": {
+                          "type": "string"
+                        }
+                      },
+                      "required": ["code", "message", "requestId"]
+                    }
+                  },
+                  "required": ["error"]
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No such device",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "object",
+                      "properties": {
+                        "code": {
+                          "type": "string",
+                          "enum": [
+                            "UNAUTHENTICATED",
+                            "FORBIDDEN",
+                            "NOT_FOUND",
+                            "VALIDATION_FAILED",
+                            "CONFLICT",
+                            "RATE_LIMITED",
+                            "QUOTA_EXCEEDED",
+                            "AI_BUDGET_EXHAUSTED",
+                            "AI_KEY_INVALID",
+                            "CONVERSATION_BANNED",
+                            "PAYLOAD_TOO_LARGE",
+                            "UNSUPPORTED_MEDIA_TYPE",
+                            "REQUEST_TIMEOUT",
+                            "INVALID_REQUEST_FRAMING",
+                            "AUTH_CHALLENGE_INVALID",
+                            "WINDOW_EXPIRED",
+                            "INVITE_INVALID",
+                            "IDEMPOTENCY_CONFLICT",
+                            "VERSION_CONFLICT",
+                            "RESOURCE_GONE",
+                            "CONTEXT_CHANGED",
+                            "CALL_OUTCOME_UNKNOWN",
+                            "CAPACITY_UNAVAILABLE",
+                            "INTERNAL"
+                          ]
+                        },
+                        "message": {
+                          "type": "string"
+                        },
+                        "details": {
+                          "type": "object",
+                          "additionalProperties": {}
+                        },
+                        "requestId": {
+                          "type": "string"
+                        }
+                      },
+                      "required": ["code", "message", "requestId"]
+                    }
+                  },
+                  "required": ["error"]
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/me/devices/revoke-others": {
+      "post": {
+        "tags": ["me"],
+        "summary": "Sign out every other device",
+        "security": [
+          {
+            "cookieAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Done",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "status": {
+                      "type": "string",
+                      "enum": ["ok"]
+                    }
+                  },
+                  "required": ["status"]
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Not signed in",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "object",
+                      "properties": {
+                        "code": {
+                          "type": "string",
+                          "enum": [
+                            "UNAUTHENTICATED",
+                            "FORBIDDEN",
+                            "NOT_FOUND",
+                            "VALIDATION_FAILED",
+                            "CONFLICT",
+                            "RATE_LIMITED",
+                            "QUOTA_EXCEEDED",
+                            "AI_BUDGET_EXHAUSTED",
+                            "AI_KEY_INVALID",
+                            "CONVERSATION_BANNED",
+                            "PAYLOAD_TOO_LARGE",
+                            "UNSUPPORTED_MEDIA_TYPE",
+                            "REQUEST_TIMEOUT",
+                            "INVALID_REQUEST_FRAMING",
+                            "AUTH_CHALLENGE_INVALID",
+                            "WINDOW_EXPIRED",
+                            "INVITE_INVALID",
+                            "IDEMPOTENCY_CONFLICT",
+                            "VERSION_CONFLICT",
+                            "RESOURCE_GONE",
+                            "CONTEXT_CHANGED",
+                            "CALL_OUTCOME_UNKNOWN",
+                            "CAPACITY_UNAVAILABLE",
+                            "INTERNAL"
+                          ]
+                        },
+                        "message": {
+                          "type": "string"
+                        },
+                        "details": {
+                          "type": "object",
+                          "additionalProperties": {}
+                        },
+                        "requestId": {
+                          "type": "string"
+                        }
+                      },
+                      "required": ["code", "message", "requestId"]
+                    }
+                  },
+                  "required": ["error"]
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/me/devices/revoke-all": {
+      "post": {
+        "tags": ["me"],
+        "summary": "Security sign-out everywhere, including this device",
+        "security": [
+          {
+            "cookieAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Done",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "status": {
+                      "type": "string",
+                      "enum": ["ok"]
+                    }
+                  },
+                  "required": ["status"]
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Not signed in",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "object",
+                      "properties": {
+                        "code": {
+                          "type": "string",
+                          "enum": [
+                            "UNAUTHENTICATED",
+                            "FORBIDDEN",
+                            "NOT_FOUND",
+                            "VALIDATION_FAILED",
+                            "CONFLICT",
+                            "RATE_LIMITED",
+                            "QUOTA_EXCEEDED",
+                            "AI_BUDGET_EXHAUSTED",
+                            "AI_KEY_INVALID",
+                            "CONVERSATION_BANNED",
+                            "PAYLOAD_TOO_LARGE",
+                            "UNSUPPORTED_MEDIA_TYPE",
+                            "REQUEST_TIMEOUT",
+                            "INVALID_REQUEST_FRAMING",
+                            "AUTH_CHALLENGE_INVALID",
+                            "WINDOW_EXPIRED",
+                            "INVITE_INVALID",
+                            "IDEMPOTENCY_CONFLICT",
+                            "VERSION_CONFLICT",
+                            "RESOURCE_GONE",
+                            "CONTEXT_CHANGED",
+                            "CALL_OUTCOME_UNKNOWN",
+                            "CAPACITY_UNAVAILABLE",
+                            "INTERNAL"
+                          ]
+                        },
+                        "message": {
+                          "type": "string"
+                        },
+                        "details": {
+                          "type": "object",
+                          "additionalProperties": {}
+                        },
+                        "requestId": {
+                          "type": "string"
+                        }
+                      },
+                      "required": ["code", "message", "requestId"]
+                    }
+                  },
+                  "required": ["error"]
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "webhooks": {}
+}

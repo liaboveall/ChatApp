@@ -1,0 +1,77 @@
+# Isolated, per-run instances for fault injection (D-085, docs/09 "故障测试环境", AT-34).
+# Day-to-day tests use the dev instance's chatapp_test database; ANYTHING that stops, kills, flushes, throttles or fills
+# a service runs only against this file. `bun run test:infra:up` starts it under a unique project name
+# (chatapp-test-<runId>) with random secrets and random loopback ports (chosen once per run and pinned, so they stay the
+# same when a container is restarted) and writes a manifest that the fault suite verifies before it touches anything. No container_name, no dev volumes, no dev bind mounts, no shared network.
+name: chatapp-test-unset # always overridden with `-p chatapp-test-<runId>`
+
+services:
+  postgres:
+    image: pgvector/pgvector:0.8.6-pg18
+    environment:
+      POSTGRES_USER: chatapp
+      POSTGRES_DB: chatapp_test
+      POSTGRES_PASSWORD: ${TEST_PG_PASSWORD:?use bun run test:infra:up}
+    ports:
+      - "127.0.0.1:${TEST_PG_PORT:?use bun run test:infra:up}:5432"
+    volumes:
+      - pg:/var/lib/postgresql
+    labels:
+      chatapp.test.run-id: ${TEST_RUN_ID:?use bun run test:infra:up}
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U chatapp -d chatapp_test"]
+      interval: 2s
+      timeout: 3s
+      retries: 40
+
+  valkey:
+    image: valkey/valkey:9.1-alpine
+    command: ["sh", "-c", 'exec valkey-server --appendonly yes --maxmemory-policy noeviction --requirepass "$$VALKEY_PASSWORD"']
+    environment:
+      VALKEY_PASSWORD: ${TEST_VALKEY_PASSWORD:?use bun run test:infra:up}
+    ports:
+      - "127.0.0.1:${TEST_VALKEY_PORT:?use bun run test:infra:up}:6379"
+    volumes:
+      - valkey:/data
+    labels:
+      chatapp.test.run-id: ${TEST_RUN_ID:?use bun run test:infra:up}
+    healthcheck:
+      test: ["CMD-SHELL", 'valkey-cli -a "$$VALKEY_PASSWORD" --no-auth-warning ping | grep -q PONG']
+      interval: 2s
+      timeout: 3s
+      retries: 40
+
+  garage:
+    image: dxflrs/garage:v2.4.1
+    ports:
+      - "127.0.0.1:${TEST_GARAGE_PORT:?use bun run test:infra:up}:3900"
+    volumes:
+      - ${TEST_GARAGE_CONFIG:?use bun run test:infra:up}:/etc/garage.toml:ro # rendered per run under .test-runs/
+      - garage-meta:/var/lib/garage/meta
+      - garage-data:/var/lib/garage/data
+    labels:
+      chatapp.test.run-id: ${TEST_RUN_ID:?use bun run test:infra:up}
+    healthcheck:
+      test: ["CMD", "/garage", "status"]
+      interval: 2s
+      timeout: 5s
+      retries: 40
+
+  mailpit:
+    image: axllent/mailpit:v1.31.3
+    ports:
+      - "127.0.0.1:${TEST_SMTP_PORT:?use bun run test:infra:up}:1025"
+      - "127.0.0.1:${TEST_MAILPIT_UI_PORT:?use bun run test:infra:up}:8025"
+    labels:
+      chatapp.test.run-id: ${TEST_RUN_ID:?use bun run test:infra:up}
+    healthcheck:
+      test: ["CMD", "/mailpit", "readyz"]
+      interval: 2s
+      timeout: 3s
+      retries: 40
+
+volumes:
+  pg:
+  valkey:
+  garage-meta:
+  garage-data:
