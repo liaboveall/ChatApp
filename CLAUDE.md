@@ -80,6 +80,7 @@
   - 数据库（M1a）：`db:generate` / `db:check` · `db:migrate` / `db:migrate:test` · `db:bootstrap`（生产也可用）/ `db:bootstrap:test` · `db:seed`（仅开发）
   - 后端（M1a）：`dev:api` · `dev:worker` · `admin:create`（密码在用户自己的终端输入）· `admin:verify-email`
   - 测试（M1a）：`test:integration`（集成、安全、契约、实时；需要先 `infra:up`、`infra:bootstrap`、`db:migrate:test`）· `test` · `test:infra:up` / `test:infra:down <runId>` · `test:fault`（只在独立实例里做故障注入，D-085）· `smoke:backend`（对运行中的 api/worker 做真实进程验收走查，用法见脚本头部）
+  - 设计原型（D，见 `design/README.md`）：`design:build`（`-- --minify` 是发布版）· `design:contrast`（令牌对比度自查）；用真实 Windows Edge 做的浏览器检查：`design/prototype/tools/browser-checks/run.sh <keyboard|layout|media|flows|audit>`
 - **以下命令到对应的里程碑才会创建，在那之前不要假定它们存在**：
   - M1b：`dev` · `dev:web` · `test:e2e` · `test:visual` · `storybook` · `build`
   - M2b：`edge:up` / `edge:down`
