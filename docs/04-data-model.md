@@ -10,7 +10,7 @@
 - **文本比较**：频道名唯一性、保留名比较之前，先做 Unicode NFKC 规范化，再转小写，比如 `lower(normalize(name, NFKC))`。
 - **扩展**：在第一个迁移里执行 `CREATE EXTENSION IF NOT EXISTS pg_trgm;` 和 `CREATE EXTENSION IF NOT EXISTS vector;`。
 - **枚举**：用 PostgreSQL 的 enum 类型，同时在 `packages/contracts` 里导出同名的 zod 枚举。
-- **JSONB 字段**：用 zod 校验；活实体关联使用外键。历史来源清单是带版本的不可变标识快照，允许 JSONB 保存已删除资源的 id，但读取时必须联表验证，不能当作活授权。
+- **JSONB 字段**：在 Drizzle 里一律用 `packages/db/src/schema/json.ts` 的 `jsonbValue<T>()` 声明，不用 Drizzle 自带的 `jsonb()`（guard 会拒绝）：后者经 Bun 驱动会被编码两次，所有值都变成“内容是 JSON 文本的 jsonb 字符串”，`->>`、`@>` 和索引都读不到（D-107）。用 zod 校验；活实体关联使用外键。历史来源清单是带版本的不可变标识快照，允许 JSONB 保存已删除资源的 id，但读取时必须联表验证，不能当作活授权。
 - **数据库账号**：迁移用拥有者账号；应用运行时用普通账号，只有表的读写权限，不能改表结构，也不是超级用户。
 
 ## 1. 用户与认证

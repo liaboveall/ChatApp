@@ -34,7 +34,7 @@ bun run doctor                 # end-to-end checks; add --ai to also test the De
   bun run dev:api            # API 与 WebSocket，127.0.0.1:3100，热重载
   bun run dev:worker         # 另一个终端：派发器、邮件队列、定时对账与清理
   ```
-  正式管理员用 `bun run admin:create --email <邮箱> --username <用户名> --name <显示名>`，密码在你自己的终端里输入（不回显，不经过聊天）。接口文档在 http://127.0.0.1:3100/api/docs（仅开发与测试环境）。
+  正式管理员用 `bun run admin:create --email <邮箱> --username <用户名> --name <显示名>`，密码在你自己的终端里输入（不回显，不经过聊天）。用户名只能用小写字母、数字和下划线（3–20 位，不能是保留名，例如 `god`）；密码至少 10 位，不能是常见密码、太简单，也不能包含邮箱 @ 前的部分、用户名、显示名（各自 4 位及以上时）或产品名。邮箱、用户名、显示名先按注册同样的规则校验，通不过会指出是哪个字段、什么规则；密码被拒会说明原因并允许重输（最多 3 次），任何提示都不会回显你输入的内容。接口文档在 http://127.0.0.1:3100/api/docs（仅开发与测试环境）。
 - **M1b 完成后**，用 `bun run dev` 同时启动前后端，然后打开 http://localhost:5173 。
 - **收发邮件**：Mailpit 的网页界面在 http://localhost:8025 ，所有发出的邮件都会在这里显示。
 
@@ -118,7 +118,7 @@ bun run doctor                 # end-to-end checks; add --ai to also test the De
 | `db:bootstrap` / `db:bootstrap:test` | 生产也可用的幂等基础数据：Agent 账号、保留名、bootstrap 标记；无演示账号 | ✅ 可用 |
 | `dev:api` / `dev:worker` | 启动后端开发服务（API 与 WebSocket / 派发器、邮件队列、对账、清理） | ✅ 可用 |
 | `dev` / `dev:web` | 同时启动前后端 / 只启动前端 | M1b |
-| `admin:create` / `admin:verify-email` | 创建管理员（密码在自己的终端里输入）/ 手动标记邮箱已验证（写审计） | ✅ 可用 |
+| `admin:create` / `admin:verify-email` | 创建管理员（密码在自己的终端里输入；规则同注册，被拒时指出字段和原因）/ 手动标记邮箱已验证（写审计） | ✅ 可用 |
 | `test` / `test:unit` / `test:integration` | 全部 / 单元（`check` 已包含）/ 集成、安全、契约、实时（需要先 `infra:up`、`infra:bootstrap`、`db:migrate:test`） | ✅ 可用 |
 | `smoke:backend` | 对**正在运行**的 api 与 worker 做真实进程验收走查（管理员 → 邀请码 → 注册 → Mailpit 收邮件 → 验证 → 登录 → WebSocket → 退出即断开）。用法和前置条件见脚本头部注释；建议对测试环境（`APP_ENV=test`）运行，它会在目标库里留下账号；集成测试会清空测试库（连 bootstrap 数据一起），所以先 `bun run db:bootstrap:test` | ✅ 可用 |
 | `test:infra:up` / `test:infra:down` / `test:fault` | 每 run 独立拓扑、限定清理及故障矩阵（AT-34） | ✅ 可用 |
@@ -146,6 +146,7 @@ bun run doctor                 # end-to-end checks; add --ai to also test the De
 | `infra:up` 提示连不上 Docker | 先启动 Windows 上的 Docker Desktop，等它就绪；再确认 Settings → Resources → WSL integration 里对 Ubuntu 是打开的 |
 | `infra:up` 报 `ports are not available … 1025` | 1025 被 VPN 占用，已经改用 2525；如果还报错，检查 compose 文件是否是最新的 |
 | Mailpit 显示 healthy，但 `doctor` 连不上；或启动时报端口访问权限错误 | 检查 `docker compose -f infra/compose.dev.yml --env-file .env.local ps` 是否有实际宿主机端口映射；在 Windows 的 PowerShell 里用 `netsh interface ipv4 show excludedportrange protocol=tcp` 检查保留范围（端口是 Docker Desktop 在 Windows 主机上绑定的）。把 `.env.local` 的 `SMTP_PORT` 改为可绑定的端口，再运行 `bun run infra:up` 和 `bun run doctor`。端口变更会重建 Mailpit，需保留的测试邮件应先导出；不要停止 VPN 或重置其他服务的数据卷 |
+| 拉取新代码后 API 提示 `database is not bootstrapped`，或读到的 JSON 字段是字符串 | 先 `bun run db:migrate`（测试库用 `bun run db:migrate:test`）：`0002_normalize_jsonb` 会把旧的双重编码 JSON 值改成真正的 JSON（D-107） |
 | 连数据库被拒绝，或连到了别的库 | 端口要用 **5434**，5432 是 Windows 上原生的 PostgreSQL |
 | 改了 `POSTGRES_PASSWORD` 后认证失败 | 见第 5 节：执行 `bun run infra:reset --yes`，然后重新 up 和 bootstrap |
 | Garage 报 layout 相关的错误 | 重新执行 `bun run infra:bootstrap` |
