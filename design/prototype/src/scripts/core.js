@@ -12,7 +12,7 @@ export const DEFAULT_PREFS = {
   typeSize: 0, // -1 .. +3
   reduceMotion: false,
   compact: false, // sidebar without message previews
-  font: 'system', // system | inter (D1 comparison)
+  font: 'inter', // inter | system (D4 chose Inter; "system" stays as the comparison switch)
   sidebarW: 280,
 }
 
