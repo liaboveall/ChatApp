@@ -1,0 +1,7 @@
+# Exceptions for the osv-scanner job (.github/workflows/security.yml); it must sit next to bun.lock.
+# Every entry needs a reason and an expiry date, so that it is looked at again (docs/12 D-105).
+
+[[IgnoredVulns]]
+id = "GHSA-67mh-4wv8-2f99"
+ignoreUntil = 2027-01-01
+reason = "Only esbuild's development server (serve) is affected. The vulnerable 0.18.20 is pulled in solely by drizzle-kit 0.31.11 (the latest stable) through the deprecated @esbuild-kit/core-utils, which uses the transform API and never starts a server. drizzle-kit is a dev dependency of packages/db and is not part of any production image."
