@@ -1,0 +1,137 @@
+/*
+ * Glass materials (spec 2). Three kinds, all driven by the four transparency levels:
+ *   .glass       blurred and translucent. Its alpha follows the chosen level. Only for surfaces that sit on
+ *                the wallpaper (the sidebar), where the backdrop is known, so the contrast check can cover it.
+ *   .glass-text  same look, but never less opaque than --glass-floor and never tinted. For toolbar,
+ *                composer, menus and sheets, which carry text over arbitrary content.
+ *   .glass-lite  the glass-text fill without blur: for cards that sit on solid content, where there is
+ *                nothing to blur. Keeps the number of backdrop-filter layers at four or fewer.
+ */
+
+:root {
+  --glass-edge: light-dark(rgb(0 0 0 / 0.12), rgb(0 0 0 / 0.62));
+  --glass-highlight: light-dark(rgb(255 255 255 / 0.85), rgb(255 255 255 / 0.16));
+  --glass-shadow-color: light-dark(rgb(40 40 80 / 0.16), rgb(0 0 0 / 0.55));
+  --glass-rim-a: light-dark(rgb(255 255 255 / 0.95), rgb(255 255 255 / 0.34));
+  --glass-rim-b: light-dark(rgb(255 255 255 / 0.12), rgb(255 255 255 / 0.05));
+  --glass-fill: color-mix(
+    in srgb,
+    color-mix(in oklch, var(--accent-solid) var(--glass-tint), var(--glass-base)) var(--glass-alpha),
+    transparent
+  );
+  --glass-fill-text: color-mix(
+    in srgb,
+    var(--glass-base) max(var(--glass-alpha), var(--glass-floor)),
+    transparent
+  );
+  --glass-filter: blur(var(--glass-blur)) saturate(var(--glass-saturate));
+  --elev-1: 0 1px 2px light-dark(rgb(0 0 0 / 0.08), rgb(0 0 0 / 0.5));
+  --elev-2: 0 6px 20px light-dark(rgb(30 30 60 / 0.14), rgb(0 0 0 / 0.55));
+}
+
+:root[data-glass="opaque"] {
+  --glass-filter: none;
+}
+
+/* The system asks for less transparency: every level becomes opaque (spec 2). */
+@media (prefers-reduced-transparency: reduce) {
+  :root,
+  :root[data-glass] {
+    --glass-alpha: 100% !important;
+    --glass-tint: 0% !important;
+    --glass-filter: none !important;
+  }
+}
+
+.glass,
+.glass-text {
+  position: relative;
+  isolation: isolate;
+  -webkit-backdrop-filter: var(--glass-filter);
+  backdrop-filter: var(--glass-filter);
+  box-shadow:
+    0 0 0 1px var(--glass-edge),
+    inset 0 1px 0 var(--glass-highlight),
+    0 10px 30px var(--glass-shadow-color);
+}
+
+.glass {
+  background: var(--glass-fill);
+}
+
+.glass-text {
+  background: var(--glass-fill-text);
+}
+
+.glass-lite {
+  position: relative;
+  background: var(--glass-fill-text);
+  box-shadow:
+    0 0 0 1px var(--glass-edge),
+    inset 0 1px 0 var(--glass-highlight),
+    var(--elev-1);
+}
+
+/* Rim light: a 1px gradient edge, brighter at the top left and bottom right. */
+.glass::before,
+.glass-text::before,
+.glass-lite::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  padding: 1px;
+  border-radius: inherit;
+  pointer-events: none;
+  background: linear-gradient(
+    145deg,
+    var(--glass-rim-a),
+    var(--glass-rim-b) 38%,
+    var(--glass-rim-b) 62%,
+    var(--glass-rim-a)
+  );
+  -webkit-mask:
+    linear-gradient(#000 0 0) content-box,
+    linear-gradient(#000 0 0);
+  -webkit-mask-composite: xor;
+  mask:
+    linear-gradient(#000 0 0) content-box exclude,
+    linear-gradient(#000 0 0);
+}
+
+/* "Tinted" level: the accent shows up as a faint rim glow on text-bearing glass. */
+:root[data-glass="tinted"] .glass-text,
+:root[data-glass="tinted"] .glass-lite {
+  box-shadow:
+    0 0 0 1px color-mix(in srgb, var(--accent) 38%, var(--glass-edge)),
+    inset 0 1px 0 var(--glass-highlight),
+    0 10px 30px var(--glass-shadow-color);
+}
+
+@supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+  .glass {
+    background: var(--bg-elevated);
+  }
+
+  .glass-text {
+    background: var(--bg-elevated);
+  }
+}
+
+/* Squircle corners where the browser has them (Chromium); others keep plain rounded corners. */
+@supports (corner-shape: squircle) {
+  .squircle {
+    corner-shape: squircle;
+  }
+}
+
+/* Glass budget (spec 2: at most four backdrop-filter layers on screen). While a modal layer is open the app
+   behind it is inert and dimmed, so its toolbar and composer drop their blur. They are at least 88% opaque
+   anyway (the text floor), so this is hardly visible, and it keeps modal + sidebar + preview within four. */
+.app[inert] .toolbar,
+.app[inert] .composer,
+.app[inert] .msg__tools,
+.app[inert] .jump {
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+}
