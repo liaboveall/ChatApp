@@ -39,6 +39,8 @@ bun run dev:worker       # 另一个终端：邮件队列、定时对账与清�
 
 从 [docs/00-overview.md](docs/00-overview.md) 开始阅读。
 
+设计原型（可点击的 HTML，D 阶段）见 [design/README.md](design/README.md)。
+
 最新规划已将两轮独立审查落实到规格、决策和阶段验收，见[本轮修订对照](docs/15-planning-rereview-2026-10-01.md)。当前进度与每项验收的证据见 [PROGRESS.md](docs/PROGRESS.md)：规划完成不表示功能已通过验收，以 PROGRESS 记录的实际运行证据为准。
 
 ## 许可证与来源

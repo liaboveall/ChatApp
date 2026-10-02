@@ -122,6 +122,7 @@ bun run doctor                 # end-to-end checks; add --ai to also test the De
 | `test` / `test:unit` / `test:integration` | 全部 / 单元（`check` 已包含）/ 集成、安全、契约、实时（需要先 `infra:up`、`infra:bootstrap`、`db:migrate:test`） | ✅ 可用 |
 | `smoke:backend` | 对**正在运行**的 api 与 worker 做真实进程验收走查（管理员 → 邀请码 → 注册 → Mailpit 收邮件 → 验证 → 登录 → WebSocket → 退出即断开）。用法和前置条件见脚本头部注释；建议对测试环境（`APP_ENV=test`）运行，它会在目标库里留下账号；集成测试会清空测试库（连 bootstrap 数据一起），所以先 `bun run db:bootstrap:test` | ✅ 可用 |
 | `test:infra:up` / `test:infra:down` / `test:fault` | 每 run 独立拓扑、限定清理及故障矩阵（AT-34） | ✅ 可用 |
+| `design:build` / `design:contrast` | 构建设计原型（`--minify` 为发布版）/ 令牌对比度自查，不需要任何服务 | ✅ 可用（D） |
 | `test:e2e` / `test:visual` | 端到端测试 / 视觉测试（在 Playwright 官方 Linux 镜像里运行，基线也在那里生成） | M1b 起 |
 | `storybook` / `build` | 组件库、构建 | M1b |
 | `edge:up` / `edge:down` | 用 Nginx 容器和生产站点配置提供一次构建产物 | M2b |
@@ -167,3 +168,13 @@ bun run doctor                 # end-to-end checks; add --ai to also test the De
 - **SSH 私钥**：Windows 上的私钥经 `/mnt/c` 访问时权限显示为 777。M8 前由用户自己把私钥复制到 WSL 的 `~/.ssh` 并 `chmod 600`；Claude 不读取、不复制私钥内容。2026-10-01 核对：私钥已在 `~/.ssh/`，当时权限是 644（`ssh` 会拒绝），用户随后已改为 600。
 - **软件安装**：迁移时没有使用 sudo，所有工具都装在用户目录，所以 WSL 里没有 `unzip`、`make`、`jq` 等 apt 包；需要时再装。
 - **Windows 上的 `D:\ChatApp`**：已停用，不再提交。其中的 `.env.local` 和 `infra/garage/garage.toml` 仍是一份密钥副本，用户确认不再需要后自行删除整个目录即可；删除不会影响现在运行的容器和数据卷。
+
+## 11. 设计原型与浏览器检查（D，2026-10-02）
+
+设计原型在 `design/prototype/`，是评审用的参考实现，不是产品代码（M1b 会按它重新用 React 实现）。构建、检查和发布方式见 [design/README.md](../design/README.md)。
+
+- **为什么用 Windows 的 Edge 做浏览器检查**：WSL 是 NAT 网络模式，WSL 里连不到 Windows 上浏览器的调试端口。所以检查脚本由 Windows 的 `node.exe` 运行，用 CDP 驱动 Windows 的 Edge；原型由 WSL 里的静态服务提供，Windows 经 localhost 转发访问。调试端口由 Edge 自选，只绑 127.0.0.1。
+- **运行**：`bun run design:build`，然后 `design/prototype/tools/browser-checks/run.sh keyboard|layout|media|flows|audit`。脚本会把检查脚本复制到 Windows 的临时目录、起静态服务、跑完后停止。截图和临时 profile 在 `%TEMP%\chatapp-d`。
+- **前提**：Windows 上有 Edge 和 Node（脚本默认路径可用环境变量 `EDGE_PATH`、`NODE_EXE` 覆盖）。**不要**用开放远程调试端口到非回环地址的办法。
+- **Playwright 接手后**：M1b 的 E2E 会在 Linux 镜像里用 Playwright 做同样的事，这些脚本里的断言（键盘、焦点、输入法、溢出、对比度取样）可以直接移植。
+- `biome.json` 为 `design/**` 单独关闭了四条风格规则（逗号表达式、表达式内赋值、`!important`、选择器特异性顺序），因为原型为简洁和"减少动态效果"有意这样写；产品代码不受影响。
