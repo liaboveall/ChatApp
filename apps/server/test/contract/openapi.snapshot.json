@@ -2485,6 +2485,264 @@
             }
           }
         }
+      },
+      "patch": {
+        "tags": ["me"],
+        "summary": "Change my own settings (time zone); conditional on meVersion",
+        "security": [
+          {
+            "cookieAuth": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "expectedMeVersion": {
+                    "type": "integer",
+                    "minimum": 1
+                  },
+                  "timezone": {
+                    "type": "string"
+                  },
+                  "settings": {
+                    "type": "object",
+                    "properties": {
+                      "timezoneAuto": {
+                        "type": "boolean"
+                      }
+                    },
+                    "additionalProperties": false
+                  }
+                },
+                "required": ["expectedMeVersion"],
+                "additionalProperties": false
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Me",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "id": {
+                      "type": "string",
+                      "format": "uuid"
+                    },
+                    "profileVersion": {
+                      "type": "integer"
+                    },
+                    "username": {
+                      "type": "string"
+                    },
+                    "displayName": {
+                      "type": "string"
+                    },
+                    "avatarUrl": {
+                      "type": ["string", "null"]
+                    },
+                    "isBot": {
+                      "type": "boolean"
+                    },
+                    "deleted": {
+                      "type": "boolean"
+                    },
+                    "meVersion": {
+                      "type": "integer"
+                    },
+                    "authEpoch": {
+                      "type": "integer"
+                    },
+                    "restoreEpoch": {
+                      "type": "string"
+                    },
+                    "email": {
+                      "type": "string"
+                    },
+                    "role": {
+                      "type": "string",
+                      "enum": ["user", "admin"]
+                    },
+                    "bio": {
+                      "type": ["string", "null"]
+                    },
+                    "locale": {
+                      "type": "string"
+                    },
+                    "timezone": {
+                      "type": "string"
+                    },
+                    "settings": {
+                      "type": "object",
+                      "additionalProperties": {}
+                    },
+                    "inviteQuota": {
+                      "type": "integer"
+                    },
+                    "invitesUsed": {
+                      "type": "integer"
+                    },
+                    "storageUsedBytes": {
+                      "type": "integer"
+                    },
+                    "storageQuotaBytes": {
+                      "type": "integer"
+                    },
+                    "aiDailyTokens": {
+                      "type": "integer"
+                    }
+                  },
+                  "required": [
+                    "id",
+                    "profileVersion",
+                    "username",
+                    "displayName",
+                    "avatarUrl",
+                    "isBot",
+                    "deleted",
+                    "meVersion",
+                    "authEpoch",
+                    "restoreEpoch",
+                    "email",
+                    "role",
+                    "bio",
+                    "locale",
+                    "timezone",
+                    "settings",
+                    "inviteQuota",
+                    "invitesUsed",
+                    "storageUsedBytes",
+                    "storageQuotaBytes",
+                    "aiDailyTokens"
+                  ]
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Not signed in",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "object",
+                      "properties": {
+                        "code": {
+                          "type": "string",
+                          "enum": [
+                            "UNAUTHENTICATED",
+                            "FORBIDDEN",
+                            "NOT_FOUND",
+                            "VALIDATION_FAILED",
+                            "CONFLICT",
+                            "RATE_LIMITED",
+                            "QUOTA_EXCEEDED",
+                            "AI_BUDGET_EXHAUSTED",
+                            "AI_KEY_INVALID",
+                            "CONVERSATION_BANNED",
+                            "PAYLOAD_TOO_LARGE",
+                            "UNSUPPORTED_MEDIA_TYPE",
+                            "REQUEST_TIMEOUT",
+                            "INVALID_REQUEST_FRAMING",
+                            "AUTH_CHALLENGE_INVALID",
+                            "WINDOW_EXPIRED",
+                            "INVITE_INVALID",
+                            "IDEMPOTENCY_CONFLICT",
+                            "VERSION_CONFLICT",
+                            "RESOURCE_GONE",
+                            "CONTEXT_CHANGED",
+                            "CALL_OUTCOME_UNKNOWN",
+                            "CAPACITY_UNAVAILABLE",
+                            "INTERNAL"
+                          ]
+                        },
+                        "message": {
+                          "type": "string"
+                        },
+                        "details": {
+                          "type": "object",
+                          "additionalProperties": {}
+                        },
+                        "requestId": {
+                          "type": "string"
+                        }
+                      },
+                      "required": ["code", "message", "requestId"]
+                    }
+                  },
+                  "required": ["error"]
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The settings changed elsewhere (VERSION_CONFLICT)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "object",
+                      "properties": {
+                        "code": {
+                          "type": "string",
+                          "enum": [
+                            "UNAUTHENTICATED",
+                            "FORBIDDEN",
+                            "NOT_FOUND",
+                            "VALIDATION_FAILED",
+                            "CONFLICT",
+                            "RATE_LIMITED",
+                            "QUOTA_EXCEEDED",
+                            "AI_BUDGET_EXHAUSTED",
+                            "AI_KEY_INVALID",
+                            "CONVERSATION_BANNED",
+                            "PAYLOAD_TOO_LARGE",
+                            "UNSUPPORTED_MEDIA_TYPE",
+                            "REQUEST_TIMEOUT",
+                            "INVALID_REQUEST_FRAMING",
+                            "AUTH_CHALLENGE_INVALID",
+                            "WINDOW_EXPIRED",
+                            "INVITE_INVALID",
+                            "IDEMPOTENCY_CONFLICT",
+                            "VERSION_CONFLICT",
+                            "RESOURCE_GONE",
+                            "CONTEXT_CHANGED",
+                            "CALL_OUTCOME_UNKNOWN",
+                            "CAPACITY_UNAVAILABLE",
+                            "INTERNAL"
+                          ]
+                        },
+                        "message": {
+                          "type": "string"
+                        },
+                        "details": {
+                          "type": "object",
+                          "additionalProperties": {}
+                        },
+                        "requestId": {
+                          "type": "string"
+                        }
+                      },
+                      "required": ["code", "message", "requestId"]
+                    }
+                  },
+                  "required": ["error"]
+                }
+              }
+            }
+          }
+        }
       }
     },
     "/api/me/devices": {

@@ -5,11 +5,12 @@ import {
   errorBodySchema,
   meSchema,
   okResponseSchema,
+  patchMeRequestSchema,
 } from '@chatapp/contracts'
 import { createRoute, type OpenAPIHono, z } from '@hono/zod-openapi'
 import { cookieNames } from '../../auth/better-auth.ts'
 import { sessionCookieDeletions } from '../../auth/cookies.ts'
-import { getMe } from '../../domain/me.ts'
+import { getMe, updateMe } from '../../domain/me.ts'
 import {
   listDevices,
   revokeAllDevices,
@@ -34,6 +35,25 @@ const getMeRoute = createRoute({
   security: [{ cookieAuth: [] }],
   responses: {
     200: { description: 'Me', content: { 'application/json': { schema: meSchema } } },
+    ...errors,
+  },
+})
+
+const patchMeRoute = createRoute({
+  method: 'patch',
+  path: '/api/me',
+  tags: ['me'],
+  summary: 'Change my own settings (time zone); conditional on meVersion',
+  security: [{ cookieAuth: [] }],
+  request: {
+    body: { required: true, content: { 'application/json': { schema: patchMeRequestSchema } } },
+  },
+  responses: {
+    200: { description: 'Me', content: { 'application/json': { schema: meSchema } } },
+    409: {
+      description: 'The settings changed elsewhere (VERSION_CONFLICT)',
+      content: { 'application/json': { schema: errorBodySchema } },
+    },
     ...errors,
   },
 })
@@ -105,6 +125,10 @@ export function meRoutes(app: OpenAPIHono<HttpEnv>, services: Services): void {
     if (!me) throw new AppError('NOT_FOUND', 'User not found')
     return c.json(me, 200)
   })
+
+  app.openapi(patchMeRoute, async (c) =>
+    c.json(await updateMe(services.deps, principalOf(c), c.req.valid('json')), 200),
+  )
 
   app.openapi(listDevicesRoute, async (c) => {
     const devices = await listDevices(services.deps, principalOf(c))
