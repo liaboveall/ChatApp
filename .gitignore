@@ -36,3 +36,10 @@ Thumbs.db
 
 # per-run fault-test instances: manifests hold credentials
 /.test-runs/
+
+# generated design token stylesheet and Paraglide output (apps/web)
+/apps/web/src/design/tokens.generated.css
+/apps/web/src/paraglide/
+
+# TanStack Router plugin scratch directory (apps/web); the generated route tree itself is committed
+/apps/web/.tanstack/

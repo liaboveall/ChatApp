@@ -22,6 +22,23 @@ for (const group of ['apps', 'packages']) {
   }
 }
 
+// The web package imports its translated texts from generated code; compile them first (a no-op when unchanged).
+if (existsSync(join('apps', 'web', 'package.json'))) {
+  const generate = Bun.spawn(['bun', 'run', '--cwd', 'apps/web', 'generate'], {
+    stdout: 'pipe',
+    stderr: 'pipe',
+  })
+  const [, errors, code] = await Promise.all([
+    new Response(generate.stdout).text(),
+    new Response(generate.stderr).text(),
+    generate.exited,
+  ])
+  if (code !== 0) {
+    console.error(`apps/web: generating the translated texts failed\n${errors}`)
+    process.exit(1)
+  }
+}
+
 const results = await Promise.all(
   projects.map(async (dir) => {
     const proc = Bun.spawn([TSC, '-p', join(dir, 'tsconfig.json')], {

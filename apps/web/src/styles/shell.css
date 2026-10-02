@@ -1,0 +1,616 @@
+/* App shell (spec 3): wallpaper, floating panels, sidebar, toolbar, inspector.
+   Breakpoints are container queries on .window, the full-viewport root of the app. */
+
+.window {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  container: win / inline-size;
+  isolation: isolate;
+  background: var(--bg-app);
+  color: var(--label);
+  --toolbar-h: 56px;
+  --sidebar-w: 280px;
+  --presence-ring: var(--bg-content);
+}
+
+/* ---- Wallpaper: what the sidebar glass has to show ----
+   Every layer stays at or under --wallpaper-tint (tokens.ts wallpaper.maxTint). The contrast check assumes exactly
+   that, so do not raise it without rerunning `bun run design:contrast`. */
+
+.wallpaper {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  overflow: hidden;
+  background: var(--bg-app);
+  pointer-events: none;
+}
+.orb {
+  position: absolute;
+  border-radius: 999px;
+  animation: drift 48s ease-in-out infinite alternate;
+  /* Soft falloff: the core carries the full tint, the edge fades to nothing. */
+  background: radial-gradient(closest-side, var(--orb) 0%, var(--orb) 38%, transparent 100%);
+}
+.orb--a {
+  width: 420px;
+  height: 420px;
+  left: -140px;
+  top: -120px;
+  --orb: color-mix(in srgb, var(--accent) var(--wallpaper-tint), transparent);
+}
+.orb--b {
+  width: 300px;
+  height: 300px;
+  left: 60px;
+  bottom: 18%;
+  --orb: color-mix(
+    in srgb,
+    oklch(from var(--accent) l c calc(h + 70)) var(--wallpaper-tint),
+    transparent
+  );
+  animation-duration: 62s;
+  animation-direction: alternate-reverse;
+}
+.orb--c {
+  width: 360px;
+  height: 360px;
+  left: -90px;
+  bottom: -150px;
+  --orb: color-mix(
+    in srgb,
+    oklch(from var(--accent) l c calc(h - 55)) var(--wallpaper-tint),
+    transparent
+  );
+  animation-duration: 55s;
+}
+.orb--d {
+  width: 520px;
+  height: 520px;
+  right: -180px;
+  top: 10%;
+  --orb: color-mix(
+    in srgb,
+    oklch(from var(--accent) l c calc(h + 30)) calc(var(--wallpaper-tint) * 0.6),
+    transparent
+  );
+  animation-duration: 70s;
+}
+/* Auth pages: fewer, larger blobs in the corners around the centred card. */
+.wallpaper--auth .orb--a {
+  left: -100px;
+  top: -140px;
+  width: 520px;
+  height: 520px;
+}
+.wallpaper--auth .orb--b {
+  display: none;
+}
+.wallpaper--auth .orb--c {
+  left: auto;
+  right: -120px;
+  bottom: -160px;
+}
+.wallpaper--auth .orb--d {
+  left: auto;
+  right: 10%;
+  top: 5%;
+  width: 320px;
+  height: 320px;
+}
+@keyframes drift {
+  to {
+    transform: translate3d(36px, 28px, 0);
+  }
+}
+
+/* ---- Frame ---- */
+
+.app {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  display: grid;
+  grid-template-columns: var(--sidebar-w) minmax(0, 1fr) auto;
+  gap: 8px;
+  padding: 8px;
+}
+
+.main {
+  position: relative;
+  grid-column: 2;
+  min-width: 0;
+  min-height: 0;
+  border-radius: var(--radius-window);
+  background: var(--bg-content);
+  overflow: hidden;
+  box-shadow:
+    0 0 0 1px var(--separator),
+    var(--elev-1);
+}
+
+/* ---- Sidebar ---- */
+
+.sidebar {
+  position: relative;
+  /* Above the main panel, so the splitter on its right edge is not covered by the panel it reaches into. */
+  z-index: 5;
+  grid-column: 1;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  border-radius: var(--radius-window);
+  --presence-ring: color-mix(in srgb, var(--glass-base) 82%, transparent);
+}
+.sidebar__top {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 10px 10px 4px;
+}
+.sidebar__top .search {
+  flex: 1;
+  min-width: 0;
+}
+.sidebar__scroll {
+  flex: 1;
+  min-height: 0;
+  padding: 4px 6px 10px;
+}
+
+.s-section {
+  margin-top: 8px;
+}
+.s-section__head {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  min-height: 28px;
+  padding: 0 4px 0 8px;
+  color: var(--label-secondary);
+}
+.s-section__toggle {
+  display: flex;
+  flex: 1;
+  align-items: center;
+  gap: 4px;
+  min-height: 28px;
+  border-radius: 8px;
+  font-size: var(--fs-footnote);
+  line-height: var(--lh-footnote);
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  color: var(--label-secondary);
+  text-align: left;
+}
+.s-section__toggle .icon {
+  width: 14px;
+  height: 14px;
+  transition: transform var(--dur-snappy) var(--spring-snappy);
+}
+.s-section__toggle[aria-expanded="false"] .icon {
+  transform: rotate(-90deg);
+}
+
+.s-item {
+  position: relative;
+  display: grid;
+  grid-template-columns: 36px minmax(0, 1fr) auto;
+  align-items: center;
+  column-gap: 10px;
+  width: 100%;
+  min-height: 54px;
+  padding: 7px 8px;
+  border-radius: var(--radius-control);
+  text-align: left;
+  color: var(--label);
+  transition: background-color 0.15s;
+}
+.s-item:hover {
+  background: color-mix(in srgb, var(--fill) 70%, transparent);
+}
+.s-item[aria-current="true"] {
+  /* --sel-tint is checked against label and secondary text on every glass level (contrast.ts). */
+  background: color-mix(in srgb, var(--accent-solid) var(--sel-tint), transparent);
+}
+/* Not colour alone: the open conversation also gets a bar on the left edge. */
+.s-item[aria-current="true"]::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 14px;
+  bottom: 14px;
+  width: 3px;
+  border-radius: 0 3px 3px 0;
+  background: var(--accent-solid);
+}
+.s-item__body {
+  min-width: 0;
+  display: grid;
+  gap: 1px;
+}
+.s-item__title {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+  font-size: var(--fs-headline);
+  line-height: var(--lh-headline);
+  font-weight: 600;
+}
+.s-item[data-unread="true"] .s-item__title {
+  font-weight: 700;
+}
+.s-item__preview {
+  font-size: var(--fs-subheadline);
+  line-height: var(--lh-subheadline);
+  color: var(--label-secondary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.s-item__meta {
+  display: grid;
+  justify-items: end;
+  align-content: center;
+  gap: 3px;
+}
+.s-item__time {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-size: var(--fs-footnote);
+  line-height: var(--lh-footnote);
+  color: var(--label-secondary);
+  white-space: nowrap;
+}
+.s-item__badges {
+  display: flex;
+  gap: 4px;
+}
+.sidebar[data-compact="true"] .s-item {
+  min-height: 40px;
+  padding-block: 4px;
+  grid-template-columns: 30px minmax(0, 1fr) auto;
+}
+.sidebar[data-compact="true"] .s-item__preview {
+  display: none;
+}
+.sidebar[data-compact="true"] .s-item .avatar {
+  --size: 28px;
+}
+
+.sidebar__user {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 10px 10px 12px;
+  border-top: 1px solid var(--separator);
+}
+.sidebar__user-main {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  border-radius: var(--radius-control);
+  text-align: left;
+}
+.sidebar__user-name {
+  font-size: var(--fs-headline);
+  line-height: var(--lh-headline);
+  font-weight: 600;
+}
+.sidebar__user-status {
+  font-size: var(--fs-subheadline);
+  line-height: var(--lh-subheadline);
+  color: var(--label-secondary);
+}
+
+/* Draggable divider on the sidebar's right edge (keyboard: arrow keys). It lives inside the sidebar landmark. */
+.splitter {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 100%;
+  z-index: 30;
+  width: 28px;
+  cursor: col-resize;
+  border-radius: 4px;
+  touch-action: none;
+}
+.splitter::after {
+  content: "";
+  position: absolute;
+  left: 3px;
+  top: 50%;
+  width: 2px;
+  height: 36px;
+  margin-top: -18px;
+  border-radius: 2px;
+  background: var(--control-border);
+  opacity: 0;
+  transition: opacity 0.15s;
+}
+.splitter:hover::after,
+.splitter:focus-visible::after,
+.splitter[data-dragging="true"]::after {
+  opacity: 1;
+}
+
+/* ---- Toolbar ---- */
+
+.toolbar {
+  position: absolute;
+  inset: 0 0 auto 0;
+  z-index: 20;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  height: var(--toolbar-h);
+  padding: 0 12px 0 16px;
+  background: var(--glass-fill-text);
+  -webkit-backdrop-filter: var(--glass-filter);
+  backdrop-filter: var(--glass-filter);
+  box-shadow: 0 1px 0 var(--separator);
+}
+.toolbar__who {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+  flex: 1;
+  border-radius: var(--radius-control);
+  text-align: left;
+}
+.toolbar__title {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  font-size: var(--fs-title-3);
+  line-height: var(--lh-title-3);
+  font-weight: 600;
+}
+.toolbar__sub {
+  font-size: var(--fs-subheadline);
+  line-height: var(--lh-subheadline);
+  color: var(--label-secondary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.toolbar__actions {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+.toolbar__menu-btn {
+  display: none;
+}
+
+/* ---- Content slot under the toolbar ---- */
+
+.content {
+  position: absolute;
+  inset: 0;
+  padding-top: var(--toolbar-h);
+  overflow: auto;
+}
+
+/* ---- Inspector ---- */
+
+.inspector {
+  position: relative;
+  grid-column: 3;
+  display: flex;
+  flex-direction: column;
+  width: 320px;
+  min-height: 0;
+  border-radius: var(--radius-window);
+  background: var(--bg-content);
+  overflow: hidden;
+  box-shadow:
+    0 0 0 1px var(--separator),
+    var(--elev-1);
+}
+.inspector__head {
+  display: grid;
+  gap: 10px;
+  padding: 12px 12px 10px;
+  border-bottom: 1px solid var(--separator);
+}
+.inspector__head-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.inspector__head-row .seg {
+  flex: 1;
+}
+.inspector__body {
+  flex: 1;
+  min-height: 0;
+  padding: 14px 14px 16px;
+}
+
+.app:not([data-inspector="open"]) .inspector {
+  display: none;
+}
+.app:not([data-inspector="open"]) {
+  grid-template-columns: var(--sidebar-w) minmax(0, 1fr);
+}
+
+/* ---- Width tiers ----
+   1280+   sidebar, content, docked inspector
+   1024+   inspector floats over the content
+   768+    sidebar collapses to a rail
+   <768    one column, the sidebar becomes a drawer */
+
+@container win (max-width: 1279px) {
+  .inspector {
+    position: absolute;
+    /* An absolutely positioned grid child is placed inside its grid area: take the whole grid, or the
+       third column (zero wide here) becomes its containing block. */
+    grid-column: 1 / -1;
+    grid-row: 1;
+    justify-self: end;
+    top: 0;
+    right: 0;
+    bottom: 0;
+    z-index: 40;
+    width: min(340px, 100%);
+    background: var(--glass-fill-text);
+    -webkit-backdrop-filter: var(--glass-filter);
+    backdrop-filter: var(--glass-filter);
+    box-shadow:
+      0 0 0 1px var(--glass-edge),
+      inset 0 1px 0 var(--glass-highlight),
+      0 18px 50px var(--glass-shadow-color);
+    animation: inspector-in var(--dur-smooth) var(--spring-smooth) both;
+  }
+  .app[data-inspector="open"] {
+    grid-template-columns: var(--sidebar-w) minmax(0, 1fr);
+  }
+}
+@keyframes inspector-in {
+  from {
+    opacity: 0;
+    transform: translateX(24px);
+  }
+}
+
+/* Rail: 768-1023. Only avatars and unread dots, the full list opens as a drawer from the toolbar. */
+@container win (min-width: 768px) and (max-width: 1023px) {
+  .app,
+  .app[data-inspector="open"],
+  .app:not([data-inspector="open"]) {
+    grid-template-columns: 68px minmax(0, 1fr);
+  }
+  .splitter,
+  .sidebar .search kbd,
+  .sidebar li > .btn,
+  .sidebar .search__text,
+  .sidebar .s-item__body,
+  .sidebar .s-item__meta,
+  .sidebar .s-section__toggle > span,
+  .sidebar__user-main > div,
+  .sidebar .sidebar__top .icon-btn,
+  .sidebar .s-section__head .icon-btn,
+  .sidebar .s-section__toggle .icon,
+  .sidebar .sidebar__empty-text {
+    display: none;
+  }
+  .sidebar .search {
+    justify-content: center;
+    padding: 0;
+    min-height: 36px;
+  }
+  .sidebar .s-item {
+    grid-template-columns: 1fr;
+    justify-items: center;
+    padding: 6px 0;
+    min-height: 48px;
+  }
+  .sidebar .s-item[data-unread="true"]::after {
+    content: "";
+    position: absolute;
+    top: 6px;
+    right: 8px;
+    width: 10px;
+    height: 10px;
+    border-radius: 999px;
+    background: var(--accent-solid);
+    box-shadow: 0 0 0 2px var(--glass-base);
+  }
+  .sidebar .s-section__head {
+    justify-content: center;
+    padding: 0;
+  }
+  .sidebar .s-section__toggle {
+    justify-content: center;
+    min-height: 8px;
+  }
+  .sidebar .sidebar__user {
+    flex-direction: column;
+    justify-content: center;
+    gap: 4px;
+    padding: 10px 0;
+  }
+}
+
+/* Drawer: under 768 there is one column and the full sidebar slides over it. */
+@container win (max-width: 767px) {
+  .toolbar__menu-btn {
+    display: inline-grid;
+  }
+  .app,
+  .app[data-inspector="open"],
+  .app:not([data-inspector="open"]) {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 0;
+    padding: 0;
+  }
+  .main {
+    grid-column: 1;
+    border-radius: 0;
+    box-shadow: none;
+  }
+  .sidebar {
+    position: absolute;
+    left: 8px;
+    top: 8px;
+    bottom: 8px;
+    z-index: 70;
+    width: min(320px, calc(100% - 16px));
+    transform: translateX(calc(-100% - 16px));
+    visibility: hidden;
+    transition:
+      transform var(--dur-smooth) var(--spring-smooth),
+      visibility 0s linear var(--dur-smooth);
+  }
+  .app[data-drawer="open"] .sidebar {
+    transform: none;
+    visibility: visible;
+    transition-delay: 0s;
+  }
+  .splitter {
+    display: none;
+  }
+  .toolbar {
+    padding: 0 8px;
+    gap: 6px;
+  }
+  .toolbar__sub {
+    display: none;
+  }
+  .inspector {
+    inset: 0;
+    width: 100%;
+    border-radius: 0;
+  }
+}
+
+/* The drawer scrim only exists in the narrow tier. */
+.drawer-scrim {
+  display: none;
+}
+@container win (max-width: 767px) {
+  .app[data-drawer="open"] > .drawer-scrim {
+    display: block;
+    position: absolute;
+    inset: 0;
+    z-index: 60;
+    background: var(--scrim);
+    animation: fade-in var(--dur-fade) ease both;
+  }
+}
+
+@keyframes fade-in {
+  from {
+    opacity: 0;
+  }
+}

@@ -20,11 +20,20 @@ const SINK_NAMES = [
 const SINK = new RegExp(`\\b(${SINK_NAMES.join('|')})\\b|document\\.write\\(`)
 const ENV_FILE = /(^|\/)\.env(\.[^/]+)?$|\.env$/
 const SOURCES = new Glob('{apps,packages}/**/*.{ts,tsx,js,jsx,mjs,cjs}')
+/** Build output and tool reports are not source: they hold other people's bundled code. */
+const NOT_SOURCE = [
+  '/node_modules/',
+  '/dist/',
+  '/storybook-static/',
+  '/playwright-report/',
+  '/test-results/',
+  '/coverage/',
+]
 const problems: string[] = []
 
 for await (const raw of SOURCES.scan({ cwd: '.', onlyFiles: true })) {
   const path = raw.replaceAll('\\', '/')
-  if (path.includes('/node_modules/') || path.includes('/dist/')) continue
+  if (NOT_SOURCE.some((part) => path.includes(part))) continue
   const text = await Bun.file(path).text()
   text.split('\n').forEach((line, index) => {
     if (SINK.test(line) && !line.includes('guard-allow:')) {

@@ -44,8 +44,15 @@ const LAYERS: Layer[] = [
   },
   {
     name: 'web',
-    owns: (p) => p.startsWith('apps/web/'),
+    owns: (p) => p.startsWith('apps/web/src/'),
     forbidden: [/^@chatapp\/(db|server)/, /^drizzle-orm/, /^node:/, /^bun(:|$)/],
+    why: 'browser code must not import packages/db, apps/server, or Node and Bun modules',
+  },
+  {
+    // Vite, Storybook and Playwright configuration, test specs and build tools run in Node and may use it.
+    name: 'web tooling',
+    owns: (p) => p.startsWith('apps/web/') && !p.startsWith('apps/web/src/'),
+    forbidden: [/^@chatapp\/(db|server)/, /^drizzle-orm/],
     why: 'apps/web must not import packages/db or apps/server',
   },
   {
@@ -96,7 +103,7 @@ export function checkFile(path: string, text: string): string[] {
   }
 
   // Test files may use the test runner and fixtures; they only have to stay inside their package.
-  const isTest = /\.test\.ts$/.test(path) || /\/test\//.test(path)
+  const isTest = /\.(test|spec)\.tsx?$/.test(path) || /\/test\//.test(path)
   const layers = isTest ? [] : LAYERS.filter((layer) => layer.owns(path))
   const root = packageRoot(path)
   if (!root) return problems

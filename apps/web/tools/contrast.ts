@@ -1,43 +1,65 @@
 #!/usr/bin/env bun
 /**
- * D2 contrast self-check for the design tokens (AT-21, WCAG 2.2).
+ * Contrast self-check for the design tokens (AT-21, WCAG 2.2). A token change is only finished once this passes (D-111).
  *
- *   bun design/prototype/tools/contrast.mjs          summary, failures only
- *   bun design/prototype/tools/contrast.mjs --all    every checked pair
- *   bun design/prototype/tools/contrast.mjs --md     markdown tables for docs/02
+ *   bun run design:contrast            summary, failures only
+ *   bun run design:contrast -- --all   every checked pair
+ *   bun run design:contrast -- --md    markdown tables for docs/02
  *
  * Exit code 1 when any pair is below its threshold. Text needs 4.5:1, controls and focus 3:1.
- * Glass is checked against its worst backdrops, not against a flat colour: see `checkGlass`.
+ * Glass is checked against its worst backdrops, not against a flat colour: see `checkSidebar` and `checkFloorGlass`.
  */
-import { mix, over, parse, ratio, toHex } from './color.mjs'
 import {
   ACCENT_ON,
   accents,
   code,
   glass,
   neutral,
+  type Pair,
   SELECTED_TINT,
   status,
   wallpaper,
-} from './tokens.mjs'
+} from '../src/design/tokens.ts'
+import { mix, over, parse, type Rgba, ratio, toHex } from './color.ts'
 
 const TEXT = 4.5
 const NON_TEXT = 3
 /** The glass floor and accent text are derived with this margin so rounding cannot flip a result. */
 const DERIVE_MARGIN = 4.6
-const THEMES = ['light', 'dark']
+const THEMES = ['light', 'dark'] as const
+type Theme = (typeof THEMES)[number]
 const TINT = 0.16
 /** Share of the content surface the sidebar search field puts between its placeholder and the glass. */
 const SIDEBAR_PLATE = 0.72
 
-const args = new Set(process.argv.slice(2))
-const results = []
+type Result = {
+  group: string
+  name: string
+  theme: Theme
+  value: number
+  min: number
+  pass: boolean
+  fg: string
+  bg: string
+}
 
-const color = (value) => parse(value)
-const token = (table, key, i) => color(table[key][i])
+const args = new Set(process.argv.slice(2))
+const results: Result[] = []
+
+const color = (value: string): Rgba => parse(value)
+const pairAt = (pair: Pair, i: number): string => {
+  const value = pair[i]
+  if (value === undefined) throw new Error(`no value at index ${i}`)
+  return value
+}
+const token = (table: Record<string, Pair>, key: string, i: number): Rgba => {
+  const entry = table[key]
+  if (!entry) throw new Error(`unknown token: ${key}`)
+  return color(pairAt(entry, i))
+}
 
 /** Records one pair. `fg` may carry alpha and is flattened over `bg`. */
-function check(group, name, theme, fg, bg, min) {
+function check(group: string, name: string, theme: Theme, fg: Rgba, bg: Rgba, min: number): number {
   const flat = over(fg, bg)
   const value = ratio(flat, bg)
   results.push({
@@ -53,7 +75,7 @@ function check(group, name, theme, fg, bg, min) {
   return value
 }
 
-function surfaces(i) {
+function surfaces(i: number): Record<string, Rgba> {
   const content = token(neutral, 'bg-content', i)
   const elevated = token(neutral, 'bg-elevated', i)
   const fill = token(neutral, 'fill', i)
@@ -118,10 +140,10 @@ for (const [i, theme] of THEMES.entries()) {
     )
   }
 
-  const on = color(ACCENT_ON[i])
+  const on = color(pairAt(ACCENT_ON, i))
   for (const [key, accent] of Object.entries(accents)) {
-    const solid = color(accent.solid[i])
-    const text = color(accent.text[i])
+    const solid = color(pairAt(accent.solid, i))
+    const text = color(pairAt(accent.text, i))
     // Bubble, filled button and badge text.
     check('气泡与实底', `${key}: on-accent / accent-solid`, theme, on, solid, TEXT)
     // Accent-coloured text, links and icons, plain and on a 16% tint of the accent.
@@ -139,7 +161,8 @@ for (const [i, theme] of THEMES.entries()) {
       check('焦点环', `${key}: focus ring / ${name}`, theme, text, bg, NON_TEXT)
     }
     // Quote block inside an own bubble: an inset that moves the bubble colour away from the text colour.
-    const insetColor = i === 0 ? { r: 0, g: 0, b: 0, a: 0.16 } : { r: 255, g: 255, b: 255, a: 0.16 }
+    const insetColor: Rgba =
+      i === 0 ? { r: 0, g: 0, b: 0, a: 0.16 } : { r: 255, g: 255, b: 255, a: 0.16 }
     const inset = over(insetColor, solid)
     check('气泡与实底', `${key}: on-accent / quote inset`, theme, on, inset, TEXT)
   }
@@ -147,16 +170,23 @@ for (const [i, theme] of THEMES.entries()) {
   // Status colours as text and as filled buttons.
   for (const [key, entry] of Object.entries(status)) {
     for (const [name, bg] of Object.entries(surf)) {
-      check('状态色', `${key}: text / ${name}`, theme, color(entry.text[i]), bg, TEXT)
+      check('状态色', `${key}: text / ${name}`, theme, color(pairAt(entry.text, i)), bg, TEXT)
     }
     if (key !== 'info') {
-      check('状态色', `${key}: filled button text / solid`, theme, on, color(entry.solid[i]), TEXT)
+      check(
+        '状态色',
+        `${key}: filled button text / solid`,
+        theme,
+        on,
+        color(pairAt(entry.solid, i)),
+        TEXT,
+      )
     }
   }
 }
 
 /** Lowest glass alpha at which all three label tokens reach `min` over both black and white. */
-function glassFloor(i, baseColor) {
+function glassFloor(i: number, baseColor: Rgba): number {
   const backdrops = [color('#000000'), color('#FFFFFF')]
   for (let alpha = 0.3; alpha <= 1.0001; alpha += 0.01) {
     const ok = backdrops.every((backdrop) => {
@@ -170,18 +200,18 @@ function glassFloor(i, baseColor) {
   return 1
 }
 
-const derivedFloors = []
+const derivedFloors: { theme: Theme; plain: number }[] = []
 for (const [i, theme] of THEMES.entries()) {
-  const plain = glassFloor(i, color(glass.base[i]))
+  const plain = glassFloor(i, color(pairAt(glass.base, i)))
   derivedFloors.push({ theme, plain })
   // The token must be at least the derived value.
   results.push({
     group: '玻璃下限',
     name: `floor token ≥ derived (${theme})`,
     theme,
-    value: glass.floor[i],
+    value: glass.floor[i] ?? 0,
     min: plain,
-    pass: glass.floor[i] >= plain,
+    pass: (glass.floor[i] ?? 0) >= plain,
     fg: '',
     bg: '',
   })
@@ -191,13 +221,14 @@ for (const [i, theme] of THEMES.entries()) {
  * Glass that carries text over arbitrary content (toolbar, composer, menus, sheets): the floor alpha
  * over black and white backdrops. It never takes the accent tint, which is only for the sidebar.
  */
-function checkFloorGlass(i, theme) {
-  const base = color(glass.base[i])
-  for (const [backdropName, backdrop] of [
+function checkFloorGlass(i: number, theme: Theme): void {
+  const base = color(pairAt(glass.base, i))
+  const backdrops: [string, Rgba][] = [
     ['black', color('#000000')],
     ['white', color('#FFFFFF')],
-  ]) {
-    const comp = over({ ...base, a: glass.floor[i] }, backdrop)
+  ]
+  for (const [backdropName, backdrop] of backdrops) {
+    const comp = over({ ...base, a: glass.floor[i] ?? 1 }, backdrop)
     for (const key of ['label', 'label-secondary', 'label-tertiary']) {
       check(
         '文字承载玻璃',
@@ -212,7 +243,7 @@ function checkFloorGlass(i, theme) {
       '文字承载玻璃',
       `accent-text(blue) / floor glass over ${backdropName}`,
       theme,
-      color(accents.blue.text[i]),
+      color(pairAt(accents.blue.text, i)),
       comp,
       TEXT,
     )
@@ -220,14 +251,19 @@ function checkFloorGlass(i, theme) {
 }
 
 /** The sidebar floats over the wallpaper only, so its glass is checked against the wallpaper extremes. */
-function checkSidebar(i, theme) {
+function checkSidebar(i: number, theme: Theme): void {
   const walls = wallpaper[theme]
+  const firstWall = walls[0]
+  if (firstWall === undefined) throw new Error('wallpaper has no stops')
   for (const [levelKey, level] of Object.entries(glass.levels)) {
     for (const [accentKey, accent] of Object.entries(accents)) {
       const base = level.tint
-        ? mix(color(glass.base[i]), color(accent.solid[i]), level.tint)
-        : color(glass.base[i])
-      const blob = over({ ...color(accent.deco[i]), a: wallpaper.maxTint[i] }, color(walls[0]))
+        ? mix(color(pairAt(glass.base, i)), color(pairAt(accent.solid, i)), level.tint)
+        : color(pairAt(glass.base, i))
+      const blob = over(
+        { ...color(pairAt(accent.deco, i)), a: wallpaper.maxTint[i] ?? 0 },
+        color(firstWall),
+      )
       const backdrops = [...walls.map(color), blob]
       for (const backdrop of backdrops) {
         const comp = over({ ...base, a: level.alpha }, backdrop)
@@ -250,8 +286,9 @@ function checkSidebar(i, theme) {
           over({ ...token(neutral, 'bg-content', i), a: SIDEBAR_PLATE }, comp),
           TEXT,
         )
-        // A hovered row: 70% of the gray control fill on top of the glass (the .s-item:hover rule).
-        const hoverFill = { ...token(neutral, 'fill', i), a: token(neutral, 'fill', i).a * 0.7 }
+        // A hovered row: 70% of the gray control fill on top of the glass (the sidebar item hover rule).
+        const fill = token(neutral, 'fill', i)
+        const hoverFill = { ...fill, a: fill.a * 0.7 }
         for (const key of ['label', 'label-secondary']) {
           check(
             '侧栏玻璃',
@@ -269,7 +306,7 @@ function checkSidebar(i, theme) {
             `${key} / selected row ${levelKey} ${accentKey} @${toHex(backdrop)}`,
             theme,
             token(neutral, key, i),
-            over({ ...color(accent.solid[i]), a: SELECTED_TINT }, comp),
+            over({ ...color(pairAt(accent.solid, i)), a: SELECTED_TINT }, comp),
             TEXT,
           )
         }
@@ -277,7 +314,7 @@ function checkSidebar(i, theme) {
           '侧栏玻璃',
           `accent-text / ${levelKey} ${accentKey} @${toHex(backdrop)}`,
           theme,
-          color(accent.text[i]),
+          color(pairAt(accent.text, i)),
           comp,
           TEXT,
         )
@@ -293,7 +330,8 @@ for (const [i, theme] of THEMES.entries()) {
 
 // ---- report ----
 const failures = results.filter((r) => !r.pass)
-const byGroup = new Map()
+type GroupSummary = { total: number; failed: number; min: number; name: string }
+const byGroup = new Map<string, GroupSummary>()
 for (const r of results) {
   const g = byGroup.get(r.group) ?? { total: 0, failed: 0, min: Number.POSITIVE_INFINITY, name: '' }
   g.total += 1
@@ -314,11 +352,14 @@ if (args.has('--md')) {
   console.log('\n| 强调色 | 主题 | 气泡文字/实底 | 强调色文字(最差表面) |\n|---|---|---|---|')
   for (const [key, accent] of Object.entries(accents)) {
     for (const [i, theme] of THEMES.entries()) {
-      const bubble = ratio(color(ACCENT_ON[i]), color(accent.solid[i]))
+      const bubble = ratio(color(pairAt(ACCENT_ON, i)), color(pairAt(accent.solid, i)))
       const worst = Math.min(
         ...Object.values(surfaces(i)).flatMap((bg) => [
-          ratio(color(accent.text[i]), bg),
-          ratio(color(accent.text[i]), over({ ...color(accent.solid[i]), a: TINT }, bg)),
+          ratio(color(pairAt(accent.text, i)), bg),
+          ratio(
+            color(pairAt(accent.text, i)),
+            over({ ...color(pairAt(accent.solid, i)), a: TINT }, bg),
+          ),
         ]),
       )
       console.log(
@@ -329,9 +370,9 @@ if (args.has('--md')) {
 } else {
   console.log(`contrast: ${results.length} pairs checked, ${failures.length} below threshold\n`)
   for (const [group, g] of byGroup) {
-    const status = g.failed === 0 ? 'ok  ' : 'FAIL'
+    const mark = g.failed === 0 ? 'ok  ' : 'FAIL'
     console.log(
-      `${status} ${group.padEnd(10)} ${String(g.total).padStart(4)} pairs  tightest: ${g.name}`,
+      `${mark} ${group.padEnd(10)} ${String(g.total).padStart(4)} pairs  tightest: ${g.name}`,
     )
   }
   console.log('\nglass floors (derived at 4.6:1 over black and white):')
