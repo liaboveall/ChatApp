@@ -5,7 +5,7 @@
 
 ## 当前状态
 
-- **当前阶段**：M0 ✅，开发准备 ✅，规划完善 ✅，**M1a 后端骨架：已提交并推送（8 个提交，`7f73cad` 到 `3cf4488`），远端 CI 全部通过，待用户确认验收（2026-10-01 至 02）**。证据、限制和未做的事见最新交接记录。下一步：D 设计原型（可并行）；M1b 等 D 定稿。
+- **当前阶段**：M0 ✅，开发准备 ✅，规划完善 ✅，**M1a 后端骨架：✅ 完成（2026-10-02 用户验收），已提交并推送（`7f73cad` 到 `4fb26a5`），远端 CI 全部通过**。证据、限制和未做的事见交接记录。下一步：D 设计原型（可并行）；M1b 等 D 定稿。
 - **本轮生效**：[15复审](15-planning-rereview-2026-10-01.md)的12项主问题与5项一致性问题全部落实D-076–D-092；新增AT-25–AT-37、V-18–V-21。M1a 范围内的部分已有运行证据（见 M1a 交接记录），其余仍为未开始。
 - **2026-10-01 全面完善**：[独立审查](14-planning-review-2026-10-01.md) 的 11 项 P1、13 项 P2 已逐项落实 D-056–D-075，当前规格已同步；08 的 AT-01–AT-24 是待实施验收，不把设计完成视作运行时通过（M1a 范围内的运行证据见 M1a 交接记录）。
 - **2026-10-01 Docker 补查**：已修复 Mailpit 保留端口冲突；本机 SMTP 为 12525，网页 8025。基础设施 doctor 通过证据见交接记录。
@@ -14,9 +14,9 @@
   - `v2`：已推送到 GitHub，本地跟踪 `origin/v2`，所有开发都在这里进行；
   - `main`：仍是旧版代码，已经过历史清理；
   - 标签 `v1-legacy`：指向 main 的最后一个提交。
-- **CI**：`v2` 上最近一次已核对的运行是 `3cf4488`（run id 与 headSha 都核对过）：`check`（含 `arm64-smoke`）、`integration`（含 `fault`）、`security` 全部成功；另有一次手动触发的 `security` 完整历史扫描（run 36956977511）也成功。`integration`、`fault`、`security`、`arm64-smoke` 是 M1a 新增的，前一个提交 `af8cfc0` 的 `security` 曾因 gitleaks 失败，已按 D-106 解决（见交接记录）。之后的提交以各自对应的远端运行为准。
+- **CI**：`v2` 上最近一次已核对的运行是 `4fb26a5`（run id 与 headSha 都核对过）：`check`（36962917864，含 `arm64-smoke`）、`integration`（36962917906：`integration` 作业 185 个测试通过，`fault` 作业 11 个通过）、`security`（36962917839：gitleaks 扫描这 2 个提交，无泄露）全部成功。更早的 `af8cfc0` 的 `security` 曾因 gitleaks 失败，已按 D-106 解决，之后的完整历史扫描（run 36956977511）也成功。之后的提交以各自对应的远端运行为准。
 - **下一个会话**：
-  - **先决定 M1a 怎么收口**：提交并推送（之后核对远端 CI 的 `check`、`integration`、`security` 三个工作流）；或先让我再看某一块。
+  - **M1a 已验收**（2026-10-02）。按 11 的范围冻结点，M1a 出口冻结认证/同步/幂等契约；之后要改，须同步产品、数据、接口、测试和决策。
   - **D 设计原型**：见 [11-roadmap.md](11-roadmap.md) 的 D 节和 [02-design-system.md](02-design-system.md) 第 9 节（与后端互不依赖）。
   - **M1b 前端骨架**要等 D 定稿；M1a 的认证契约与后端出口现已具备（见 05 第 3.1 节）。
 
@@ -28,7 +28,7 @@
 | 开发准备 | ✅ 完成 | 2026-09-30，提交 `8b74b5c`、`b28dbbe`、`a8f1456`、`77cd6db`、`d723d7b` |
 | 规划审查修订 | ✅ 文档完成 | D-056–D-092及17项复审对照已纳入规格；运行验收待实施 |
 | D 设计原型 | ⚪ 未开始 | **下一步**，可以和 M1a 同时进行 |
-| M1a 后端骨架 | 🟡 已推送，待确认 | 2026-10-01 至 02；单元 63 / 集成 174 / 故障 11 个测试通过，真实进程走查通过；远端 CI（`3cf4488`）全部通过，含 arm64；Passkey 仪式、真实 ARM 资源数据等未验证 |
+| M1a 后端骨架 | ✅ 完成 | 2026-10-02 用户验收；单元 73 / 集成 185 / 故障 11 个测试通过，真实进程走查通过；远端 CI（`4fb26a5`）全部通过，含 arm64；Passkey 完整仪式、真实 ARM 资源数据等未验证（见交接记录） |
 | M1b 前端骨架 | ⚪ 未开始 | 等 D 定稿及 M1a 出口 |
 | M2 核心聊天（M2a / M2b） | ⚪ 未开始 | |
 | M3 富消息 | ⚪ 未开始 | |
@@ -42,14 +42,13 @@
 
 ## 等待用户确认
 
-- **M1a 是否验收通过**。已按你的指示提交并推送，共 8 个提交：`7f73cad` 工具链与 guard、`b1fc1c3` contracts、`c2e6c30` db、`7674eb4` server、`dae1f74` 测试与故障环境、`47ef33f` CI、`af8cfc0` 文档、`3cf4488` gitleaks 白名单。
-- **12 里新增的 D-094–D-106**是我在你既有授权内作出的实现决定，其中有几条改变了规格的写法（认证入口全部受控、不启用 username 插件、限流自研、`account_source`）；如果你不同意其中任何一条，告诉我，我会新增取代它的记录。
+- 暂无。M1a 已于 2026-10-02 验收，D-094 到 D-107 随之生效；要改动其中任何一条，告诉我，我会新增取代它的记录。
 
 ## 用户待办
 
 - [x] 删除 Docker Hub 上的公开仓库 `abovealll/chatapp`（2026-09-30）。
 - [x] 作废旧的 DeepSeek key，并把新 key 填进 `.env.local`（2026-09-30）。`bun run doctor --ai` 已验证可用。
-- [ ] 用 `bun run admin:create --email <你的邮箱> --username <用户名> --name <显示名>` 创建自己的管理员账号（密码在你自己的终端里输入）。开发库里现在只有 bootstrap 的 Agent 账号和 `db:seed` 建的三个演示成员 alice / bob / carol（邮箱 `*@example.test`，密码是 `.env.local` 里的 `SEED_DEMO_PASSWORD`）。
+- [x] 管理员账号（2026-10-02，你让我直接创建）：用户名 `god`、显示名 `God`，在开发库里，已验证能登录。密码是我随机生成的，只存在 `~/.chatapp/god-admin-password`（权限 600，不在聊天、日志和仓库里）；请存进密码管理器，然后删除这个文件。现在还没有网页界面（M1b 才有），暂时用不上它。开发库里另有 bootstrap 的 Agent 账号和 `db:seed` 建的三个演示成员 alice / bob / carol（邮箱 `*@example.test`，密码是 `.env.local` 里的 `SEED_DEMO_PASSWORD`）。M8 上线时要在服务器上再创建一次生产管理员。
 - [x] 推送之后核对远端 CI（2026-10-02，我用 `gh` 核对过，结果见交接记录）：`integration`、`fault`、`security`、`arm64-smoke` 都在远端跑过并通过；只有 `security` 首次运行因 gitleaks 失败，已按 D-106 修复。
 - [ ] 可选：在 GitHub 上安装 Renovate App，让 `renovate.json` 生效。
 - [ ] 可选：请 GitHub Support 清除已改写历史中旧提交的缓存（见 D-032 中的"残留风险"）。
@@ -72,11 +71,60 @@
 
 ## 交接记录
 
+### 2026-10-02 · M1a 验收，提交并推送两处修复（Claude）
+
+**你的指示**：「M1a已验收，然后提交推送」。M1a 于 2026-10-02 由你验收，状态改为 ✅。
+- **提交**：拆成两个独立的代码提交。每个提交先在临时目录里组装累积文件树，跑 `bun run check`（含 `--frozen-lockfile` 安装），通过后才提交；pre-commit 钩子（Biome、guard）真实运行：
+  - `a1edf0c` `fix(server)`：`admin:create` 用注册规则校验输入，并说明被拒原因（见 “admin:create 修复” 一条）；
+  - `4fb26a5` `fix(db)`：jsonb 值存成真正的 JSON，含迁移 `0002_normalize_jsonb`（D-107）。
+- **推送**：`19adbde..4fb26a5`。提交前我用 gitleaks 默认规则的近似扫描检查了新增行，把测试里一个会被当成密钥的变量名改短（`builtFromUsername` 改为 `guess`）。
+- **远端结果**（HEAD `4fb26a5`，run id 都核对过 headSha）：
+
+| 工作流（run） | 结果 |
+|---|---|
+| `check`（36962917864） | ✓ 含 `arm64-smoke` |
+| `integration`（36962917906） | ✓ `integration` 作业：空库迁移（含 `0002`）、`drizzle-kit check`、**185 个测试通过 / 0 失败（21 个文件）**；`fault` 作业：**11 个通过** |
+| `security`（36962917839） | ✓ gitleaks 读到 `.gitleaks.toml`，扫描这 2 个提交，无泄露；osv-scanner、bun audit 通过 |
+
+- **没有变化的未验证项**：Passkey 完整仪式（M1b）、真实 ARM 资源数据（V-12）、topic/Hub 与 presence/typing（M2）等，清单见 M1a 交接记录。
+- **下一步**：D 设计原型（可并行）；M1b 等 D 定稿。
+
+### 2026-10-02 · 创建管理员 god，并修掉 jsonb 双重编码（Claude）
+
+**你的指示**：「你直接为我创建名为God的管理员账户」。这是你明确让我替你做（此前约定密码由你自己输入）。
+- **做法**：用仓库自己的 `admin:create` 路径（密码走标准输入，不进命令行参数），在**开发库**里创建；用户名按规则必须小写，所以是 `god`，显示名 `God`，邮箱用你上一条命令里的那个。密码是 128 位随机值，**先写进私有文件**（`~/.chatapp/god-admin-password`，权限 600，只有你的用户能读）再创建账号，创建失败会删掉文件；全程没有打印，也不在聊天、日志和仓库里。
+- **验证**：库里是已验证、已激活的 `admin`（来源 `cli`），有 1 条凭据和 1 条 `admin.account_created` 审计；用生成的密码真实登录得到 200、没有 token 出现在响应体里，`/api/me` 返回 `god` / `admin`，错误密码 401，退出登录后 `/api/me` 为 401，没有残留会话，API 已关闭。
+
+**发现并修复的缺陷（D-107）**：核对审计行时，`metadata->>'role'` 取到空值。原因是 drizzle-orm 0.45.3 的 `jsonb()` 与 Bun 的 SQL 驱动叠加，所有 jsonb 值都被编码两次，存成“内容是 JSON 文本的 jsonb 字符串”。经 Drizzle 读回时会再解析一次，所以应用里和测试里都看不出来；`->>`、`@>`、索引和 SQL 层检索会读不到。4 列受影响：`audit_logs.metadata`、`work_items.payload`、`app_settings.value`、`users.settings`；应用代码里没有用 SQL 读 JSON 的地方，所以没有功能受损。
+- **修复**：`packages/db/src/schema/json.ts` 的 `jsonbValue<T>()`（先序列化成文本，SQL 里 `::text::jsonb`，实验里对象、数组、字符串、数字、布尔、嵌套值和更新都正确）；4 列改用它；guard 拒绝非测试文件导入 Drizzle 的 `jsonb`；迁移 `0002_normalize_jsonb` 规范化已有行；回归测试 `jsonb-storage.test.ts`（6 项，用 SQL 直接读存储类型，并核对每个 jsonb 列都被覆盖）。**我把实现临时改回旧编码验证过，6 项里 5 项变红**，再原样恢复。
+- **开发库**：已应用迁移，6 行被规范化，现在 4 列都是真正的对象，你账号的审计行能用 SQL 查到。**拉取代码后要 `bun run db:migrate`（测试库 `db:migrate:test`）**。
+- **本地验证**（工作区，含上一条 admin:create 修复）：`bun run check` 通过，单元测试 73 个；`bun run test:integration` 185 个通过；`bun run test:fault` 11 个通过、无残留；`doctor` 正常；`db:check` 与 `db:generate`（无 schema 变更）正常；真实进程走查 11 步全过；你的账号在迁移后的开发库上重新验证登录正常。
+- **状态**：已提交并推送（`a1edf0c` admin:create 修复、`4fb26a5` jsonb 修复），远端 CI 全部通过（见上一条记录）。drizzle-kit 的 `db:generate` 仍报告无 schema 变更，所以迁移文件是纯数据迁移。
+
+### 2026-10-02 · admin:create 修复（Claude）
+
+**起因**：你在自己的终端运行 `bun run admin:create --email … --username God --name God`，输完密码得到 `admin:create failed: AppError (VALIDATION_FAILED)`，看不出哪里错了。没有账号被创建（我核对过开发库和测试库里都没有这个邮箱）。
+
+**原因**（M1a 的 CLI 里有三个缺陷）：
+1. `admin:create` 没有用 contracts 里的 schema 校验邮箱、用户名和显示名，违反“所有外部输入都用 zod schema 校验”。`God` 含大写字母，注册接口会拒绝，CLI 却放行，要到数据库的 `users_username_format` 约束才会被拦，那时的报错同样不可读；显示名也没有 trim 就入库。
+2. 报错只打印类名和代码，字段和原因被丢掉了。这次被拒的是**密码这一步**（用户名问题还没轮到检查）；具体是密码策略的哪一条（太短、太常见、太简单、含邮箱前缀或产品名），当时的输出看不出来。
+3. 这条代码路径（`createAccountFromCli`）没有任何测试。
+
+**修复**：
+- `domain/admin.ts`：新增 `checkAccountFields`（注册同一份 schema 加保留名检查，返回规范化后的值，或“字段 + 规则”）和 `checkAccountPassword`；`createAccountFromCli` 复用它们、用规范化后的值入库，错误带 `details: {field, reason}`。
+- `cli.ts`：先校验字段、再要密码；密码被拒时说明原因，并在终端里允许重输（最多 3 次）；`AppError` 的字段与原因会显示，数据库错误仍只显示类名和代码；任何提示都不回显你输入的内容。
+- 测试：新增 `admin.test.ts`（9 个单元测试）和 `admin-cli.test.ts`（5 个集成测试，真实 Postgres），覆盖大写用户名、保留名、坏邮箱、显示名 trim、各种弱密码的原因、重复邮箱/用户名。
+- 文档：docs/09 写明用户名和密码规则。
+
+**验证**（本地）：`bun run check` 通过，单元测试 72 个（原 63）；`bun run test:integration` 179 个通过（原 174）；真实 CLI 进程：你的原命令行（`God`）现在在要密码之前就报 `--username` 的规则并退出 1，弱密码和含邮箱前缀的密码各自给出原因，三种情形都没有创建账号；用伪终端模拟交互：第一次输入太短的密码被拒并说明原因，重输合格密码后在测试库里建号成功，密码没有出现在会话记录里。
+
+**状态**：已提交并推送（`a1edf0c`）。用法：`bun run admin:create --email <你的邮箱> --username god --name <显示名>`（用户名要小写）。
+
 ### 2026-10-01 至 02 · M1a 后端骨架（Claude）
 
 **用户的指示**：「开始M1a」，中途因会话中断说了「继续」。按 CLAUDE.md 先读了 PROGRESS、11 的 M1a 节和 03/04/05/07/08/09/12 的相关部分。收工时我问是否提交并推送，你回复「提交并推送吧」，随后已提交并推送（见下面的“提交、推送与远端 CI”）。
 
-**做出来的东西**（都在工作区，未提交）：
+**做出来的东西**（写于提交之前；提交与推送见下面的“提交、推送与远端 CI”）：
 - **工具链**：`scripts/typecheck.ts`（根目录加每个工作区包各跑自己的 tsconfig）；`guard` 增加架构边界检查（`scripts/lib/boundaries.ts`）；`check` 现在含单元测试；根目录新增 `db:*`、`dev:api`、`dev:worker`、`admin:*`、`test`、`test:integration`、`test:infra:*`、`test:fault`、`smoke:backend` 脚本。
 - **`packages/contracts`**：错误码、上限、保留名、身份字段 schema、认证端点允许清单、WS 外层结构、各 DTO。
 - **`packages/db`**：15 张表、迁移 `0000_init` 与 `0001_extensions`、拥有者/应用账号分离、迁移运行器（advisory lock）、bootstrap。
@@ -84,7 +132,7 @@
 - **环境**：`.env.example` 新增 `DATABASE_OWNER_URL(_TEST)`、`APP_TIMEZONE`、`API_HOST`、`TRUSTED_PROXIES`、`AUTH_TOKEN_ENCRYPTION_KEY`、`RESTORE_EPOCH`；`bun run setup` 把旧布局一次性转成新布局并补齐模板新增的键（没有打印任何值；转换前备份在会话临时目录）。
 - **故障环境**：`infra/compose.test.yml`、`scripts/lib/test-infra.ts`、`apps/server/test/support/fault/*`、AT-34 测试。
 - **CI**：新增 `.github/workflows/integration.yml`（`integration` 与 `fault` 两个作业）、`security.yml`（gitleaks、osv-scanner、`bun audit`），`check.yml` 增加 test compose 文件校验和 `arm64-smoke` 作业；`osv-scanner.toml` 登记一条依赖告警例外（D-105）；`.gitleaks.toml` 只放行三个测试夹具字面值（D-106）。
-- **文档**：12 新增 D-094–D-106 与 V-04/05/07/12/13 结论；05 第 3.1 节改成实际契约；04、03、09、01（隐私说明新增“登录设备与 IP”“邀请与注册”两行）、08、11、README、CLAUDE.md 同步。
+- **文档**：12 新增 D-094–D-107 与 V-04/05/07/12/13 结论；05 第 3.1 节改成实际契约；04、03、09、01（隐私说明新增“登录设备与 IP”“邀请与注册”两行）、08、11、README、CLAUDE.md 同步。
 
 **依赖**：Drizzle 1.0 仍是 RC，用 0.45.3 / drizzle-kit 0.31.11（V-07）；Better Auth 1.7.7；其余精确版本见 D-104 和 03 第 2 节。`bun audit` 全量有 1 条 moderate（drizzle-kit → 已废弃的 @esbuild-kit → esbuild 0.18.20，开发服务器告警，不可达），没有可升级路径，已在 `osv-scanner.toml` 登记带到期日 2027-01-01 的例外（D-105）。
 

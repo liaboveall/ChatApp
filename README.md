@@ -33,7 +33,7 @@ bun run dev:api          # 后端（API 与 WebSocket）：http://127.0.0.1:3100
 bun run dev:worker       # 另一个终端：邮件队列、定时对账与清理
 ```
 
-详见 [docs/09-local-dev.md](docs/09-local-dev.md)。后端骨架（M1a）已实现；前端尚未开始，路线图见 [docs/11-roadmap.md](docs/11-roadmap.md)。
+详见 [docs/09-local-dev.md](docs/09-local-dev.md)。后端骨架（M1a）已完成并验收；前端尚未开始，路线图见 [docs/11-roadmap.md](docs/11-roadmap.md)。
 
 ## 文档
 
