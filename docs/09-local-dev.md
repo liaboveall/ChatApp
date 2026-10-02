@@ -1,6 +1,6 @@
 # 09 本地开发环境
 
-> 基础设施和工具链已在 2026-09-30 的"开发准备"中搭好并验证通过（验证方式：`bun run doctor`）。M1a 的后端脚本（`db:*`、`dev:api`、`dev:worker`、`admin:*`、`test`、`test:integration`、`test:infra:*`、`test:fault`）已可用，见第 7 节；`dev`、`dev:web`、`test:e2e` 等前端相关脚本由 M1b 创建，**创建之前不要假定它们存在**。
+> 基础设施和工具链已在 2026-09-30 的"开发准备"中搭好并验证通过（验证方式：`bun run doctor`）。M1a 的后端脚本（`db:*`、`dev:api`、`dev:worker`、`admin:*`、`test`、`test:integration`、`test:infra:*`、`test:fault`）和 M1b 的前端脚本（`dev`、`dev:web`、`build`、`storybook`、`test:e2e`、`test:visual`、`web:messages`）都已可用，见第 7 节；`edge:*`、`media:*`、`eval` 要到对应里程碑才会创建，**创建之前不要假定它们存在**。
 > 开发环境：自 2026-10-01 起在 **WSL（Ubuntu 26.04）** 中进行（D-093）。仓库在 `/home/mars/projects/ChatApp`，命令都在 WSL 的 bash 里运行；Docker 用 Docker Desktop 的 WSL 集成。Windows 上的 `D:\ChatApp` 已停用。
 
 ## 1. 前置条件
@@ -9,7 +9,7 @@
 |---|---|---|
 | Bun | 与 `package.json` 中 `packageManager` 锁定的版本一致（1.4.2） | ✅ 装在 `~/.bun/bin`（下载官方发布包并核对 SHA256），PATH 写在 `~/.bashrc`；`~/.local/bin/bun` 另有一个软链接，让非交互的登录 shell 和 git 钩子也找得到。**新装后要新开终端（或 `source ~/.bashrc`）才找得到 `bun`** |
 | Docker Desktop | Compose v2 及以上；在 Docker Desktop 的 Settings → Resources → WSL integration 里对 Ubuntu 打开集成 | ✅ Docker 29.8.1，Compose 5.5.1。WSL 里的 `docker` 与 Windows 共用同一个引擎、容器和数据卷 |
-| Node | ≥ 24（Playwright、Storybook 等工具需要） | ✅ 26.8.1（与迁移前 Windows 上的版本相同），装在 `~/.local/share/node`，软链接在 `~/.local/bin` |
+| Node | ≥ 24（Vite、Vitest、Playwright、Storybook 等工具需要；CI 的 web 相关作业用 26） | ✅ 26.8.1（与迁移前 Windows 上的版本相同），装在 `~/.local/share/node`，软链接在 `~/.local/bin` |
 | Git | 较新版本即可 | ✅ 2.53.0。本仓库已配置提交身份：`liaboveall <2628370933@qq.com>`，只在本仓库生效，没有改全局配置 |
 
 **本机端口冲突**（两处都不要去关占用方）。冲突发生在 **Windows 主机**上：Docker Desktop 把容器端口发布在 Windows 主机上，所以搬到 WSL 后依然适用。2026-10-01 迁移时核对过：开发端口由 Windows 上的 `com.docker.backend` 发布，5432 由 Windows 上的 `postgres` 进程监听。
@@ -35,21 +35,29 @@ bun run doctor                 # end-to-end checks; add --ai to also test the De
   bun run dev:worker         # 另一个终端：派发器、邮件队列、定时对账与清理
   ```
   正式管理员用 `bun run admin:create --email <邮箱> --username <用户名> --name <显示名>`，密码在你自己的终端里输入（不回显，不经过聊天）。用户名只能用小写字母、数字和下划线（3–20 位，不能是保留名，例如 `god`）；密码至少 10 位，不能是常见密码、太简单，也不能包含邮箱 @ 前的部分、用户名、显示名（各自 4 位及以上时）或产品名。邮箱、用户名、显示名先按注册同样的规则校验，通不过会指出是哪个字段、什么规则；密码被拒会说明原因并允许重输（最多 3 次），任何提示都不会回显你输入的内容。接口文档在 http://127.0.0.1:3100/api/docs（仅开发与测试环境）。
-- **M1b 完成后**，用 `bun run dev` 同时启动前后端，然后打开 http://localhost:5173 。
+- **前端（M1b 已完成）**：用 `bun run dev` 同时启动 api、worker 和 Vite（`bun run dev -- api web` 只启动其中几个），然后在浏览器打开 **http://localhost:5173**。必须用 `localhost`：服务端要求 `Origin` 等于 `APP_ORIGIN`，用 `127.0.0.1` 会被拒绝。管理员用 `admin:create` 创建，登录后在设置里生成邀请码，用邀请码注册新成员，验证邮件在 Mailpit（http://localhost:8025）里。
+- **浏览器测试（M1b）**：`bun run test:e2e` 需要 Playwright 的浏览器。第一次：
+  ```bash
+  cd apps/web
+  node_modules/.bin/playwright install chromium webkit firefox      # 下载到 ~/.cache/ms-playwright，不需要 sudo
+  sudo node_modules/.bin/playwright install-deps                    # 浏览器依赖的系统库（libnspr4 等），WSL 里要装一次
+  ```
+  之后在仓库根目录运行 `bun run test:e2e`（需要先 `infra:up`、`infra:bootstrap`；它自己构建前端并启动测试环境的 api 与 worker，**不要同时跑集成测试**，两者共用测试库）。单个文件或浏览器：`bun run test:e2e -- e2e/shell.spec.ts --project=chromium`。视觉测试 `bun run test:visual` 在 Playwright 官方镜像里运行，需要 Docker Desktop 在运行，第一次会拉取镜像。
 - **收发邮件**：Mailpit 的网页界面在 http://localhost:8025 ，所有发出的邮件都会在这里显示。
 
 ## 3. 端口
 
 | 服务 | 宿主机端口 | 说明 |
 |---|---|---|
-| web（Vite） | 5173 | M1b 起可用。会把 `/api` 和 `/ws` 代理到 3100，让前后端同源，Cookie 才能正常工作 |
+| web（Vite） | 5173 | M1b 起可用。会把 `/api` 和 `/ws` 代理到 3100，让前后端同源，Cookie 才能正常工作。浏览器用 `http://localhost:5173` |
 | api | 3100 | M1a 起可用 |
+| E2E：预览服务器 / API | 4173 / 3102 | 只在 `bun run test:e2e` 期间存在：`vite preview` 提供生产构建（带生产 CSP），API 与 worker 用测试环境（D-122） |
 | edge（Nginx） | 8443 | M2b 起可用。用生产站点配置提供一次构建产物，访问地址 `https://chat.localhost:8443`，用于 CSP 测试和彩排 |
 | Postgres | **5434** → 容器内 5432 | 用户名 `chatapp`；开发库 `chatapp`，测试库 `chatapp_test`。两个库都已安装 `vector` 0.8.6 和 `pg_trgm` 1.6 |
 | Valkey | 6379 | 开发用 db 0，测试用 db 1；配置为 `noeviction`，已开启 AOF。pub/sub 不区分 db，所以事件频道名带环境：`events:development`、`events:test`（D-044） |
 | Garage | 3900（S3）、3903（管理接口） | region 为 `garage`；bucket `chatapp` 和 `chatapp-test` |
 | Mailpit | **12525**（本机 SMTP）→ 容器内 1025；8025（网页界面） | Compose 从 `SMTP_PORT` 读取宿主机端口，模板默认 2525 |
-| Storybook | 6006 | M1b 起可用 |
+| Storybook | 6006 | M1b 起可用：`bun run storybook` |
 
 所有端口都只绑定在 `127.0.0.1` 上。
 
@@ -112,19 +120,20 @@ bun run doctor                 # end-to-end checks; add --ai to also test the De
 | `lint` / `lint:fix` / `format` | Biome 检查、自动修复、格式化 | ✅ 可用 |
 | `typecheck` | TS 7 类型检查（M1a 起覆盖所有工作区包） | ✅ 可用 |
 | `guard` | 禁止 raw HTML 写法（SEC-05），禁止跟踪 env 文件和其他密钥文件 | ✅ 可用 |
-| `check` | 依次运行 lint、typecheck（所有工作区包）、guard（含架构边界检查）、单元测试（不需要任何服务）。**提交前必须通过** | ✅ 可用 |
+| `check` | 依次运行 lint、typecheck（所有工作区包，含 `apps/web`）、guard（含架构边界检查）、单元测试（后端 bun test 加前端 Vitest，不需要任何服务）、令牌对比度自查、文案生成物一致性检查。**提交前必须通过** | ✅ 可用 |
 | `db:generate` / `db:migrate` / `db:migrate:test` / `db:check` | 生成迁移 / 以拥有者迁移并授权应用账号（开发库 / 测试库）/ drizzle-kit 一致性检查 | ✅ 可用 |
 | `db:seed` | 仅开发：bootstrap 加 3 个演示成员（`db:studio` 未创建） | ✅ 可用 |
 | `db:bootstrap` / `db:bootstrap:test` | 生产也可用的幂等基础数据：Agent 账号、保留名、bootstrap 标记；无演示账号 | ✅ 可用 |
 | `dev:api` / `dev:worker` | 启动后端开发服务（API 与 WebSocket / 派发器、邮件队列、对账、清理） | ✅ 可用 |
-| `dev` / `dev:web` | 同时启动前后端 / 只启动前端 | M1b |
+| `dev` / `dev:web` | 同时启动 api、worker、Vite / 只启动前端（`bun run dev -- api web` 可选择进程） | ✅ 可用（M1b） |
 | `admin:create` / `admin:verify-email` | 创建管理员（密码在自己的终端里输入；规则同注册，被拒时指出字段和原因）/ 手动标记邮箱已验证（写审计） | ✅ 可用 |
 | `test` / `test:unit` / `test:integration` | 全部 / 单元（`check` 已包含）/ 集成、安全、契约、实时（需要先 `infra:up`、`infra:bootstrap`、`db:migrate:test`） | ✅ 可用 |
 | `smoke:backend` | 对**正在运行**的 api 与 worker 做真实进程验收走查（管理员 → 邀请码 → 注册 → Mailpit 收邮件 → 验证 → 登录 → WebSocket → 退出即断开）。用法和前置条件见脚本头部注释；建议对测试环境（`APP_ENV=test`）运行，它会在目标库里留下账号；集成测试会清空测试库（连 bootstrap 数据一起），所以先 `bun run db:bootstrap:test` | ✅ 可用 |
 | `test:infra:up` / `test:infra:down` / `test:fault` | 每 run 独立拓扑、限定清理及故障矩阵（AT-34） | ✅ 可用 |
-| `design:build` / `design:contrast` | 构建设计原型（`--minify` 为发布版）/ 令牌对比度自查，不需要任何服务 | ✅ 可用（D） |
-| `test:e2e` / `test:visual` | 端到端测试 / 视觉测试（在 Playwright 官方 Linux 镜像里运行，基线也在那里生成） | M1b 起 |
-| `storybook` / `build` | 组件库、构建 | M1b |
+| `design:build` / `design:contrast` | 构建设计原型（`--minify` 为发布版）/ 令牌对比度自查（脚本在 `apps/web/tools/contrast.ts`，D-114），不需要任何服务 | ✅ 可用（D） |
+| `test:e2e` / `test:visual` | 端到端测试（Playwright，对生产构建运行，需要 `infra:up`）/ 视觉测试（在 Playwright 官方 Linux 镜像里运行，基线也在那里生成；加 `-- --update-snapshots` 重新生成基线，提交前要逐张看过变化的 PNG） | ✅ 可用（M1b） |
+| `storybook` / `build` | 组件库（:6006）/ 前端生产构建（`apps/web/dist`） | ✅ 可用（M1b） |
+| `web:messages` | 由 `apps/web/tools/messages-source.ts` 生成 `messages/*.json`；加 `-- --check` 只核对是否过期（`check` 里已包含） | ✅ 可用（M1b） |
 | `edge:up` / `edge:down` | 用 Nginx 容器和生产站点配置提供一次构建产物 | M2b |
 | `media:up` / `media:down` | worker容器与无网络media、私有IPC及资源限制；不重置开发依赖 | M3新增 |
 | `eval` | Agent 评测 | M4 |
@@ -152,7 +161,9 @@ bun run doctor                 # end-to-end checks; add --ai to also test the De
 | 改了 `POSTGRES_PASSWORD` 后认证失败 | 见第 5 节：执行 `bun run infra:reset --yes`，然后重新 up 和 bootstrap |
 | Garage 报 layout 相关的错误 | 重新执行 `bun run infra:bootstrap` |
 | S3 报签名错误 | 检查 `S3_ENDPOINT` 是否为 `http://localhost:3900`，`S3_REGION` 是否为 `garage` |
-| 登录后 Cookie 不生效（M1b 起） | 必须通过 5173 端口访问（经过 Vite 代理），不要直接访问 3100 |
+| 登录后 Cookie 不生效，或注册、登录报来源不允许（M1b 起） | 必须通过 `http://localhost:5173` 访问（经过 Vite 代理，`Origin` 要等于 `APP_ORIGIN`），不要直接访问 3100，也不要用 `127.0.0.1:5173` |
+| 浏览器测试启动失败，提示缺少共享库（libnspr4 等） | 装一次系统库：`cd apps/web && sudo node_modules/.bin/playwright install-deps`（需要 sudo） |
+| `test:e2e` 一开始就报测试库或端口被占用 | E2E 与集成测试共用测试库，不能同时跑；3102、4173 被旧进程占着时先结束它们（`ss -ltnp` 查看） |
 | Windows 浏览器打不开 WSL 里的 `localhost:5173`（M1b 起） | 先在 WSL 里 `curl http://localhost:5173` 确认服务在监听。WSL 为 NAT 网络模式（`wslinfo --networking-mode` 输出 `nat`，Windows 用户目录下没有 `.wslconfig`），已用临时服务验证过：WSL 里监听 `127.0.0.1` 的端口，Windows 上用 `localhost` 和 `127.0.0.1` 都能访问 |
 | 视觉测试的截图总是对不上 | 基线只在 Playwright 的 Linux 镜像里生成和比对，本机（WSL 与 Windows）的字体都不同。用 `bun run test:visual`，它会在容器里运行 |
 | 开发服务和测试同时运行时，收到对方的事件 | 检查 `APP_ENV`：事件频道名按它区分（`events:development` / `events:test`） |
@@ -171,10 +182,10 @@ bun run doctor                 # end-to-end checks; add --ai to also test the De
 
 ## 11. 设计原型与浏览器检查（D，2026-10-02）
 
-设计原型在 `design/prototype/`，是评审用的参考实现，不是产品代码（M1b 会按它重新用 React 实现）。构建、检查和发布方式见 [design/README.md](../design/README.md)。
+设计原型在 `design/prototype/`，是评审用的参考实现，不是产品代码（M1b 已按它用 React 重新实现，在 `apps/web`；令牌的数据源也已移到那里，D-114）。构建、检查和发布方式见 [design/README.md](../design/README.md)。
 
 - **为什么用 Windows 的 Edge 做浏览器检查**：WSL 是 NAT 网络模式，WSL 里连不到 Windows 上浏览器的调试端口。所以检查脚本由 Windows 的 `node.exe` 运行，用 CDP 驱动 Windows 的 Edge；原型由 WSL 里的静态服务提供，Windows 经 localhost 转发访问。调试端口由 Edge 自选，只绑 127.0.0.1。
 - **运行**：`bun run design:build`，然后 `design/prototype/tools/browser-checks/run.sh keyboard|layout|media|flows|audit`。脚本会把检查脚本复制到 Windows 的临时目录、起静态服务、跑完后停止。截图和临时 profile 在 `%TEMP%\chatapp-d`。
 - **前提**：Windows 上有 Edge 和 Node（脚本默认路径可用环境变量 `EDGE_PATH`、`NODE_EXE` 覆盖）。**不要**用开放远程调试端口到非回环地址的办法。
-- **Playwright 接手后**：M1b 的 E2E 会在 Linux 镜像里用 Playwright 做同样的事，这些脚本里的断言（键盘、焦点、输入法、溢出、对比度取样）可以直接移植。
+- **Playwright 接手后**：M1b 的 E2E 已在 Playwright 里做了其中一部分（键盘与快捷键、焦点、溢出、axe 检查，见 08 第 2 节）；输入法、对比度取样等这些脚本里的断言，等用到它们的里程碑再移植。原型的这套检查仍可单独运行。
 - `biome.json` 为 `design/**` 单独关闭了四条风格规则（逗号表达式、表达式内赋值、`!important`、选择器特异性顺序），因为原型为简洁和"减少动态效果"有意这样写；产品代码不受影响。

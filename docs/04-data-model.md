@@ -46,7 +46,7 @@ Better Auth 的 Drizzle adapter 需要开启 `usePlural: true`，这样表名才
 | locale | text | default `'zh-CN'` | |
 | timezone | text | default `'Asia/Shanghai'` | IANA 时区名。`settings.timezoneAuto` 为 true 时，客户端按浏览器时区自动更新 |
 | last_seen_at | timestamptz | null | 最后一个连接断开的时间 |
-| settings | jsonb | default `{}` | 用户自己能改的偏好：外观、Agent 默认模式、`timezoneAuto` 等。管理员控制的限额**不**放这里 |
+| settings | jsonb | default `{}` | 用户自己能改的偏好：Agent 默认模式、`timezoneAuto` 等（M1b 起只有 `timezoneAuto`，由 `PATCH /api/me` 按键合并，D-118）。**外观偏好是设备级的，存在浏览器本地，不在这里**（D-117）。管理员控制的限额**不**放这里 |
 | deleted_at | timestamptz | null | 注销时间，注销后只保留匿名占位 |
 | created_at / updated_at | timestamptz | | |
 

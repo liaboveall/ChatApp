@@ -19,7 +19,7 @@ TypeScript 7 · Bun · Hono · zod · Drizzle · PostgreSQL 18（pgvector）· V
 
 ## 本地开发
 
-需要 [Bun](https://bun.sh) 1.4 和 Docker Desktop。
+需要 [Bun](https://bun.sh) 1.4、Node 24 或更新（前端工具链需要）和 Docker Desktop。
 
 ```bash
 bun install
@@ -29,11 +29,12 @@ bun run infra:bootstrap  # 初始化 Garage 的存储桶和访问密钥
 bun run doctor           # 检查各项服务是否正常
 bun run db:migrate       # 迁移，并创建无特权的应用数据库账号
 bun run db:seed          # 仅开发：Agent 账号、保留名和 3 个演示成员
-bun run dev:api          # 后端（API 与 WebSocket）：http://127.0.0.1:3100/api/docs
-bun run dev:worker       # 另一个终端：邮件队列、定时对账与清理
+bun run dev              # api、worker 和前端一起启动；浏览器打开 http://localhost:5173
 ```
 
-详见 [docs/09-local-dev.md](docs/09-local-dev.md)。后端骨架（M1a）已完成并验收；前端尚未开始，路线图见 [docs/11-roadmap.md](docs/11-roadmap.md)。
+也可以分开启动：`bun run dev:api`（http://127.0.0.1:3100/api/docs）、`bun run dev:worker`、`bun run dev:web`。管理员用 `bun run admin:create` 创建；邮件在 Mailpit（http://localhost:8025）里看。
+
+详见 [docs/09-local-dev.md](docs/09-local-dev.md)。后端骨架（M1a）已完成并验收；前端骨架（M1b：登录、注册、验证邮箱、找回密码、设置、应用外壳）已实现，等待验收；聊天功能从 M2 开始。路线图见 [docs/11-roadmap.md](docs/11-roadmap.md)。
 
 ## 文档
 

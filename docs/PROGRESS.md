@@ -5,7 +5,7 @@
 
 ## 当前状态
 
-- **当前阶段**：M0 ✅，开发准备 ✅，规划完善 ✅，**M1a 后端骨架：✅ 完成（2026-10-02 用户验收），已提交并推送（`7f73cad` 到 `4fb26a5`），远端 CI 全部通过**。证据、限制和未做的事见交接记录。**D 设计原型：✅ 完成（2026-10-02 你在 D4 确认，D-113），已提交并推送（`df44d20` 到 `4f9abcd`），远端 CI 全部通过**；M1b 可以开始，等你说开始。
+- **当前阶段**：M0 ✅，开发准备 ✅，规划完善 ✅，**M1a 后端骨架：✅ 完成（2026-10-02 用户验收），已提交并推送（`7f73cad` 到 `4fb26a5`），远端 CI 全部通过**。证据、限制和未做的事见交接记录。**D 设计原型：✅ 完成（2026-10-02 你在 D4 确认，D-113），已提交并推送（`df44d20` 到 `4f9abcd`），远端 CI 全部通过**。**M1b 前端骨架：实现和自动化验证完成（2026-10-03），已提交并推送（`16cb3e6` 到 `8994ec1`，外加记录它们的文档提交），等你在浏览器里验收外壳（与原型对照）；新增的 `e2e` 工作流和改动过的 `check` 工作流在推送前从未在远端运行，它们的结果在推送后核对，补写在下一个提交里**。证据、限制和未做的事见 M1b 交接记录。
 - **本轮生效**：[15复审](15-planning-rereview-2026-10-01.md)的12项主问题与5项一致性问题全部落实D-076–D-092；新增AT-25–AT-37、V-18–V-21。M1a 范围内的部分已有运行证据（见 M1a 交接记录），其余仍为未开始。
 - **2026-10-01 全面完善**：[独立审查](14-planning-review-2026-10-01.md) 的 11 项 P1、13 项 P2 已逐项落实 D-056–D-075，当前规格已同步；08 的 AT-01–AT-24 是待实施验收，不把设计完成视作运行时通过（M1a 范围内的运行证据见 M1a 交接记录）。
 - **2026-10-01 Docker 补查**：已修复 Mailpit 保留端口冲突；本机 SMTP 为 12525，网页 8025。基础设施 doctor 通过证据见交接记录。
@@ -14,11 +14,12 @@
   - `v2`：已推送到 GitHub，本地跟踪 `origin/v2`，所有开发都在这里进行；
   - `main`：仍是旧版代码，已经过历史清理；
   - 标签 `v1-legacy`：指向 main 的最后一个提交。
-- **CI**：`v2` 上最近一次已核对的运行是 `4f9abcd`（run id 与 headSha 都核对过）：`check`（36999328547，含 `arm64-smoke`）、`integration`（36999328504：`integration` 作业 185 个测试通过，`fault` 作业 11 个通过）、`security`（36999328603：gitleaks、`bun audit`、osv-scanner）全部成功。更早的 `4fb26a5` 也是这三个工作流全部成功（36962917864、36962917906、36962917839）。更早的 `af8cfc0` 的 `security` 曾因 gitleaks 失败，已按 D-106 解决，之后的完整历史扫描（run 36956977511）也成功。之后的提交以各自对应的远端运行为准。
+- **CI**：下面是已核对的结果；M1b 的提交（`16cb3e6` 到 `8994ec1` 及其文档提交）已推送，它们的远端运行结果在推送后核对，补写在下一个提交里。`v2` 上此前最近一次已核对的运行是 `4f9abcd`（run id 与 headSha 都核对过）：`check`（36999328547，含 `arm64-smoke`）、`integration`（36999328504：`integration` 作业 185 个测试通过，`fault` 作业 11 个通过）、`security`（36999328603：gitleaks、`bun audit`、osv-scanner）全部成功。更早的 `4fb26a5` 也是这三个工作流全部成功（36962917864、36962917906、36962917839）。更早的 `af8cfc0` 的 `security` 曾因 gitleaks 失败，已按 D-106 解决，之后的完整历史扫描（run 36956977511）也成功。之后的提交以各自对应的远端运行为准。
 - **下一个会话**：
   - **M1a 已验收**（2026-10-02）。按 11 的范围冻结点，M1a 出口冻结认证/同步/幂等契约；之后要改，须同步产品、数据、接口、测试和决策。
   - **D 设计原型已定稿**（2026-10-02）：你在 D4 确认了视觉和交互，确认的令牌已并入 [02](02-design-system.md) 的第 2 到 7 节（D-113）；原型的 [Artifact 链接](https://claude.ai/artifact/L4Sh4AGynPx2UuoYNrNA41)，做法见 [design/README.md](../design/README.md)。
-  - **M1b 前端骨架**可以开始（D 已定稿，M1a 的认证契约与后端出口也已具备，见 05 第 3.1 节），等你说开始。开工前读：02（已定稿）、11 的 M1b 一节、07 的 SEC-06（CSP）、design/README.md；原型只是参考实现，不要直接搬代码。
+  - **M1b 前端骨架已实现**（2026-10-03），等你验收：`bun run dev`（开发栈现在已经在跑），浏览器打开 **http://localhost:5173**（必须是 `localhost`），对照原型看外壳；还有 08 第 10 节的手工清单（快捷键、Passkey 真实硬件、读屏等）。代码已经提交并推送，等你验收。
+  - **之后是 M2a**（数据与接口）。开工前读：11 的 M2a 一节、04、05；M1b 留下的东西（外壳里的 Inspector 与助手面板占位、WebSocket 客户端的 `focus` 骨架）在 M2/M4 接上。
 
 ## 里程碑状态
 
@@ -28,8 +29,8 @@
 | 开发准备 | ✅ 完成 | 2026-09-30，提交 `8b74b5c`、`b28dbbe`、`a8f1456`、`77cd6db`、`d723d7b` |
 | 规划审查修订 | ✅ 文档完成 | D-056–D-092及17项复审对照已纳入规格；运行验收待实施 |
 | D 设计原型 | ✅ 完成 | 2026-10-02 你在 D4 确认（D-113）；原型在 `design/`，确认的令牌已并入 02；Windows Edge 上的自动化检查全部通过；macOS Safari、读屏等未验证。见 2026-10-02 的两条 D 交接记录和 [02 第 10 节](02-design-system.md) |
-| M1a 后端骨架 | ✅ 完成 | 2026-10-02 用户验收；单元 73 / 集成 185 / 故障 11 个测试通过，真实进程走查通过；远端 CI（`4fb26a5`）全部通过，含 arm64；Passkey 完整仪式、真实 ARM 资源数据等未验证（见交接记录） |
-| M1b 前端骨架 | ⚪ 未开始 | D 已定稿、M1a 已验收，可以开始 |
+| M1a 后端骨架 | ✅ 完成 | 2026-10-02 用户验收；单元 73 / 集成 185 / 故障 11 个测试通过，真实进程走查通过；远端 CI（`4fb26a5`）全部通过，含 arm64；Passkey 完整仪式已在 M1b 用 Chromium 虚拟认证器验证（真实硬件仍未验证），真实 ARM 资源数据等未验证（见交接记录） |
+| M1b 前端骨架 | 🟡 实现完成，待你验收 | 2026-10-03；`check` 通过（Biome 344 文件、5 个 tsc、74 + 83 个单元测试、对比度 3018 组）、集成 190、E2E 106 通过 / 3 按设计跳过 / 0 失败（Chromium + WebKit 全量，Firefox 冒烟）、视觉 64；干净目录复核通过。**已提交并推送，远端 CI 的结果待核对；你还没验收外壳；V-16/V-22 的真机项没做**（见 M1b 交接记录） |
 | M2 核心聊天（M2a / M2b） | ⚪ 未开始 | |
 | M3 富消息 | ⚪ 未开始 | |
 | M4 Agent 基础 | ⚪ 未开始 | |
@@ -42,14 +43,16 @@
 
 ## 等待用户确认
 
-- 暂无。M1a 已于 2026-10-02 验收，D-094 到 D-107 随之生效；D4 已于同日确认，D-108 到 D-110 随之生效，D-113 记录结论。要改动其中任何一条，告诉我，我会新增取代它的记录。
+- **M1b 验收**：请在浏览器里看一下应用外壳，确认与原型一致（步骤见 08 第 10 节第 1 条）。
+- M1a 已于 2026-10-02 验收，D-094 到 D-107 随之生效；D4 已于同日确认，D-108 到 D-110 随之生效，D-113 记录结论；D-114 到 D-124 是 M1b 的实现决定，随你的验收生效。要改动其中任何一条，告诉我，我会新增取代它的记录。
 
 ## 用户待办
 
 - [x] 删除 Docker Hub 上的公开仓库 `abovealll/chatapp`（2026-09-30）。
 - [x] 作废旧的 DeepSeek key，并把新 key 填进 `.env.local`（2026-09-30）。`bun run doctor --ai` 已验证可用。
-- [x] 管理员账号（2026-10-02，你让我直接创建）：用户名 `god`、显示名 `God`，在开发库里，已验证能登录。密码是我随机生成的，只存在 `~/.chatapp/god-admin-password`（权限 600，不在聊天、日志和仓库里）；请存进密码管理器，然后删除这个文件。现在还没有网页界面（M1b 才有），暂时用不上它。开发库里另有 bootstrap 的 Agent 账号和 `db:seed` 建的三个演示成员 alice / bob / carol（邮箱 `*@example.test`，密码是 `.env.local` 里的 `SEED_DEMO_PASSWORD`）。M8 上线时要在服务器上再创建一次生产管理员。
+- [x] 管理员账号（2026-10-02，你让我直接创建）：用户名 `god`、显示名 `God`，在开发库里，已验证能登录。密码是我随机生成的，只存在 `~/.chatapp/god-admin-password`（权限 600，不在聊天、日志和仓库里）；请存进密码管理器，然后删除这个文件。M1b 有了网页界面：`bun run dev` 之后在 http://localhost:5173 用这个账号的邮箱和该文件里的密码登录，就能在设置里生成邀请码。开发库里另有 bootstrap 的 Agent 账号和 `db:seed` 建的三个演示成员 alice / bob / carol（邮箱 `*@example.test`，密码是 `.env.local` 里的 `SEED_DEMO_PASSWORD`）。M8 上线时要在服务器上再创建一次生产管理员。
 - [x] 推送之后核对远端 CI（2026-10-02，我用 `gh` 核对过，结果见交接记录）：`integration`、`fault`、`security`、`arm64-smoke` 都在远端跑过并通过；只有 `security` 首次运行因 gitleaks 失败，已按 D-106 修复。
+- [ ] **M1b 验收**：看外壳并对照原型；做 08 第 10 节的手工清单（V-16 逐浏览器快捷键、Passkey 真实硬件、读屏、缩放、Safari/Firefox 真机渲染）。结果告诉我，我记入这里。
 - [ ] 可选：在 GitHub 上安装 Renovate App，让 `renovate.json` 生效。
 - [ ] 可选：请 GitHub Support 清除已改写历史中旧提交的缓存（见 D-032 中的"残留风险"）。
 - [ ] 迁移收尾：在 WSL 里用一阵、确认没问题后，自行删除 Windows 的 `D:\ChatApp`（里面还有一份 `.env.local` 密钥副本）。
@@ -67,9 +70,109 @@
 
 ## 待验证事项
 
-见[12-decisions.md](12-decisions.md)的V-01–V-21及[08-testing.md](08-testing.md)的AT-01–AT-37；V-06仍并入V-08。按11阶段记录负责人、状态、SHA、命令、结果和限制，不能把文档检查作为应用验收。V-04/V-05/V-07/V-13 以及 AT-25、AT-34 的 M1a 部分已有本地证据（见 M1a 交接记录，**远端 CI 与提交 SHA 尚未有**）；media/journal/质量/成本实验按所属阶段执行。
+见[12-decisions.md](12-decisions.md)的V-01–V-21及[08-testing.md](08-testing.md)的AT-01–AT-37；V-06仍并入V-08。按11阶段记录负责人、状态、SHA、命令、结果和限制，不能把文档检查作为应用验收。V-04/V-05/V-07/V-13 以及 AT-25、AT-34 的 M1a 部分已有证据（见 M1a 交接记录，远端 CI 已通过）；M1b 新增：V-13 的 Passkey 仪式（Chromium 虚拟认证器通过）、V-16 的自动化部分，其余真机项并入新的 V-22（见 M1b 交接记录，**本地证据，尚未提交，没有远端 CI**）；media/journal/质量/成本实验按所属阶段执行。
 
 ## 交接记录
+
+### 2026-10-02 至 03 · M1b 前端骨架（Claude）
+
+**你的指示**：「开始M1b」。中途我问能不能用 sudo 装 Playwright 浏览器需要的系统库，你选了「可以，sudo 安装」，也在我提醒后启动了 Docker Desktop；会话因额度中断过两次压缩，你回复「继续」。你随后回复「提交推送吧」，已提交并推送（见下面的“提交与推送”）；你还没有说外壳的验收结果。
+
+**做出来的东西**（`apps/web` 是新建的工作区，207 个文件，其中 64 张是视觉基线 PNG）：
+- **技术栈冒烟**：Vite 8 + React 19.3 + React Compiler、TanStack Router/Query、Tailwind 4、Base UI、Motion、Paraglide、Storybook 10、Vitest 5 一起跑通；结论、版本和几个必须注意的点写在 12 的 D-115、D-116。
+- **设计令牌与玻璃材质**：数据源 `apps/web/src/design/tokens.ts`（D-114），生成 CSS 变量和 Tailwind 主题；主题（浅/深/跟随系统）、8 个强调色、4 档透明度、5 档字号、减少动态效果，都靠 `<html>` 上的属性切换；`theme-init.js` 在首次绘制前应用本机保存的外观。外观是设备级的（D-117）。
+- **页面**：登录（含「使用 Passkey 登录」）、注册（`#invite=`，邀请码自动检查）、验证邮箱（发出之后 `/check-email` 可重发；邮件链接 `/verify-email`，令牌只在片段里、读进内存后抹掉、要人确认）、找回密码和重置密码、设置面板（外观；账号：资料、改密码、Passkey 的添加/重命名/移除、登录设备的列表与注销、时区；邀请：生成/撤销、含未验证的注册）。
+- **应用外壳**：三块圆角面板的窗口（侧栏、内容、Inspector 占位）；侧栏宽度可用键盘调整并记住，窄于 768 px 变抽屉，Inspector 在 1024–1279 px 浮在内容上、1280 px 起停靠；⌘K 命令面板（跳转与主题）、⌘J 助手面板占位、⌘, 设置、⌘/ 快捷键帮助；跳过链接；欢迎页占位。
+- **WebSocket 客户端与会话结束**：单例、退避重连、心跳、用 `serverTime` 校正时钟、`focus` 状态跟踪（服务端支持前不发送）；退出、401、4401、别的标签页退出，都走同一条路清空本地（D-121）。
+- **后端补充**（前端需要而 M1a 没有的）：`PATCH /api/me`（时区与「跟随浏览器」，D-118）；密码规则的结构部分搬进 `packages/contracts`（D-119）。
+- **Storybook**：只做 M1b 页面用到的组件（02 第 8 节列了已做和未做的），每个都有 story；64 张视觉基线（D-123）。
+- **测试**：Vitest 83 个（实时客户端的关闭码与退避、会话结束、外观与 `theme-init.js` 的一致性、API 客户端、快捷键、重定向、密码规则等）；E2E 8 个文件（场景 1、场景 11、认证流程、外壳与快捷键/外观/时区/布局、实时连接、账号隔离、Passkey、axe）；集成测试新增 `me-settings.test.ts`（5 个）。
+- **工具链与 CI**：`bun run dev`（api、worker、Vite 一起）、`build`、`storybook`、`test:e2e`、`test:visual`、`web:messages`；`typecheck` 先生成文案再检查 `apps/web`；`guard` 不再扫描构建产物；边界检查区分浏览器代码和 web 工具代码；新增 `e2e` 工作流，`check` 工作流增加构建、路由树一致性、Storybook 构建和 Node。
+- **文档**：12 新增 D-114 到 D-124，V-13、V-16 更新，新增 V-22；03、04、05、07、09、10 同步；08 新增第 10 节手工验收清单；02 修正了 OKLCH、Motion 版本、Inter、组件清单；11 写了实施记录；01 的外观和隐私说明各补一句；`CLAUDE.md`、`README.md`、`design/README.md` 同步。
+
+**依赖**：`apps/web` 的 36 个依赖都是精确版本，2026-10-03 逐个对照 npm 的 `latest` 标签，全部相同，没有 beta/RC（D-115）。`bun audit --audit-level=high` 通过；不带级别的 `bun audit` 仍是 1 条 moderate，就是 M1a 登记过的 drizzle-kit → esbuild 0.18.20（D-105，已确认 web 的依赖没有新增告警）。
+
+**实际执行与结果**（最终状态，会话末尾逐条重跑）：
+| 命令 | 结果 |
+|---|---|
+| `bun run check` | 退出 0：Biome 344 文件；tsc 5 个工程（根、`apps/server`、`apps/web`、`packages/db`、`packages/contracts`）；guard ok；bun 单元测试 **74 通过 / 0 失败**，Vitest **83 通过**（12 个文件）；`design:contrast` **3018 组、0 组低于阈值**；`web:messages --check` ok（326 个键 × 2 种语言） |
+| `bun run test:integration`（先 `db:migrate:test`） | **190 通过 / 0 失败**（22 个文件，959 个断言，31.5 s） |
+| `playwright test`（apps/web，全部项目，3.6 分钟） | **106 通过 / 3 跳过 / 0 失败 / 0 flaky**，退出 0。Chromium 45；WebKit 43（另 2 个 Passkey 用例按设计跳过）；Firefox 冒烟 18（另 1 个 Passkey 用例跳过）。虚拟认证器只有 Chromium 才有，所以三个 Passkey 用例是有意跳过，不是被禁用 |
+| `bun run test:visual`（Playwright 官方镜像） | **64 通过**（13.4 s），逐像素严格，对着已有的基线 |
+| `bun audit --audit-level=high` | 无（检查了 569 个包） |
+| 干净目录复核：把将被提交的 459 个文件拷到新目录（`git init`，没有 `.env.local`） | `bun install --frozen-lockfile`（450 个包）通过；`bun run check` 全过，数字与上面相同；`bun run build` 成功；`routeTree.gen.ts` 与重新生成的一致；`storybook:build` 成功 |
+| 把 `.env.local` 里 12 个密钥类变量的值逐个在这 459 个文件里搜索（只输出变量名） | 真正的密钥 0 处命中；`VALKEY_URL`、`VALKEY_URL_TEST` 因名字含 KEY 被列入，值是无密码的本地地址，与 `.env.example` 相同 |
+| `bun run design:build` | 成功（原型仍能构建）；原型的 Windows Edge 检查（`run.sh`）这次没有重跑 |
+| 4 个工作流文件的 YAML | Bun 的 YAML 解析器全部解析成功；`actionlint` 没装，没做语义检查，**也没有在 GitHub 上运行过** |
+| Passkey 请求体大小（针对性运行 `passkey.spec.ts`，Chromium） | `verify-registration` 1169 字节，`verify-authentication` 649 字节（128 KiB 限额的 1% 以内，D-124） |
+| 新增代码里的 `any`、`@ts-ignore`、跳过的测试 | 手写的 `any` 0、`@ts-ignore` 0；`routeTree.gen.ts` 里有 TanStack Router **生成的** `as any`（生成文件，Biome 已排除）；`biome-ignore` 5 处，都写明了原因；跳过的测试只有上面说的 Passkey 条件跳过（带原因） |
+
+**提交与推送**（2026-10-03，你回复「提交推送吧」之后）：
+- **提交**：5 个。每个提交先把暂存区（就是将要提交的内容）导出到干净目录，`bun install --frozen-lockfile` 之后跑 `bun run check`，通过才提交；第三个另外跑了 `bun run build`、路由树一致性和 `storybook:build`。pre-commit 钩子（Biome、guard）每次真实运行，没有绕过。
+
+| 提交 | 内容 | 干净目录里的结果 |
+|---|---|---|
+| `16cb3e6` `feat(contracts)` | PATCH /api/me 的请求体 schema；密码规则的结构部分 | 248 个文件，124 个包；`check` 通过（Biome 202 个文件、4 个 tsc、73 个单元测试） |
+| `496c8ea` `feat(server)` | `PATCH /api/me`、`updateMe`、密码策略改用共享模块、OpenAPI 快照、集成测试 | 249 个文件；`check` 通过（Biome 203 个文件、73 个单元测试） |
+| `5a586ff` `feat(web)` | `apps/web`、根目录工具链（脚本、Biome、边界检查、`bun.lock`）、原型的令牌转出口 | 458 个文件，450 个包；`check` 通过（Biome 344、5 个 tsc、74 + 83 个测试、对比度 3018 组）；构建、路由树一致性、Storybook 构建通过 |
+| `8994ec1` `ci` | `e2e` 工作流；`check` 工作流加 Node 26、构建、路由树一致性、Storybook 构建 | 459 个文件；`check` 通过（同上）；两个工作流文件的 YAML 能解析 |
+| 本记录所在的 `docs` 提交 | 规格、决策、PROGRESS、README、CLAUDE.md 的同步 | |
+
+- **提交前的扫描**：`.env.local` 里 12 个密钥类变量的值，在将提交的 459 个文件里没有真正的命中（只有因名字含 KEY 而被列入的 `VALKEY_URL`、`VALKEY_URL_TEST`，值是无密码的本地地址，与 `.env.example` 相同）。gitleaks 默认通用规则的**近似**扫描（正则加熵 3.5，并按它的规则放行纯字母的标识符）对新增的 web 与脚本文件只命中 `scripts/e2e-stack.ts` 里一行 `const API_PORT = process.env.E2E_API_PORT ?? '3102'`（端口号，不是凭据），我给它加了行内 `gitleaks:allow` 和原因（D-106 的做法）；其余命中全在 M1a 已经推送并通过远端 gitleaks 的文件里。近似扫描不能代替 gitleaks 本身，远端结果以 `security` 工作流为准。
+- **推送与远端 CI**：推送后核对，补写在这里（随下一个提交进入仓库）。
+
+**验收对照**（11 的 M1b 验收逐条，加 08 里分配给 M1b 的项；状态写法同 M1a）：
+| 项 | 状态 | 证据 | 限制 |
+|---|---|---|---|
+| 验收 1：浏览器里走通 管理员→邀请→注册→Mailpit 验证→登录→外壳 | 通过（自动化） | `scenario-1-registration.spec.ts`：管理员由 CLI 创建（`e2e-stack`），在设置里生成邀请码，新成员打开注册链接（邀请码读入后抹掉）、注册、邮件在 Mailpit、验证页读令牌后抹掉并要人确认、登录、看到外壳；Chromium、WebKit、Firefox 都通过 | 用的是测试环境；**你在开发环境里亲自走一遍还没做** |
+| 验收 2：localhost 上注册和登录 Passkey | 部分 | `passkey.spec.ts`（Chromium 虚拟认证器）：在设置里添加、退出后仅凭 Passkey 登录、重命名、移除；取消系统对话框不显示错误 | **真实硬件和 WebKit/Firefox 没有验证**（V-22） |
+| 验收 3：未登录 WS 4401、来源不对 4403、注销设备后另一端被踢回登录页 | 通过 | `realtime.spec.ts`（匿名 4401、外来源 4403、已登录页面在生产 CSP 下连接并保持）；`scenario-11-devices.spec.ts`（设备甲注销设备乙：乙的连接关闭并回到登录页；本机退出后其他标签页清空） | 三个引擎都跑了冒烟用例 |
+| 验收 4：`bun run check` 和 CI 通过 | 部分 | 本地 `check` 通过（见上）；干净目录复核通过 | **远端 CI 待核对**：提交前，`e2e` 工作流和 `check` 工作流的改动从未在 GitHub 上跑过；推送后的结果补写在上面的“提交与推送”里 |
+| 验收 5：用户看过外壳，确认与原型一致 | **待你** | | |
+| V-13 Passkey 仪式 | 部分通过 | 同验收 2 | 同验收 2 |
+| V-16 快捷键 | 部分 | 四个快捷键的匹配逻辑有单元测试；E2E 在三个引擎里用键盘事件走通 | Playwright 的按键不经过浏览器自己的快捷键层，「真实浏览器会不会先截走」没有验证，交给 08 第 10 节第 2 条 |
+| AT-17（账号命名空间部分） | 部分 | `isolation.spec.ts`：同一浏览器里换人登录后，前一个账号的东西一点不留；另一个标签页登录后，登录页里的本标签页进入应用。`session.test.ts`（会话结束时清空缓存与账号范围的本地存储、关闭连接、通知其他标签页，重复的信号不重复处理） | IndexedDB、草稿、离线队列、SW、推送属 M6 |
+| AT-21 | 部分 | 令牌对比度 3018 组全过；axe（WCAG 2.2 A/AA 加 best-practice）在登录前的页面、外壳及其对话框、设置面板，浅色深色各一遍，0 违规（Chromium、WebKit）；8 档宽度（320 到 1440）登录前后和设置都没有横向溢出（三个引擎）；窄于 768 px 抽屉的焦点往返；键盘主流程 | **读屏、400% 缩放与最大字号的人工走查没做**；D 阶段的像素级审计是在原型上做的，产品页上没有重做 |
+| AT-23 | 部分 | `e2e` 工作流写好了，YAML 能解析 | 提交前没有在远端运行；结果见“提交与推送” |
+| AT-37（时区部分） | 部分 | `shell.spec.ts`：默认跟随浏览器，固定后，另一台设备（不同时区）不会覆盖；`me-settings.test.ts`（真实 Postgres）：合并、版本冲突、并发、非法输入 | off/until/forever、夏令时属 M2/M5a |
+| L-08 | 通过（本地） | 64 张基线，Playwright 官方镜像内逐像素比较 | 只有 Chromium；提交前远端没运行，结果见“提交与推送” |
+| SEC-06 CSP | 通过（页面侧） | 每个 E2E 测试自动断言零 CSP 违规和零意外控制台错误；WebSocket 在三个引擎的 `connect-src 'self'` 下都能连并保持 | 生产 Nginx 的同样输出、Trusted Types 属 M2b |
+
+**07 第 4 节自查（M1b）**：前端没有 `innerHTML`、`dangerouslySetInnerHTML`（`guard` 通过，D-116 的页面没有内联脚本和样式）；一次性令牌只在 URL 片段里、读入内存后抹掉，页面带 `Referrer-Policy: no-referrer`；`?redirect=` 只接受站内路径；路由守卫以 `/api/me` 为准，不看本地存储；账号相关的本地数据按账号和登录世代命名并在会话结束时清除；所有外部输入（表单、响应）用 `packages/contracts` 的 schema 校验；写操作走 HTTP，注册带幂等键；依赖已 `bun audit`；密钥扫描通过。隐私说明（01 第 4.11 节）已补外观偏好是设备设置这一句。**还缺**：注册页和设置页没有隐私说明的入口（页面本身 M7 做，D-048）。
+
+**发现与处理**（这些是实现和测试过程中真实碰到的）：
+- Zod 4 的即时编译探测在 CSP 下被拦（Chromium 记录违规、Firefox 控制台报错），而且按 chunk 拆分后配置模块晚于 schema 执行：`jitless` 加 `strictExecutionOrder`（D-116）。
+- 在这台设备上改密码，服务端会用 4401 关掉这台设备自己的连接；直接当作会话结束会把人踢出登录。改成先探测 `/api/me`（D-121）。
+- 两个标签页：一个已在登录页，另一个登录之后，前者要进入应用；缓存里的「未登录」让守卫放过了，改成先强制重新取一次身份。
+- `/verify-email` 在同一标签页里粘贴新链接只触发 `hashchange`，路由的 `replace` 又会重新挂载页面；改为直接读 `window.location.hash` 并用 `history.replaceState` 抹掉（D-120）。
+- axe 发现的：拖动条不在任何地标里（挪进侧栏导航）；对话框程序性聚焦时的焦点环（CSS 处理）。
+- Playwright 夹具：浏览器会把每个 4xx 的 fetch 记成控制台错误（API 有意用 4xx 拒绝），用白名单区分；`consoleProblems` 与 `page` 夹具互相依赖，改成自动夹具。
+- 视觉比较：我先给了 0.2% 的容差，它放过了一处真实的变化；动画冻结后同一份基线连续比对 3 次都稳定，所以改成逐像素严格（D-123）。
+- `guard` 扫到 `storybook-static` 里别人打包的代码：加了「不是源码」的跳过名单。
+- 会话末尾的完整 E2E 里，**WebKit 有一个用例失败了一次**（「重新发送验证邮件」）。我查了：① 用例用「Mailpit 里 1 秒前之后的邮件」判断第二封，WebKit 很快时第一封也落在窗口里，被当成了第二封——用例的竞态，不是应用的缺陷；改成显式排除第一封的 ID；② 失败时夹具又报了一条 CSP 违规 `style-src-elem: inline`——我用一个临时用例验证过，WebKit 的失败截图会往页面里注入内联样式，被页面的策略拦下（Chromium 不会），与应用无关；夹具现在对已经失败的用例只报它自己的失败。修复后该用例在 WebKit 上连跑 7 次全过，完整 E2E 重跑 106 通过 / 0 失败。我没有办法证明竞态已经根除，只能说原因找到并堵上了。
+- 用 `--repeat-each` 重复跑含管理员登录的用例，会因为每次重复都在新的 worker 里重新登录管理员而撞上登录限流（429）；这是限流在起作用，不是缺陷。要重复跑，次数控制在 8 次以内。
+- 前一个会话里 Docker 没启动、Garage 容器曾因绑定挂载退出（`infra:up` 修复），浏览器缺系统库（经你同意 `sudo playwright install-deps`）。
+
+**没有验证 / 未做**：
+- **远端 CI**：提交前，`e2e` 工作流、改动过的 `check` 工作流（含 Node 26 和构建、Storybook 步骤）从未在 GitHub 上运行，推送后的结果补写在“提交与推送”里；`e2e` 作业在 GitHub 机器上 `playwright install --with-deps` 和 `visual` 作业拉取镜像，都是第一次。
+- **你的确认**：外壳是否与原型一致。
+- **V-16 与 V-22 的真机项**（清单在 08 第 10 节）：浏览器自己的快捷键冲突；Passkey 真实硬件（Windows Hello、Touch ID、手机跨设备）和 WebKit/Firefox 的仪式；读屏；macOS Safari 与 Firefox 的真机渲染；系统高对比度；400% 缩放；Passkey 请求体在真实硬件上的实际大小。
+- 视觉基线只有 Chromium；Storybook 的 a11y 面板是 `todo` 模式（不阻断）。
+- **性能没有预算也没有测**：构建产物主包 556 kB（gzip 183 kB）、共享包 221 kB（gzip 72 kB）、CSS 63 kB（gzip 13 kB），Rolldown 提示有单块超过 500 kB；还没测首屏时间。M2b 开始前评估拆分。
+- 英文界面只有「能切换、不乱」的冒烟，翻译质量没有人工审过。
+- Inspector 和助手面板只是占位；`focus` 消息没有发送（服务端未支持）；离线与 PWA 属 M6；手机和触屏属 v1.1。
+- 隐私说明的入口（页面 M7 做）。
+
+**给下个会话的提示**：
+- 开工前确认 Windows 上 Docker Desktop 在运行。**`bun run dev` 现在在后台运行**（api、worker、Vite，开发库）；用 http://localhost:5173 访问，不能用 127.0.0.1。要停掉就结束那个进程（或 `pkill -f scripts/dev.ts`）。
+- **E2E 和集成测试共用测试库，不能同时跑**。E2E 启动时会重置测试库并创建 E2E 管理员（凭据在 `.test-runs/e2e/admin.json`，权限 600，git 忽略）；之后要对测试库起 api/worker 或跑 `smoke:backend`，先 `bun run db:bootstrap:test`。
+- 第一次跑 E2E 要装浏览器和系统库（docs/09 第 2 节）；视觉测试需要 Docker，第一次会拉镜像；更新基线用 `bun run test:visual -- --update-snapshots`，提交前逐张看过。
+- 改文案：改 `apps/web/tools/messages-source.ts` 后运行 `bun run web:messages`。改令牌：改 `apps/web/src/design/tokens.ts`，先过 `bun run design:contrast`，再同步 02。`routeTree.gen.ts` 由 Vite 插件在 dev/build 时更新，要提交。
+- 新增依赖：先到 npm 核对最新稳定版并锁定精确版本（M1b 的 36 个都核对过）；需要 `unsafe-eval` 或内联样式的依赖，换掉它，不放宽 CSP（D-116）。
+- 失败的 WebKit/Firefox 用例的截图不会再被误报成 CSP 违规；但新写的用例仍要通过「零 CSP 违规、零意外控制台错误」这个自动断言。
+- 需要重复跑含管理员登录的用例时，`--repeat-each` 别超过 8（登录限流）。
+
+**下一步**：你验收外壳（和 08 第 10 节的手工清单）；远端 CI 的结果核对后补写在上面的“提交与推送”里；再往后是 M2a。
 
 ### 2026-10-02 · D4 确认，D 定稿（Claude）
 

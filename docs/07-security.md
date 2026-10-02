@@ -33,7 +33,7 @@
 | **SEC-03** | WS 绑定 session，Origin 必须匹配；服务端决定 topic，但订阅不构成授权。内容每批查当前 session/成员/来源版本；注销走持久撤销，5 秒复核（测试容差 1 秒），依赖失败停止派发并断连；已授权在途字节不可召回（03 第 6 节）。 |
 | **SEC-04** | 所有对外暴露的 id 都用 UUIDv7，不使用可以枚举的自增 id 或可以拼出来的名字（旧版的 `private_1_2` 就是反例） |
 | **SEC-05** | 前端**禁止**用 `innerHTML` 或 `dangerouslySetInnerHTML` 渲染用户内容。<br>• Markdown 按 D-047 配置：禁止原始 HTML，关闭数学公式和 Mermaid<br>• 链接只允许 `http`、`https`、`mailto` 三种协议，外链加 `rel="noopener noreferrer"`<br>• `guard` 扫描 `innerHTML`、`outerHTML`、`insertAdjacentHTML`、`dangerouslySetInnerHTML`、`document.write`、`setHTMLUnsafe`、`createContextualFragment`、`srcdoc` |
-| **SEC-06** | 页面文档（index.html）的 CSP 由 Nginx 站点配置输出：<br>`default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data: blob:; media-src 'self' blob:; connect-src 'self'; font-src 'self'; worker-src 'self'; manifest-src 'self'; frame-ancestors 'none'; object-src 'none'; base-uri 'none'; form-action 'self'`<br>• 是否开启 Trusted Types（`require-trusted-types-for 'script'`）在 M2b 随 Markdown 渲染一起决定（V-08）<br>• WebKit 的 E2E 要验证 WebSocket 在 `connect-src 'self'` 下能连接；不能的话，显式加上 `wss://<站点域名>` |
+| **SEC-06** | 页面文档（index.html）的 CSP 由 Nginx 站点配置输出：<br>`default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data: blob:; media-src 'self' blob:; connect-src 'self'; font-src 'self'; worker-src 'self'; manifest-src 'self'; frame-ancestors 'none'; object-src 'none'; base-uri 'none'; form-action 'self'`<br>• 是否开启 Trusted Types（`require-trusted-types-for 'script'`）在 M2b 随 Markdown 渲染一起决定（V-08）<br>• WebKit 的 E2E 要验证 WebSocket 在 `connect-src 'self'` 下能连接；不能的话，显式加上 `wss://<站点域名>`<br>• **M1b 已实现并验证**：策略与上面逐字相同（`apps/web/tools/csp.ts`），`vite preview` 在 E2E 里原样发送；每个 E2E 测试都断言零 `securitypolicyviolation` 和零意外控制台错误；WebSocket 在 Chromium、WebKit、Firefox 的 `connect-src 'self'` 下都能连接并保持，所以不需要显式 `wss://`；页面没有内联脚本和样式，Zod 以 `jitless` 运行（D-116）。生产 Nginx 的同样输出在 M2b 验证 |
 | **SEC-07** | 上传先持久预占与对象意图，再接收流；每阶段可幂等恢复。魔数/长度/像素/帧数/时长/解码内存/超时均有限制；媒体子进程无网络、非 root。随机不可覆盖对象 key；svg/html/xml 只能下载；EXIF 清理失败不能宣称已清理（03 第 5.4 节）。 |
 | **SEC-08** | 附件按 purpose、当前有效绑定和消息可见性授权；deleting 一律不可读。应用设置安全 Content-Type、Content-Disposition、nosniff、CSP sandbox、Cache-Control: private, no-store；Range 每次重新鉴权，SW 不缓存敏感文件。 |
 | **SEC-09** | 注册仅受控入口执行D-059；首次INSERT关联registration_id。D-076验证/重置凭证绑定user、registration、purpose、邮箱摘要、auth/restore世代，一次性事务消费；GET不消费，原生JWT回调默认关闭。同邮箱重建不可复用旧链接，验证/撤销/清理串行化。邀请码只存哈希，按IP限流。 |
@@ -94,7 +94,7 @@
 | L-04 私密房间的密码可以被绕过 | SEC-02：群组没有"密码"，只能被拉入或凭群邀请链接加入 | 非成员读取群组消息返回 404 | M2a |
 | L-05、L-06 聊天记录被渲染成页面顶部的横幅 | 前端重写（React），没有模板变量重名的问题 | E2E：私信页（M2b）和 Agent 页（M4）都不出现错误横幅 | M2b / M4 |
 | L-07 超过时限的消息仍显示撤回按钮 | 服务端和客户端都按时间戳计算时限（客户端用 `hello.serverTime` 校正时钟） | 3 分钟前的消息返回 `WINDOW_EXPIRED`（M2a）；界面上也没有撤回按钮（M2b） | M2a / M2b |
-| L-08 页面样式没有生效 | 改用 Tailwind 和组件库；关键组件做截图对比测试 | Storybook 截图对比通过 | M1b |
+| L-08 页面样式没有生效 | 改用 Tailwind 和组件库；关键组件做截图对比测试 | Storybook 截图对比通过 | M1b ✅（2026-10-03：64 张基线，Playwright 官方镜像内逐像素比较，D-123；远端 CI 尚未运行） |
 | L-09 可以冒充他人发言 | SEC-01 | 请求体里带 `senderId` 或 `username` 会被忽略，消息的发送者是会话本人 | M2a |
 | L-10 可以把消息写进别的房间 | SEC-01、SEC-02：会话 id 取自 URL，并检查成员关系 | 对非成员的会话发消息返回 404 | M2a |
 | L-11 实时消息存在 XSS | SEC-05、SEC-06 | E2E：发送 `<img src=x onerror=…>` 后，页面显示为文本，脚本没有执行，也没有 CSP 违规报告 | M2b |
