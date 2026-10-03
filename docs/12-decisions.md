@@ -669,7 +669,7 @@ Base UI 提供无障碍的交互原语（菜单、弹窗、焦点管理等）；
 
 ## M1b 实施决定与实验结论（2026-10-02 至 03）
 
-以下出自 M1b 的实现和实测，命令、结果和限制见 [PROGRESS](PROGRESS.md) 的 M1b 交接记录。它们是「开始 M1b」授权内的工程做法与规格细化，属于我的决定；改了规格文字的，已同步到 02、03、04、05、07、08、09 和 01 的隐私说明。要改动其中任何一条，告诉我，我会新增取代它的记录。
+以下出自 M1b 的实现和实测，命令、结果和限制见 [PROGRESS](PROGRESS.md) 的 M1b 交接记录。它们是「开始 M1b」授权内的工程做法与规格细化，属于我的决定，用户于 2026-10-03 验收 M1b 后生效；改了规格文字的，已同步到 02、03、04、05、07、08、09 和 01 的隐私说明。要改动其中任何一条，告诉我，我会新增取代它的记录。
 
 **D-114 令牌的唯一数据源移进 `apps/web`（兑现 D-111 的安排）**
 - 数据源是 `apps/web/src/design/tokens.ts`（纯数据加纯函数，浏览器里也运行）。`tokens-css.ts` 生成运行时的 CSS 自定义属性和 Tailwind 4 的 `@theme`，由 Vite 插件 `tools/design-tokens-plugin.ts` 写成 git 忽略的真实文件 `src/design/tokens.generated.css`（Tailwind 的 `@import` 引不到 Vite 的虚拟模块）。`tools/contrast.ts` 和 `tools/color.ts` 在旁边，`bun run design:contrast` 包含在 `bun run check` 里，退出码非零即失败。
@@ -688,7 +688,7 @@ Base UI 提供无障碍的交互原语（菜单、弹窗、焦点管理等）；
   7. TypeScript 7.0.2 能检查整个 web 工程（`.tsx`、`allowImportingTsExtensions`、`@/` 别名）；Vite 8 用 `resolve.tsconfigPaths`，不需要别名插件。
   8. Storybook 10.6.1（`@storybook/react-vite`）与 Vite 8 一起构建，`check` 工作流里的 `storybook:build` 保证每个 story 都能编译。a11y 插件处于 `todo` 模式（面板里报告、不阻断）；阻断式的 axe 检查在 E2E（`a11y.spec.ts`）。
   9. Vitest 5.0.3 加 jsdom 30.1.1 和 Testing Library：经 React Compiler 编译的组件可以测试。
-  10. Node：Vite、Vitest、Storybook、Playwright 跑在 Node 上。本机是 26.8.1，CI 里与 web 相关的作业也用 26（03 写的是 ≥ 24）；CI 里的 Node 26 还没有在远端跑过。
+  10. Node：Vite、Vitest、Storybook、Playwright 跑在 Node 上。本机是 26.8.1，CI 里与 web 相关的作业也用 26（03 写的是 ≥ 24）；CI 里的 Node 26 在 `d214415` 的远端运行里通过（`check`、`arm64-smoke`、`e2e`、`visual`）。
 - 与 Bun 的分工：后端和脚本用 Bun；`vitest`、`vite`、`playwright`、`storybook` 的可执行文件以 `node` 为解释器，由 `bun run` 调用时跑在 Node 上（所以 CI 的 `check` 作业也要装 Node）。Bun 的隔离式 linker 让每个工作区有自己的 `node_modules`：代码里只能从 `@playwright/test` 导入（`playwright` 包不能被直接解析），命令行用 `apps/web/node_modules/.bin/playwright`。
 
 **D-116 CSP 下前端的做法（落实 07 SEC-06）**
@@ -726,7 +726,7 @@ Base UI 提供无障碍的交互原语（菜单、弹窗、焦点管理等）；
 - **开发**：`bun run dev` 同时启动 api、worker 和 Vite（`scripts/dev.ts`）；Vite 把 `/api`、`/ws` 代理到 3100 并带 `xfwd`，API 把 127.0.0.1 当作可信代理，限流按转发过来的真实地址计数（兑现 M1a 留下的提示）。浏览器必须用 `http://localhost:5173`：`Origin` 要等于 `APP_ORIGIN`，用 127.0.0.1 访问会被拒绝（Vite 监听 127.0.0.1，是因为 WSL 只把 IPv4 回环转发给 Windows）。
 - **E2E**（`apps/web/e2e/`）：对**生产构建**跑——`vite build` 加 `vite preview`（4173，发送生产的 CSP），API 与 worker 用测试环境（`scripts/e2e-stack.ts`，API 端口 3102），真实的 Postgres、Valkey、Garage，邮件取自 Mailpit 的 API。启动时它重置并 bootstrap 测试库、建一个管理员、清空限流计数，**所以 E2E 运行期间不能同时跑集成测试**（共用测试库）。管理员凭据写进 `.test-runs/e2e/admin.json`（权限 600，git 忽略），不打印。每个测试带一个假的 `X-Forwarded-For`，各自独立计数，一个测试的限流不会影响另一个。串行执行（1 个 worker），CI 里失败重试 1 次。
 - **浏览器**：Chromium 和 WebKit 全量，Firefox 只跑带 `@smoke` 的用例（08 第 2 节的约定）。WSL 里缺浏览器的系统库（如 libnspr4），用户同意后用 `sudo playwright install-deps` 装好，之后 `playwright install` 不需要 sudo；CI 用 `--with-deps`。
-- **CI**：新增 `e2e` 工作流（`e2e` 与 `visual` 两个作业），`check` 工作流增加构建、`routeTree.gen.ts` 一致性和 `storybook:build`，并装 Node。**这些工作流还没有在远端跑过**。
+- **CI**：新增 `e2e` 工作流（`e2e` 与 `visual` 两个作业），`check` 工作流增加构建、`routeTree.gen.ts` 一致性和 `storybook:build`，并装 Node。这些工作流在 `d214415` 上第一次在远端运行，全部成功（`e2e` 作业 106 通过 / 3 跳过，`visual` 作业 64 通过，`check` 含 arm64 上的 Vitest），各只跑过一次。
 
 **D-123 视觉基线（落实 L-08）**
 - 范围：Storybook 里 M1b 页面用到的组件和页面的 story，浅色与深色（64 张 PNG，约 5.8 MB，在 `apps/web/visual/__screenshots__/`）。基线只在官方镜像 `mcr.microsoft.com/playwright:v1.63.0-noble` 里生成和比较（`bun run test:visual`），本机的字体渲染不同，直接截图永远对不上。
@@ -736,6 +736,112 @@ Base UI 提供无障碍的交互原语（菜单、弹窗、焦点管理等）；
 **D-124 Passkey 请求体大小（落实 D-078 留给 M1b 的校准，部分）**
 - Chromium 的虚拟认证器（CDP `WebAuthn.addVirtualAuthenticator`，平台型、支持常驻凭据与用户验证）下实测：`verify-registration` 请求体 1169 字节，`verify-authentication` 649 字节，只占 128 KiB 解析前限额的 1% 以内，**不需要放宽任何端点**。服务端（`@better-auth/passkey` 1.7.7 默认 `attestationType: "none"`）不要求证明材料，所以真实设备的响应也不会带上厂商证书链。E2E 把这两个数字写进报告，并断言各自小于 16 KiB（限额的八分之一）。
 - **没有验证**：真实硬件（Windows Hello、Touch ID、手机跨设备）的实际大小；虚拟认证器只存在于 Chromium，WebKit 与 Firefox 的 Passkey 仪式没有自动化（相应用例按设计跳过）。留给 V-22。
+
+## M2a 实施决定与实验结论（2026-10-03）
+
+以下出自 M2a 的实现和实测，命令、结果和限制见 [PROGRESS](PROGRESS.md) 的 M2a 交接记录。它们是「开始M2a」授权内的工程做法与规格细化，属于我的决定，已于 2026-10-03 你验收 M2a 后生效；改了规格文字的，已同步到 01、04、05、07、08、09。要改动其中任何一条，告诉我，我会新增取代它的记录。
+
+**D-125 个人日志只记个人状态，共享资料走会话主题（细化 04 的 conversation_changes / user_changes，D-082）**
+- `user_changes` 只有三种实体：`conversation`（我与这个会话的关系：加入、移出、重入、角色、禁言、通知、免打扰、置顶、隐藏、已读位置）、`message_hidden`（我「仅自己删除」的消息）、`me`（我的资料）。操作是 `upsert` 或 `remove`。
+- 名称、简介、设置、人数、归档是**会话的共享资料**：只推进 `conversations.metadata_version`，用会话主题上的 `conversation.changed{conversationId, metadataVersion}` 通知，并出现在 `GET /api/sync/heads` 的 `metadataVersion` 里；成员列表变化推进 `membership_version`，对应 `member.changed`。**不会**为每个成员写一条日志：改一次五百人频道的名字不应该写五百行、推进五百个人的序号。客户端收到提示或在对账里发现版本落后，就重取 `GET /api/conversations/:id`。
+- 归档同理：由 `conversations.archived_at` 派生，对每个成员都是归档；`user_conversation_states.state` 的 `archived` 值保留不用（04 原写「active/hidden/archived/removed」，现在只会写 active、hidden、removed）。
+- `conversation_changes` 的 `kind` 是 `message_created`、`message_edited`、`message_recalled`、`message_deleted`，只放 id，不放正文。
+
+**D-126 同步游标、日志保留与重置（落实 05 第 4.5 节、D-056）**
+- **游标**是 `base64url(载荷).HMAC-SHA256`：密钥是用固定标签从 `BETTER_AUTH_SECRET` 派生的 32 字节（`config.auth.cursorKey`，不增加新密钥）；载荷绑定 actor、authEpoch、restoreEpoch、会话、membershipId、`after`、固定的 `through` 和 10 分钟过期。客户端能原样交回，不能改写。
+- **重置**（`resetRequired: true` 加 `baseline`）的条件：`after` 低于日志下限 `change_log_floor`；`after` 大于当前头（客户端比服务器还新，例如恢复过备份）；缺口超过 1000 条；游标无效、过期、不属于本人或本会话、或绑定的 membership 已不是当前这一个（退出重入）。`baseline` 是同一个事务快照里的会话、最新一页消息、`users` 字典、`hasMoreBefore`、`baselineChangeSeq`、`baselineUserSeq`，不会混入两个时间点。个人日志的重置基线是 `me`、全部会话和 `baselineUserSeq`。
+- **保留**：两类日志保留 7 天。清理（worker 每 10 分钟）在**同一条语句**里删除过期条目并把下限列推进到被删掉的最大序号：`conversations.change_log_floor`、`users.change_log_floor`（04 原写「记录 earliest_available_seq」，现在记的是已删的最大序号，下限只增不减）。`user_conversation_states` 里 `removed` 的墓碑保留 7 天，覆盖所有仍可能引用它的游标，之后与已过期的会话邀请一起清掉。
+- `limit` 限制的是**扫描的日志条数**（最大 100），不是过滤后的消息数，所以全被过滤掉的一页也能推进 `scannedThrough`；`synced` 只能由最后一页的 `through` 推进，响应里的实体版本不是日志位置。响应带 `users` 字典。
+
+**D-127 实时事件、主题和订阅（落实 05 第 4.4 节）**
+- 业务事务把提示写进 `work_items(kind='realtime')`，去重键 `mc:{会话}:{changeSeq}`、`cm:{会话}:{metadataVersion}`、`mm:{会话}:{membershipVersion}`、`uc:{用户}:{序号}`；worker 的分发器认领后发布到 Valkey 总线 `events:{环境}`，每个 API 进程的网关据此在进程内扇出；API 在写操作之后发一个 `work.wake`，分发器立即扫描，周期扫描（1 秒）保证最终送达。提示只含 id 和版本（SEC-27），客户端用 HTTP 读内容。
+- **事件与主题**：会话主题 `conv:*` 上有 `message.changed`、`conversation.changed`、`member.changed`、`typing`；个人主题 `user:*` 上有 `user.changed` 和 `conversation.removed`；`presence:*` 上有 `presence`。05 原把 `conversation.changed` 放在个人主题，现改到会话主题（见 D-125）。
+- **订阅由服务端按当前关系决定**：连接建立时先加载本人的会话订阅，**再**发 `hello`（所以收到 `hello` 之后发生的事都不会漏）；成员关系变化（`user.changed`、`conversation.removed`）让网关立即重算订阅，所以被移出的人在被通知之后不再收到该会话的任何提示（冒烟脚本第 21 步实测）；另有 5 秒的兜底复核：对比 Postgres 里的 `users.user_change_seq` 与连接持有的值，不同就刷新订阅，所以丢了一条提示最多 5 秒内自愈。
+- **实测延迟**：本机上，从 `POST` 发出到另一个成员的 WebSocket 收到 `message.changed`，中位约 40 毫秒、最差约 42 毫秒（api、worker 是两个真实进程，经 Postgres 与 Valkey）。这是本机的参考数字，M2b 的验收（p95 < 200 毫秒，含界面）仍要在界面上量。
+
+**D-128 对 05 接口细节的修订**
+- **消息列表**返回 `{messages, users, hasMoreBefore, hasMoreAfter}`，取代 `hasMore`：往前翻、往后翻、围绕某条（`aroundSeq`）三种取法都需要分别知道两端还有没有。
+- **`changes` 响应**增加 `users` 字典，重置时带 `baseline`（D-126）；`GET /api/sync/heads` 是 `{userChangeSeq, conversations: [{id, membershipId, lastChangeSeq, metadataVersion, membershipVersion, viewerVersion}]}`。
+- **`expectedMembershipVersion` 是可选的**：拉人、改成员、封禁、转让都可以带；带了而版本不符返回 409 `VERSION_CONFLICT`，不带就按当前状态执行（这些操作各自在事务里重新校验，条件写入不是它们唯一的保护）。
+- **`Idempotency-Key`**：创建会话（`POST /api/conversations`）必须带，同键同参返回原会话（200），首次 201；**创建群邀请链接不带**：明文码只在创建响应里出现一次，重放无法再给出它；重试会多出一条链接，群主和管理员可以撤销，每人每会话最多 10 条有效链接。私信 `POST /api/conversations/dm` 本身幂等（一对人一个会话），新建 201，已有 200。
+- **免打扰**是 `mute: {mode: 'off'|'until'|'forever', until?}`，存为 `mute_mode` 加有限的 `muted_until`（04 本来就是这样，D-088）。
+- **M3 才有的**：`mentions` 恒为 `[]`（`message_mentions` 表没有建），`attachments` 恒为 `[]`；带 `attachmentIds` 发送返回 422（`reason: 'not_available'`）。
+
+**D-129 系统消息的范围（落实 01 第 4.5 节）**
+- 系统消息是真正的消息：`kind='system'`、没有发送者，占用普通的 `seq`，内容放在 `meta.system`（事件类型加涉及的用户 id，不存名字，所以显示的是当前的名字）。
+- **群**：加入、退出、被移出、改名、转让群主都记。**频道**：只记改名、被移出、转让群主，**不记加入和退出**——一个活跃的频道里，进出的提示会把真正的对话冲走。**私信**没有系统消息。
+
+**D-130 实时分发用进程内的 Hub，不用 Bun 自带的发布订阅**
+- `realtime/hub.ts` 是普通的 Map：主题到连接集合、连接到主题集合。理由：每个连接的订阅会随成员关系变化而增删，需要按主题统计关注者并在授权失效时立刻移除；网关的授权与投影状态本来就在连接对象上；规模目标是 500 个连接，不需要引擎级的广播。Hub 不依赖 Bun，可以单独做单元测试，需要换运行时时不受影响。
+
+**D-131 在线状态放在 Valkey（落实 03 第 5.6 节、01 第 4.7 节）**
+- 每人一个 HASH：`c:{连接}` 为 `状态|到期时间`，`f:{连接}` 为当前查看的会话与是否在前台；另有一个全局的到期 ZSET 供清扫使用。写入、续期、移除都是原子的 Lua 脚本，返回「之前、之后」的聚合状态，只在聚合状态变化时才发 `presence`。
+- 聚合规则：有任何一个连接是活跃的就 `online`，连接都空闲就 `away`，没有连接就 `offline`（所以开两个标签页、关掉一个，对方看到的仍是在线，L-18）。空闲/活跃由客户端用 `presence.activity` 报告。
+- 连接 90 秒不续期视为已死（心跳 25 秒一次）；worker 每 30 秒清扫一遍，对被清掉的人同样发 `offline`；**最后一个连接消失时写 `users.last_seen_at`**（正常关闭或被清扫），`presence` 事件只含 `userId`、`status`、`lastSeenAt`，没有任何「是不是我」之类的字段（L-17）。
+- `presence.watch` 整体替换关注集合，立即回 `presence.snapshot`（离线的人带上最后在线时间）。
+
+**D-132 权限边界的几处取舍（落实 01 第 5 节、07 SEC-02）**
+- **站点管理员**对自己不是成员的频道和群：可以查看元数据、改设置、移出/禁言/封禁、归档和恢复、撤销任何邀请链接、删除别人的消息（写审计、不含内容）；**不能**读消息、发消息、拉人、建邀请链接、任免管理员、转让。私信和 Agent 会话对非成员（含站点管理员）一律 404。
+- **读不到的原因要区分**：频道是公开的，非成员读消息、读成员改动日志返回 403（加入才能读）；群、私信、Agent 会话的非成员一律 404，**且回答与「根本没有这个会话」逐字相同**。
+- **按消息 id 的接口同理**：陌生人对一条消息 id 做编辑、撤回、隐藏、删除，对不可见的会话与对不存在的消息给出同样的 404「Message not found」。**这是新写的权限矩阵测试发现的一个真问题**：之前这四个接口对陌生人说「Conversation not found」、对不存在的消息说「Message not found」，等于告诉对方这个 id 属于一个私有会话；已在 `domain/messages.ts` 统一（`enforceView`）。
+- **改成员前先看成员列表的权限**：`PATCH /members/:userId` 先检查「能不能看到成员列表」，再回答「这个人不在里面」，所以只有看得到名单的人才能知道某人在不在。
+- **私信**：一对人一个（`dm_pairs`）；发起人立刻看到，对方的那一份一开始是隐藏的，第一条消息到达时自动取消隐藏；再次打开已有的私信，会为发起人取消隐藏；私信不计入每人 200 个会话的上限。
+- 群主不能直接退出（409 `owner_must_transfer`），除非只剩他一个：那时会话在同一事务里归档，群主仍是它的管理者（04）。
+
+**D-133 个人资料的规则（落实 01 第 4.3 节、L-19、L-24）**
+- 显示名不能是保留词（助手的显示名、「系统」等，按 NFKC 和去空白后比较）；用户名与注册时规则相同，**30 天内只能改一次**，放弃的旧用户名保留 30 天（`username_reservations`），别人不能抢，本人可以改回；简介最长 200 个字符。
+- `profileVersion` 只在显示名或用户名变化时加 1（简介、时区不加）；每次 `PATCH /api/me` 都在本人日志里写一条 `me`，其他设备据此更新；限流每人每 10 分钟 20 次。
+- 历史消息按账号归属，不按用户名：改名之后别人拿到旧用户名，也撤回不了、删不了原来那个人的消息（L-20）。
+
+**D-134 V-14 的结论：怎样模拟断线（落实 08 第 3 节第 3 条）**
+- **实验**（Playwright 1.63，Chromium 1243、WebKit 2359、Firefox 1543 的构建，对着真实的应用栈）：`context.setOffline(true)` 之后——Chromium：已经建立的 WebSocket 不关闭，但它的流量被扣住，ping 的 pong 要等恢复在线才到；新建的 WebSocket 以 1006 失败。WebKit：已建立的连接完全不受影响（离线时 ping 照样得到 pong），**连新建的 WebSocket 也照常打开**。Firefox：已建立的连接不受影响，新建的以 1006 失败。三个引擎的 `fetch` 都会失败。所以 **`setOffline` 在任何一个引擎里都不能断开已经建立的 WebSocket**。
+- **采用**：HTTP 用 `context.setOffline`；WebSocket 用 `page.routeWebSocket`（`apps/web/e2e/support/network.ts` 的 `controlNetwork`）：离线时从页面一侧关闭已建立的连接（关闭码 3001）、拒绝所有重连尝试，恢复在线后放行下一次尝试。三个引擎的行为一致；`apps/web/e2e/network.spec.ts` 对真实应用验证了「连接被断开、客户端按退避不停重试、网络恢复后自己重连成功」。它必须在页面打开第一个 WebSocket 之前安装。
+- **服务端一侧**：`POST /api/test/realtime/disconnect`（仅 `APP_ENV=test`）从服务端关闭连接，用来测服务器重启、依赖丢失这类由服务端发起的断开；已有实时测试覆盖。
+- 限制：`routeWebSocket` 只能用 3000–4999 的关闭码，真实断网时浏览器看到的 1006 发不出来；客户端对这两类码的处理相同（除 4401/4403 外都重连）。
+
+**D-135 开发种子数据与冒烟脚本**
+- `bun run db:seed`（仅开发）在三个演示成员之外，还通过**领域函数**建了：频道「综合讨论」（三人，Alice 置顶）、频道「技术闲聊」（Bob 与 Carol，Alice 不在，用来试「浏览频道」）、群「周末爬山」（三人）、Alice 与 Bob 的私信，共 59 条消息，时间回溯到三天前、含回复和长消息；谁最后说话谁就没有未读，Bob 和 Carol 因此各有未读。幂等：已存在的会话原样保留；种子临时用的会话与设备记录只删自己建的（不会误删演示成员真实的登录会话）。
+- `scripts/smoke-backend.ts` 扩到 22 步：M1a 的 11 步之后，加两个新成员、建中文名频道（同键重试得到同一个）、浏览与加入、消息作为只含 id 的提示到达（两个真实进程之间）、已读与未读数、typing 与在线状态、编辑与撤回加 changes、陌生人看不到群而站点管理员能删消息但读不了频道、连发 5 条的延迟、被移出后不再收到任何提示、关闭连接后对方看到离线。2026-10-03 在测试环境全部通过。
+
+**D-136 权限矩阵测试：每个接口都必须有一行**
+- `apps/server/test/security/conversation-matrix.test.ts` 把**每一个**会话、消息、同步和目录接口，按匿名、陌生人、普通成员、会话管理员、群主、站点管理员（非成员）六类调用者，对群、频道、私信各调一遍（共 94 个用例，其中两个是路由表完整性和「移出后立即失效」），逐一断言状态码，并检查：被拒绝的调用不改变会话的任何一行；拒绝的响应不重复受保护的文字（名称、消息正文、邀请码）；看不见的与不存在的逐字相同；**表与 OpenAPI 文档一一对应**——新增一个路由而没有在表里写一行，测试就失败。这张表同时是 01 第 5 节权限表的可执行版本。
+- 旧缺陷回归放在 `apps/server/test/security/legacy.test.ts`，标题以 `L-xx` 开头：L-01 到 L-04、L-07、L-09、L-10、L-16 到 L-21、L-23、L-24（L-05/L-06、L-11 到 L-15、L-22 属于后面的里程碑）。
+
+### M2a 独立复核之后的修复（2026-10-03，D-137 到 D-143）
+
+下面七条出自对 M2a 的独立复核（Codex）和我随后的修复，授权是你的「请直接修复完善 ChatApp 的 M2a，直到满足本地验收条件」；与 D-125 到 D-136 一样，已于 2026-10-03 你验收 M2a 后生效，要改动其中任何一条，告诉我，我会新增取代它的记录。命令、结果和限制见 [PROGRESS](PROGRESS.md) 的「M2a 复核问题的修复」。
+
+**D-137 网关的订阅状态：每人一份，一次一个读取，集合与序号一起更新（修复复核 R2，细化 D-127、03 第 5.7 节）**
+- **问题**：复核把一次成员快照的返回拖到「移出」之后，迟到的旧结果无条件覆盖了订阅集合，同时用 `Math.max` 保留了较新的序号，于是 5 秒兜底发现「序号没有落后」，永远不会纠正：被移出的人继续收到 `message.changed`（只有编号，没有正文）。根因有两个：订阅集合和它所对应的序号是分开更新的；同一个人的多次读取可以并发，结果乱序应用。
+- **做法**（`realtime/gateway.ts`）：每个人一条 `Following{conversations, seq, reading, again}`，该人的全部连接共用。读取「单飞」：读取进行中又来了新的提示，只置 `again`，读完立即重读，**所以被采用的读数一定开始于最新提示之后**。`#apply` 在同一个同步步骤里替换集合与序号，并推给这个人的所有连接。读取失败不改动任何东西，由 5 秒兜底补上；读取期间该人的最后一个连接关闭，读数被丢弃，不会交给他的下一个连接。`conversation.removed` 的提示只有 `userChangeSeq` 大于已掌握的序号时才立刻停止订阅（已经过时的移除提示，例如那个人已经重新加入，不会把会话再拿走），无论是否立即停止都会安排一次读取；`user.changed` 不按序号过滤（复核给的 `userChangeSeq:1` 提示也要触发读取）。连接建立时先登记，等到一份**开始于连接打开之后**的读数应用了，才发 `hello`。
+- **测试**：`apps/server/test/realtime/subscription-races.test.ts`（8 个）。`test/support/readings.ts` 的 `HeldReadings` 在数据库读取的边界上放屏障，由测试决定哪次读数先、哪次后交回：移出之前取的读数在移出之后才交回、查询乱序、移出后再加入、过时的移除提示、读取失败、人已离开、5 秒兜底在旧读数在途时仍能纠正（核对的是它每 5 秒触发一次，而不是等多久）、请求合并、`hello` 只在新读数之后。「从不听到」一类的断言用顺序哨兵（之后发的一条消息收得到，而被排除的不曾出现），不靠多等一会儿；复核给的原始复现脚本现在 3/3 通过。**变异检查**（`mutate-r2.sh`，改完即还原）：去掉「`again` 之后重读」，4 个测试失败；去掉移除提示的序号判断，1 个失败；去掉「该人已离开则丢弃读数」，1 个失败。
+
+**D-138 幂等重放服从当前授权和历史水位（修复复核 R1，落实 D-035、INV-09、AT-13）**
+- **问题**：Bob 在群里发消息，退出后重新加入，水位前移；用原 `clientId` 和原请求体重发，收到 200 和原正文。重放分支只检查当前成员身份，没有检查原消息是否在新的 `visible_from_seq` 之上；`projectMessages` 也只对引用目标做水位判断，不过滤传进来的主消息行。影响是重新入群后取回自己的旧消息，不是读取别人的历史。
+- **做法**（`domain/messages.ts`）：（1）重放分支在比对请求指纹之后、投影之前，要求 `existing.seq > member.visibleFromSeq`，否则 404「Message not found」，与读取同一条旧消息的回答逐字相同；（2）`projectMessages` 对传入的主消息行本身也按观察者的水位过滤，任何用别的键（比如 `clientId`）找到一行的调用者，都不能把水位之前的内容交给观察者。同一成员关系内的重试仍然幂等（200 和同一条消息，不论隔多久、中间别人是否发言）；同一个 `clientId` 不会再写第二条（它只对应水位之前的那一条），要发新内容就用新的 `clientId`；异参仍是 409，且不透露那条消息的任何内容。
+- **测试**：`apps/server/test/integration/message-replay.test.ts`（8 个）：同一关系内的重试、别的发送者用同一个 clientId 写自己的、退出后重入、被移出后重入、封禁解封再加入、频道重新加入、凭邀请链接回来、异参 409，每一项重放后都核对：回答是 404 且不含原文和原 id，旧消息按 id 读取、列表、changes 里都没有，编辑、撤回、仅自己删除都是 404，数据库里那一行丝毫未动；另有一个直接测 `projectMessages` 的用例。**变异检查**（`mutate-r1.sh`，改完即还原）：两层都去掉，5 个测试失败（其中 4 个是请求层面的重放用例）；只去掉投影的过滤，1 个（直接测投影的）失败；只去掉重放分支自己的判断，没有测试失败，因为投影会给出同样的 404，所以那一层在外部观察不到不同的行为，是第二道防线。
+
+**D-139 总线重连之后立即复核（落实 03 第 5.7 节、AT-02）**
+- ioredis 重新连上（`ready`，不含第一次）之后，`EventBus.onReconnect` 的监听器调用 `gateway.afterBusRecovered()`：立即复核本机全部连接的会话授权和订阅，不等下一个 5 秒；复核已在进行时，等它结束后再做一次（它开始于总线回来之前）。总线断开期间发布的提示全部丢失，这些提示本来就不承担最终授权，回来之后越早补上越好。`realtime/wiring.ts` 的 `connectGatewayToBus` 是 API 进程与测试服务共用的唯一接线，所以测试走的就是生产的路径。
+- 总线不在的时候，撤权靠网关自己的 5 秒复核（加 1 秒容差）：`test/fault/at-02.test.ts` 在隔离实例里真的停掉 Valkey，验证被移出的人和被撤销的会话仍在复核时限内结束订阅和连接，总线回来之后没有任何泄露，以及回来之后立即复核而不是等下一个 tick。
+
+**D-140 AT-01、AT-02、AT-13 在 M2a 的证据怎么取（落实 08 第 8 节、D-085）**
+- **AT-01**：`test/fault/at-01.test.ts`（3 个），在隔离的 compose.test 实例里启动**真实的 api 与 worker 子进程**（它们的环境完整替换为实例的端点和密钥，不继承开发环境），对它们 SIGKILL / SIGSTOP / SIGCONT，并清空实例的 Valkey：①提交之后杀 API：提示和业务变更都已在 Postgres（`work_items` 与业务行同一事务），新 API 加 worker 恰好投递一次，客户端用 `sync/heads` 加 `changes` 追平（前台对账，35 秒内）；②只丢最后一条提示：暂停的 worker 恢复后补发，不重复更早的；③提交之后清空队列：一条提示和一封验证邮件都仍在 Postgres，worker 起来之后各投递一次。
+- **AT-02**：`test/integration/revocation-race.test.ts`（9 个）。被移出、被封禁、被禁言、退出这四种撤权，各与「正在发送」按两种顺序竞争；顺序由测试决定而不靠时间：用一个**未提交的事务锁住那个人的 `users` 行**，启动第一个操作并**通过 `pg_stat_activity` 确认它在等锁**，再启动第二个，然后放锁，两者按排队顺序执行（发送和撤权都先取这个人的 `users` 行，所以必然串行）。先到的写入成功，之后撤权生效；撤权先到的，写入被拒绝并且什么也不留。另有一个不加屏障、重复多次、顺序随机的用例，只允许这两种合法结果，而且成功的那条消息一定在移出之前。总线断开见 D-139，订阅乱序见 D-137。
+- **AT-13「重放前撤权」**：见 D-138。
+- 限制：这是**一个** api 加一个 worker 的故障；两个 API 实例之间经 Valkey 互相转发仍只靠设计，M7 的多实例才覆盖。
+
+**D-141 故障实例的核验与重建（落实 D-085、AT-34）**
+- Docker Desktop（WSL）有时（本机约三分之一）对刚创建的容器报告内部的 `/run/desktop/…` 绑定路径。核验（`verifyFaultTarget`）**拒绝**它，这是对的，不放宽。拒绝时抛 `FaultTargetRejected`，只有来源路径以 `/run/desktop/` 开头的这一种带 `transient: true`；`startInstance` 此时（半起的实例已按项目名清掉）**重新创建**一个实例，最多 4 次（`scripts/lib/retry.ts` 的 `retryWhile`，有单元测试：非瞬时的失败立即抛出，最后一次的失败照抛）；其他任何拒绝都是终局，不重试。
+- 官方入口 `bun run test:fault` 自己创建并拆除实例，不留容器；对容器的任何动作只经 `target.act(service, action)`，每次先核验清单。
+
+**D-142 按目录的覆盖率检查（落实 08 第 7 节）**
+- `bun run test:coverage`：跑服务端的单元、集成、安全、契约、实时测试并写出 `coverage/lcov.info`，然后 `bun scripts/coverage-check.ts coverage/lcov.info`；`bun run coverage:check` 只检查已有的 lcov。规则在 `scripts/lib/coverage.ts`：`apps/server/src/domain/` 行覆盖率 ≥ 90%；`apps/server/src/agent/` ≥ 90%，目录还不存在（M4 才有）时跳过，目录存在却没有数据则失败。退出码：通过 0，有一项不达标 1，没有 lcov 文件 2。纯函数有单元测试（`scripts/lib/coverage.test.ts`，含刚好低于门槛的组合与缺数据的情形）。
+- 接进 CI：`integration` 工作流的集成作业改用 `bun run test:coverage`。**这个工作流改动没有在远端运行过**。
+
+**D-143 E2E：先等页面到位再量、再填（WebKit 失败与「找回密码」偶发失败的根因，没有放宽任何断言）**
+- **WebKit 侧栏宽度测得 340.000061，断言要求 ≤ 340**：入场动画（`inspector-in`，transform）期间，Chromium 和 WebKit 的 `getBoundingClientRect` 宽度有 ±2⁻¹⁴ 的抖动；按帧探测三个引擎得到这个证据。原用例在动画期间量，WebKit 约 1/8 概率失败。**修复**：`e2e/support/ui.ts` 的 `animationsFinished(locator)`，等元素的全部动画 `finished` 之后再量；断言不变（真正的横向溢出仍会被抓到），没有加容差；修复后同一用例在 WebKit 连续 16 次通过。
+- **Chromium 的「找回密码」冒烟用例偶发失败（M2a 第一轮就出现过，当时记为偶发、没找到根因）**：用 Playwright 追踪确认是**用例自己的同步缺陷**。点「忘记密码？」之后，地址栏先变成 `/forgot-password`，而新页面的脚本还在下载，旧登录页仍在屏幕上；登录页也有「邮箱」框，`getByLabel('邮箱').fill()` 填进了**即将被替换的旧表单**，8 毫秒后新页面挂载，把值带走，随后提交的是空表单（出现「请输入完整的邮箱地址」）。追踪里两个输入框的 React `useId` 不同（`_r_2_` 变成 `_r_5_`），网络里只有一次文档加载，证实是客户端路由切换而不是整页重载。**修复**：点击之后先等新页面的标题「找回密码」出现再填。**证明**：临时用例把目标页的脚本拖慢 600 毫秒让竞争必现，旧写法在 Chromium 与 WebKit 都必然失败，新写法都通过（临时用例已删除）；修复后该用例在 Chromium 29 次、WebKit 22 次、Firefox 13 次全部通过（反复运行受管理员登录限流的限制，每批不超过 7 次）。点链接后紧接着填同名字段的写法已全部检查过：另外两处「去登录」之前的页面没有「邮箱」字段，不会竞争。这是路由在新页面就绪前保留旧页面的正常行为，没有改产品代码。
 
 ## 待验证事项（结论出来后补成新的决策记录）
 
@@ -754,7 +860,7 @@ Base UI 提供无障碍的交互原语（菜单、弹窗、焦点管理等）；
 | V-11 | QQ/163 验证与重置邮件送达，记录网络、延迟、垃圾箱；缺域名/SMTP 时记阻塞 | 凭据齐备即测，M8 必过 |
 | V-12 | 实际 arm64 Debian 原生依赖与峰值资源；onnxruntime/Bun 失败改 Node 子进程，模型不达标换备选 **→ M1a：arm64 CI 冒烟（check 工作流的 arm64-smoke）2026-10-02 在 `ubuntu-24.04-arm` 上通过（冻结安装加 `bun run check`，run 36956701933）；真实 ARM 资源数据仍待 M3/M5b。** | M1a 基础冒烟，M3/M5b 实测 |
 | V-13 | 精确认证路由白名单、UUID/受控字段、首次 INSERT 注册关联与锁；一次性验证/重置凭证绑定注册实例和 restore_epoch；认证事务与设备 origin/委托撤销；原生 JWT 和管理路径不可旁路 **→ 2026-10-01 M1a 实验通过（D-094–D-096、D-100、D-101，AT-04/05/25/26/27/28 契约部分的证据见 PROGRESS）；Passkey 完整仪式需浏览器，留到 M1b 验证。→ 2026-10-03 M1b：Chromium 虚拟认证器下的完整仪式通过（在设置里添加、退出后仅凭 Passkey 登录、重命名、移除，`apps/web/e2e/passkey.spec.ts`），请求体大小见 D-124；真实硬件与 WebKit/Firefox 的仪式未验证，并入 V-22。** | M1a 首个阻断性实验 |
-| V-14 | Playwright 的 `setOffline` 能否断开已经建立的 WebSocket；不能的话，改用服务端测试接口或 `routeWebSocket` | M2a |
+| V-14 | Playwright 的 `setOffline` 能否断开已经建立的 WebSocket；不能的话，改用服务端测试接口或 `routeWebSocket` **→ 2026-10-03 M2a：不能，三个引擎都不能；改用 `routeWebSocket` 加服务端测试接口（D-134，`apps/web/e2e/support/network.ts`，`network.spec.ts` 三个引擎通过）。** | M2a |
 | V-15 | pg_trgm 处理 2 个字的中文查询时的实际性能（EXPLAIN），必要时改用 pg_bigm | M4 |
 | V-16 | 各个快捷键在 Chrome、Edge、Safari、Firefox 的标签页和 PWA 窗口里是否可用 **→ 2026-10-03 M1b：四个快捷键（⌘K、⌘J、⌘,、⌘/）的处理逻辑有单元测试，E2E 在 Chromium、WebKit、Firefox 三个引擎里用键盘事件走通（Linux 上的修饰键是 Ctrl）；Playwright 的按键不经过浏览器自己的快捷键层，所以「真实浏览器会不会先截走」没有验证，改为 V-22 的逐浏览器手工清单（08 第 10 节）。PWA 窗口属 M6。** | M1b / M6 |
 | V-17 | 用户自带的 DeepSeek key 出错时（无效、余额不足、限流），接口分别返回什么 | M5a |
@@ -762,4 +868,4 @@ Base UI 提供无障碍的交互原语（菜单、弹窗、焦点管理等）；
 | V-19 | 独立删除 journal 的追加/条件写/完整性/密钥恢复；原主机完全丢失后重放确认删除及外发隔离 | M1a 定接口，M7 阻断性验收 |
 | V-20 | 中文检索与总结语料标注、分割、质量阈值冻结，记忆阈值校准与留出集验收 | M4 建数据，M5b 检索验收 |
 | V-21 | 代表任务的调用轮数/计费/unknown/缓存成本与低中高容量场景，实际预算可覆盖人数 | M4 至少30任务，M8 复核 |
-| V-22 | M1b 留下的真机与辅助技术验收（自动化测试替代不了，清单见 08 第 10 节）：V-16 逐浏览器快捷键；Passkey 在真实硬件（Windows Hello、Touch ID、手机跨设备）上的注册与登录，以及 WebKit/Firefox 的仪式；读屏（NVDA/Narrator/VoiceOver）读外壳与认证页；macOS Safari 与 Firefox 的真机渲染；系统高对比度；400% 缩放与最大字号的人工走查；真实照片垫在玻璃后面（M3 有图片之后） | M1b 验收时由用户做第一轮，M7 前补齐 |
+| V-22 | M1b 留下的真机与辅助技术验收（自动化测试替代不了，清单见 08 第 10 节）：V-16 逐浏览器快捷键；Passkey 在真实硬件（Windows Hello、Touch ID、手机跨设备）上的注册与登录，以及 WebKit/Firefox 的仪式；读屏（NVDA/Narrator/VoiceOver）读外壳与认证页；macOS Safari 与 Firefox 的真机渲染；系统高对比度；400% 缩放与最大字号的人工走查；真实照片垫在玻璃后面（M3 有图片之后） | M1b 已于 2026-10-03 验收，但这些项没有结果记录，仍待做；M7 前补齐 |

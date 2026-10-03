@@ -1,7 +1,7 @@
 # 05 接口与实时协议
 
-> 当前尚无应用 contracts，本文件是待实现的契约。M1a 起落实到 `packages/contracts` 的 zod schema，并由路由生成 `/api/openapi.json`。
-> 实施期间先同步本文件、schema 与调用方，再写代码；契约快照用于发现无意变化。
+> 本文件是接口契约。已实现的部分（M1a 的认证与账号、M1b 的 `PATCH /api/me`、M2a 的会话、成员、消息、同步和目录）落实在 `packages/contracts` 的 zod schema 里，由路由生成 `/api/openapi.json`，快照提交在 `apps/server/test/contract/openapi.snapshot.json`；接口清单里标 ✅ 的行已实现，其余仍是待实现的契约。
+> 实施期间先同步本文件、schema 与调用方，再写代码；契约快照用于发现无意变化。M2a 的实现细节与取舍见 12 的 D-125 到 D-136。
 
 ## 1. REST 约定
 
@@ -17,7 +17,7 @@
 - **JSON 格式**：字段名用 camelCase；id 是 UUID 字符串；时间是 ISO 8601 格式的 UTC 时间；`seq` 和 `changeSeq` 以数字形式传输（在 2^53 以内是安全的）。
 - 时间只允许有限值；免打扰使用 `mute: {mode:'off'} | {mode:'forever'} | {mode:'until', until: ISODate}`，不传 infinity。时区使用IANA标识，调度需明确UTC时刻与当地时间/offset，见01第4.3节。
 - **分页**：消息按 `seq` 或 `changeSeq` 做游标分页，其他列表用不透明的 `cursor`；默认每页 50 条，最多 100 条。
-- **幂等**（D-066）：消息携带 clientId，唯一 (sender_id,client_id)，初始请求指纹包含目标会话、正文、附件和引用；跨目标复用返回 IDEMPOTENCY_CONFLICT。一般创建类请求使用 Idempotency-Key，按 actor+operation+target+key 存 Postgres，保留 24 小时；同键异参 409，同键同参重新鉴权后返回当前资源，不缓存敏感 DTO。并发请求由数据库唯一约束和事务串行化；原资源已删除返回 RESOURCE_GONE。
+- **幂等**（D-066）：消息携带 clientId，唯一 (sender_id,client_id)，初始请求指纹包含目标会话、正文、附件和引用；跨目标复用返回 IDEMPOTENCY_CONFLICT。一般创建类请求使用 Idempotency-Key，按 actor+operation+target+key 存 Postgres，保留 24 小时；同键异参 409，同键同参重新鉴权后返回当前资源，不缓存敏感 DTO。并发请求由数据库唯一约束和事务串行化；原资源已删除返回 RESOURCE_GONE。**重放服从当前授权和历史水位**（D-138，INV-09）：消息的重复提交先按当前成员身份、封禁、禁言、归档重新授权，再要求原消息仍在发送者现在能看到的范围内（`seq > visible_from_seq`）；退出或被移出后重新加入，水位前移，旧 clientId 的重放得到「消息不存在」404，与读取同一条旧消息的回答逐字相同，不返回原 DTO，也不用同一个 clientId 再写一条（clientId 只对应那一条消息）。
 - **条件更新**：编辑/设置携带 expectedChangeSeq 或 version，失配返回 VERSION_CONFLICT；撤回、取消和删除的重复成功请求返回相同终态，过期键不可作为业务永久去重依据。注册/上传的长操作用状态机而非长事务。
 - **删除操作（M7）**：撤回、管理删除、删除私有Agent会话/记忆/附件、注销等通过D-084异地journal；成功响应只在journal确认且在线事务完成后返回。5秒内未完成返回202 `{operationId,status:'pending',statusUrl}`，相同键定位同一操作；GET `/api/deletion-operations/:id` 仅本人/原授权管理角色可查，返回pending/completed/failed和脱敏码。准备阶段已授权并冻结目标、不可扩展参数；UI等待完成才显示删除成功，pending时内容仍可能可见。到达journaled后保证幂等完成，不能因session过期取消。
 
@@ -49,7 +49,7 @@
 | `REQUEST_TIMEOUT` / `INVALID_REQUEST_FRAMING` | 408 / 400 | 读取超时 / 长度或传输编码非法；网关先拒绝时允许无JSON正文，前端按HTTP状态兜底 |
 | `AUTH_CHALLENGE_INVALID` | 400 | 验证/重置凭证无效、已用、过期或世代失效，统一提示不枚举账号 |
 | `WINDOW_EXPIRED` | 403 | 已超过撤回或编辑时限 |
-| `INVITE_INVALID` | 400 | 邀请码无效、过期、用完或已撤销 |
+| `INVITE_INVALID` | 400 | 注册邀请码或群邀请链接无效、过期、用完或已撤销（不说明是哪一种） |
 | `IDEMPOTENCY_CONFLICT` / `VERSION_CONFLICT` | 409 | 同键异参 / 基于旧版本修改 |
 | `RESOURCE_GONE` | 410 | 有权请求的原操作资源已被删除 |
 | `CONTEXT_CHANGED` | 409 | Agent 来源、成员或读取范围已经失效，需新运行 |
@@ -86,7 +86,7 @@ AgentRun     { id, trigger, conversationId|null, status, mode, model|null, keySo
                stepCount, usage: { inputTokens, outputTokens, cachedTokens, costUsd }, createdAt, finishedAt|null,
                error: { code, message }|null, regeneratedFromRunId|null, stateVersion, resumeSeq, contextEpoch }
 Notification { id, version, type, data, readAt|null, createdAt }                          // M6
-Page<T>      { items: T[], nextCursor|null }  // message lists instead return { messages, users: Record<id, UserSummary>, hasMore }
+Page<T>      { items: T[], nextCursor|null }  // message lists instead return { messages, users: Record<id, UserSummary>, hasMoreBefore, hasMoreAfter } (D-128)
 ```
 
 - 消息列表的响应附带一个 `users` 字典，消息里只放 `senderId`，避免每条消息都重复带上用户资料。
@@ -126,7 +126,7 @@ Page<T>      { items: T[], nextCursor|null }  // message lists instead return { 
 | `POST /api/auth/verification/request` / `POST /api/auth/verification/consume` | 前者请求/重发验证邮件（通用响应）；后者`{token}`，原子消费绑定凭证并验证激活条件，不自动登录 | M1 |
 | `POST /api/auth/password/request-reset` / `POST /api/auth/password/consume-reset` | 前者请求找回（通用响应）；后者`{token,newPassword}`，消费/改密/撤销会话和委托同事务 | M1 |
 | `POST /api/invites/check` | `{code}`，注册页用它校验邀请码是否可用；按 IP 限流 | M1 |
-| `GET /api/me` / `PATCH /api/me` | 查看或修改自己的资料和设置：用户名（检查冷却期、保留名）、显示名（检查保留名）、简介、时区、偏好设置。**M1b ✅ 已实现的 PATCH**：strict 请求体 `{expectedMeVersion, timezone?, settings?: {timezoneAuto?}}`，至少改一项；`timezone` 是 IANA 名；`settings` 按键合并；条件是 `meVersion` 等于 `expectedMeVersion`，过期返回 409 `VERSION_CONFLICT`；响应是新的 Me。条件写入本身防重复，不带 `Idempotency-Key`（D-118）。用户名、显示名、简介在 M2 加入。外观偏好是设备级的，不在这里（D-117） | M1b ✅ / M2 |
+| `GET /api/me` / `PATCH /api/me` | 查看或修改自己的资料和设置：用户名（检查冷却期、保留名）、显示名（检查保留名）、简介、时区、偏好设置。strict 请求体 `{expectedMeVersion, timezone?, settings?: {timezoneAuto?}, displayName?, username?, bio?}`，至少改一项；`timezone` 是 IANA 名；`settings` 按键合并；条件是 `meVersion` 等于 `expectedMeVersion`，过期返回 409 `VERSION_CONFLICT`；响应是新的 Me。条件写入本身防重复，不带 `Idempotency-Key`（D-118）。**M2a ✅**：显示名不能是保留词（422 `reserved`）；用户名 30 天内只能改一次（422 `cooldown`，`details.availableAt`），放弃的旧名保留 30 天、别人取不到（409）；简介最长 200 字符，空白即清除；只有显示名或用户名变化才推进 `profileVersion`；每次修改都在本人日志里写一条 `me`；限流每人每 10 分钟 20 次（D-133）。外观偏好是设备级的，不在这里（D-117） | M1b ✅ / M2a ✅ |
 | `POST /api/me/avatar` | `{attachmentId}`，把一个 `purpose=avatar` 的附件设为头像 | M3 |
 | `PUT /api/me/ai-key` / `DELETE /api/me/ai-key` | `{provider: 'deepseek', apiKey}`：保存自带 key，保存前先调用模型列表接口验证。只返回末 4 位 | M5 |
 | `DELETE /api/me` | 注销账号，需要再次输入密码或验证 Passkey | M7 |
@@ -152,44 +152,44 @@ Page<T>      { items: T[], nextCursor|null }  // message lists instead return { 
 |---|---|---|
 | `GET /api/invites` / `POST /api/invites` / `DELETE /api/invites/:id` | 我的注册邀请码：列表（包含还没验证邮箱的注册）、创建（明文码只在创建时返回这一次）、撤销 | M1 |
 | `DELETE /api/invites/registrations/:useId` | 撤销一个还没验证邮箱的注册：删除这个账号，释放邀请名额和用户名 | M1 |
-| `GET /api/users?query=` | 搜索成员（按用户名或显示名），用于开私信、拉人 | M2 |
-| `GET /api/users/:id` | 查看成员资料 | M2 |
+| `GET /api/users?query=` | 搜索成员（按用户名或显示名，NFKC 加小写后子串匹配，完全相等和前缀优先），用于开私信、拉人；只含已激活、未注销的真人，不含自己；最多 20 条，按用户每分钟 60 次限流 | M2a ✅ |
+| `GET /api/users/:id` | 查看成员的公开资料：`UserSummary` 加 `bio` 和 `createdAt`，不含邮箱；任何已登录成员都能查（这是个小型邀请制站点） | M2a ✅ |
 
 ### 3.3 会话与成员
 | 方法和路径 | 说明 | 里程碑 |
 |---|---|---|
-| `GET /api/conversations` | 我所在的全部会话，附带未读数和最后一条消息预览（不分页，会话数量有限）。加 `?archived=true` 时，返回我是群主的已归档会话 | M2 |
-| `POST /api/conversations` | 创建会话：`{kind: 'channel'\|'group'\|'agent', name, description?, memberIds?}` | M2（agent 类型在 M4） |
-| `POST /api/conversations/dm` | `{userId}`，获取或创建与此人的私信 | M2 |
-| `GET /api/channels?query=&cursor=` | 发现页：搜索频道 | M2 |
-| `GET /api/conversations/:id` / `PATCH /api/conversations/:id` | 查看会话详情；修改名称、简介、设置 | M2 |
-| `POST /api/conversations/:id/archive` / `POST …/restore` | 归档；恢复 `{name?, ownerUserId?}`。名称冲突 409；已无有效 owner 时必须指定同意接任的活跃成员（04），并重新建立 owner 关系 | M2 |
+| `GET /api/conversations` | 我所在的全部会话，附带未读数和最后一条消息预览（不分页，会话数量有限）；响应是 `{conversations, userChangeSeq}`，后者是个人同步的基线。加 `?archived=true` 时，返回我是群主的已归档会话。私信的对方一开始是隐藏的（`me.hiddenAt`），第一条消息到达时自动取消隐藏（D-132） | M2a ✅ |
+| `POST /api/conversations` | 创建会话：`{kind: 'channel'\|'group'\|'agent', name, description?, memberIds?}`。`Idempotency-Key` 必填：首次 201，同键同参重放返回原会话 200；频道名重复 409；创建者成为 owner，`memberIds`（最多 100 人）从创建的那一刻起加入；每人最多在 200 个会话里（私信不计）；每人每小时最多创建 20 个 | M2a ✅（agent 类型在 M4） |
+| `POST /api/conversations/dm` | `{userId}`，获取或创建与此人的私信（一对人一个）；新建 201，已有 200，并为发起人取消隐藏；对方必须是已激活的真人，否则 404 | M2a ✅ |
+| `GET /api/channels?query=&cursor=&limit=` | 发现页：搜索频道，`limit` 最多 50；每项是完整的 Conversation，`me` 为 null 表示还没加入 | M2a ✅ |
+| `GET /api/conversations/:id` / `PATCH /api/conversations/:id` | 查看会话详情（频道对所有人可见；群、私信只有成员和站点管理员能看，其余 404）；修改名称、简介、设置：`{expectedMetadataVersion, name?, description?, settings?: {whoCanInvite?, agentEnabled?}}`，空简介即清除；只有管理员、群主和站点管理员能改，已归档 409 | M2a ✅ |
+| `POST /api/conversations/:id/archive` / `POST …/restore` | 归档；恢复 `{name?, ownerUserId?}`。名称冲突 409；已无有效 owner 时必须指定同意接任的活跃成员（04），并重新建立 owner 关系 | M2a ✅ |
 | `DELETE /api/conversations/:id` | 只用于 Agent 会话：删除会话和其中的消息（本人） | M4 |
-| `POST /api/conversations/:id/join` / `POST …/leave` | 加入频道；退出会话（群主须先转让） | M2 |
-| `POST /api/conversations/:id/transfer` | `{userId}`，转让群主 | M2 |
-| `PATCH /api/conversations/:id/me` | 我对这个会话的个人设置：`{expectedViewerVersion, notifyLevel?, mute?, pinned?, hidden?}`；mute判别联合见第1节 | M2 |
-| `POST /api/conversations/:id/read` | `{seq}`，推进我的已读位置（只能向前推） | M2 |
-| `GET /api/conversations/:id/members?cursor=` | 成员列表 | M2 |
-| `POST /api/conversations/:id/members` | `{userIds}`，拉人进群（跳过被封禁的人，并在结果里说明） | M2 |
-| `PATCH /api/conversations/:id/members/:userId` | `{role?, silencedUntil?}`，任免管理员、禁言 | M2 |
-| `DELETE /api/conversations/:id/members/:userId` | 移出（不封禁） | M2 |
-| `GET /api/conversations/:id/bans` / `POST …/bans` / `DELETE …/bans/:userId` | 封禁名单；移出并封禁（`{userId, reason?}`）；解除封禁 | M2 |
-| `POST /api/conversations/:id/invites` / `GET` / `DELETE …/:inviteId` | 群邀请链接：创建、列表、撤销 | M2 |
-| `POST /api/conversation-invites/preview` / `POST /api/conversation-invites/accept` | `{code}`：查看群邀请的预览（群名、人数）；接受邀请加入 | M2 |
+| `POST /api/conversations/:id/join` / `POST …/leave` | 加入频道（已是成员同样返回 200；被封禁 403 `CONVERSATION_BANNED`；会话或个人的数量到上限 403 `QUOTA_EXCEEDED`；群和私信不能自己加入：陌生人看来它们不存在，404）；退出会话（群主须先转让，409 `owner_must_transfer`，只剩他一个时会话归档；没加入的频道退出同样成功；私信不能退出） | M2a ✅ |
+| `POST /api/conversations/:id/transfer` | `{userId}`，转让群主 | M2a ✅ |
+| `PATCH /api/conversations/:id/me` | 我对这个会话的个人设置：`{expectedViewerVersion, notifyLevel?, mute?, pinned?, hidden?}`；mute判别联合见第1节 | M2a ✅ |
+| `POST /api/conversations/:id/read` | `{seq}`，推进我的已读位置（只能向前推，不会超过最后一条）；不要求版本，因为它只增不减 | M2a ✅ |
+| `GET /api/conversations/:id/members?cursor=&limit=` | 成员列表（`limit` 最多 100），响应带 `membershipVersion`，一页之内固定；成员和站点管理员能看，频道的非成员 403 | M2a ✅ |
+| `POST /api/conversations/:id/members` | `{userIds, expectedMembershipVersion?}`，拉人进群或频道（一次最多 100 人；新成员从这一刻起只能看到之后的消息，D-035）。响应 `{added, skipped: [{userId, reason: 'banned'\|'already_member'\|'unavailable'\|'limit_reached'}], membershipVersion}`；默认任何成员都能拉，管理员或群主可以改成只有管理员（`settings.whoCanInvite`）；站点管理员不是成员，不能拉人 | M2a ✅ |
+| `PATCH /api/conversations/:id/members/:userId` | `{role?: 'admin'\|'member', silencedUntil?, expectedMembershipVersion?}`，任免管理员（只有群主）、禁言（管理员及以上，时间必须在未来且不超过一年，`null` 解除；管理员只能禁言普通成员）。群主不能被改，也不能改自己 | M2a ✅ |
+| `DELETE /api/conversations/:id/members/:userId` | 移出（不封禁）。管理员只能移出普通成员，群主和站点管理员也能移出管理员，群主不能被移出；退出自己用 `leave` | M2a ✅ |
+| `GET /api/conversations/:id/bans` / `POST …/bans` / `DELETE …/bans/:userId` | 封禁名单；移出并封禁（`{userId, reason?, expectedMembershipVersion?}`，对方不在会话里也可以先封禁，同时撤销他建的邀请链接）；解除封禁。管理员、群主和站点管理员 | M2a ✅ |
+| `POST /api/conversations/:id/invites` / `GET` / `DELETE …/:inviteId` | 群邀请链接（只有群有）：创建 `{maxUses?, expiresInDays?}`（默认 7 天、最长 90 天，每人每会话最多 10 条有效链接；**不带 `Idempotency-Key`**：明文码只在创建响应里出现一次，链接是 `/join#<码>`，D-128）；列表（管理员和站点管理员看到全部，成员只看到自己建的）；撤销（建的人、管理员、群主、站点管理员，其余人看来「不存在」404）。群主把成员降级且设为「仅管理员可邀请」，或移出、封禁某人，会撤销他建的链接 | M2a ✅ |
+| `POST /api/conversation-invites/preview` / `POST /api/conversation-invites/accept` | `{code}`（在请求体里，D-045）：查看群邀请的预览（群名、简介、人数、`alreadyMember`）；接受邀请加入（已是成员返回原会话，不消耗名额）。码无效、过期、用完、已撤销、所属群已归档、创建者已不能邀请，回答都相同：400 `INVITE_INVALID`，不说明原因；被封禁的人接受时得到 403 `CONVERSATION_BANNED` | M2a ✅ |
 
 ### 3.4 消息与搜索
 | 方法和路径 | 说明 | 里程碑 |
 |---|---|---|
-| `GET /api/conversations/:id/messages?beforeSeq=&afterSeq=&aroundSeq=&limit=` | 历史消息，三个游标参数任选一个；不带参数时返回最新的一页。只返回我能看到的消息（`seq > visibleFromSeq`） | M2 |
-| `GET /api/conversations/:id/changes?after=&cursor=&limit=` | 固定上界日志补发；after 仅第一页使用，之后仅 cursor；协议见 4.5 | M2 |
-| `GET /api/sync/heads` / `GET /api/me/changes?after=&cursor=&limit=` | 轻量会话与个人版本清单 / 个人日志，覆盖成员移除、隐藏、已读和设置 | M2 |
-| `GET /api/messages/:id` | 按当前权限获取单条消息及流式持久快照；不可见引用脱敏 | M2 |
-| `POST /api/conversations/:id/messages` | `{clientId, body?, attachmentIds?, replyToId?}`，正文和附件至少要有一个；新建返回 201，重复提交返回 200 | M2（附件在 M3） |
+| `GET /api/conversations/:id/messages?beforeSeq=&afterSeq=&aroundSeq=&limit=` | 历史消息，三个游标参数任选一个；不带参数时返回最新的一页（默认 50 条，最多 100，按 `seq` 升序）。只返回我能看到的消息（`seq > visibleFromSeq`，没被我隐藏）；响应 `{messages, users, hasMoreBefore, hasMoreAfter}`。频道的非成员 403，群和私信的非成员 404；站点管理员不是成员，不能读 | M2a ✅ |
+| `GET /api/conversations/:id/changes?after=&cursor=&limit=` | 固定上界日志补发；`after` 仅第一页使用，之后仅 `cursor`，两者都给或都不给 422；`limit` 最多 100；协议见 4.5。权限同读消息 | M2a ✅ |
+| `GET /api/sync/heads` / `GET /api/me/changes?after=&cursor=&limit=` | 轻量会话与个人版本清单 / 个人日志，覆盖成员移除、隐藏、已读和设置 | M2a ✅ |
+| `GET /api/messages/:id` | 按当前权限获取单条消息及流式持久快照；不可见引用脱敏。看不到的消息（私有会话里的、加入之前的、我隐藏的）与不存在的消息回答完全相同：404 `Message not found` | M2a ✅ |
+| `POST /api/conversations/:id/messages` | `{clientId, body?, attachmentIds?, replyToId?}`，正文和附件至少要有一个（M3 之前只有正文，带附件 422）；新建返回 201，重复提交返回 200（仍在当前可见范围内时；重新加入之后对水位以前的旧消息重放是 404，见上文幂等条，D-138）；正文最长 5000 个字符，规范化后不能是空白；限流每会话每 10 秒 10 条、每人每分钟 60 条；被禁言 403、已归档 409；发送者以会话里的身份写入，请求体里的 `senderId`、`username` 等一律 422（L-09） | M2a ✅（附件在 M3） |
 | `POST /api/conversations/:id/messages/replay` | 离线队列恢复，字段同发送并带队列登记时间；同一幂等键，≤24小时，服务端固定offline_replay，不推进已读。常规发送端点仅供本人明确交互使用 | M6 |
-| `PATCH /api/messages/:id` | `{body, expectedChangeSeq}`，编辑（仅发送者，24 小时内）。不会触发 Agent，也不产生新的通知 | M2 |
-| `POST /api/messages/:id/recall` | 撤回（仅发送者，2 分钟内，服务端留 5 秒宽限） | M2 |
-| `POST /api/messages/:id/hide` | 仅自己删除 | M2 |
-| `DELETE /api/messages/:id` | 管理员删除（群主、会话管理员、站点管理员），写审计日志 | M2 |
+| `PATCH /api/messages/:id` | `{body, expectedChangeSeq}`，编辑（仅发送者，24 小时内，超时 403 `WINDOW_EXPIRED`，版本不符 409）。不会触发 Agent，也不产生新的通知；每人每分钟 30 次 | M2a ✅ |
+| `POST /api/messages/:id/recall` | 撤回（仅发送者，2 分钟内，服务端留 5 秒宽限，超时 403 `WINDOW_EXPIRED`）；同一事务清除正文，重复请求得到同一个终态 | M2a ✅ |
+| `POST /api/messages/:id/hide` | 仅自己删除 | M2a ✅ |
+| `DELETE /api/messages/:id` | 管理员删除（群主、会话管理员、站点管理员），写审计日志（不含正文）；系统消息不能删，重复请求无副作用；私信里没有管理员，403 | M2a ✅ |
 | `POST /api/messages/:id/report` | `{reason, details?}`，举报 | M7 |
 | `GET /api/search/messages?query=&conversationId=&cursor=` | 关键词搜索我能看到的消息（pg_trgm）；与 Agent 的 `search_messages` 共用同一个 domain 函数 | M4 |
 
@@ -278,13 +278,14 @@ Page<T>      { items: T[], nextCursor|null }  // message lists instead return { 
 ### 4.4 服务端 → 客户端
 | type | topic | data |
 |---|---|---|
-| hello / pong | — | connectionId/userId/authEpoch/restoreEpoch/serverTime/heartbeatMs（hello）；serverTime（pong） |
+| hello / pong | — | connectionId/userId/authEpoch/restoreEpoch/serverTime/heartbeatMs（hello）；serverTime（pong）。**`hello` 在加载完本人的订阅之后才发**，所以收到它之后发生的事不会漏（D-127） |
 | message.changed | conv:* | conversationId、messageId、changeSeq；所有创建/编辑/撤回/删除共用，不含正文、引用或 sender |
-| user.changed | user:* | userChangeSeq；通知个人同步，不含私有内容 |
-| conversation.changed / conversation.removed | user:* | conversationId、userChangeSeq；成员失效时 removed，客户端清掉该会话缓存 |
+| user.changed | user:* | userChangeSeq；通知个人同步（我的会话、偏好、已读、隐藏、资料），不含私有内容；成员关系变化时网关据此立即重算订阅（每人一次一个读取，迟到的旧读数不会覆盖新状态，D-137），另有 5 秒兜底复核和总线重连后的立即复核（D-127、D-139） |
+| conversation.changed | conv:* | conversationId、metadataVersion；名称、简介、设置、人数、归档变了，重取会话；共享资料不写进每个成员的个人日志（D-125） |
+| conversation.removed | user:* | conversationId、userChangeSeq；我被移出时发，客户端确认较新的移除墓碑后才清掉该会话缓存；网关一侧同理：只有序号比它已掌握的更新时才立刻停止订阅，已经过时的移除提示（比如人已经重新加入）不会把会话再拿走（D-137） |
 | member.changed | conv:* | conversationId、membershipVersion，重拉成员列表 |
-| typing | conv:* | conversationId、userId、state、expiresInMs=5000，当前授权后发送 |
-| presence / presence.snapshot | presence:* / — | userId、status、lastSeenAt；仅登录用户可接收 |
+| typing | conv:* | conversationId、userId、state、expiresInMs=5000；只发给订阅着该会话的成员（即当前授权的成员），不发给发出者自己的连接；非成员发的 typing 被忽略；每个会话每连接最多每 3 秒一次 |
+| presence / presence.snapshot | presence:* / — | userId、status（online/away/offline）、lastSeenAt，没有任何「是不是我」的字段；仅登录用户可接收；聚合与清扫规则见 D-131 |
 | attachment.updated | user:* | attachmentId、generation、version，重新查询上传或附件 |
 | agent.run.updated / agent.step / agent.approval.requested | user:* | runId、stateVersion、stepIndex 或 approvalId；详情接口读取，仅调用者接收 |
 | agent.delta | conv:*（hub 逐连接授权，非盲播） | runId、resumeSeq、messageId、index、text；每批重新检查 session、成员、来源版本、租约 |
@@ -295,14 +296,14 @@ Page<T>      { items: T[], nextCursor|null }  // message lists instead return { 
 
 会话第一页 after=synced，响应：
 
-    { items: Message[], tombstones: { id, changeSeq }[], scannedThrough, through, nextCursor,
-      membershipId, resetRequired: false }
+    { items: Message[], tombstones: { id, changeSeq }[], users, scannedThrough, through, nextCursor,
+      membershipId, resetRequired: false, baseline: null }
 
-- through第一页固定；cursor签名绑定actor/authEpoch/restoreEpoch/conv/membershipId/after/through/过期时间，默认10分钟；旧恢复/授权世代拒绝并重建。limit限制扫描日志数（最大100），不是过滤后消息数，空items也可推进。
+- through第一页固定；cursor签名（HMAC-SHA256，密钥由 `BETTER_AUTH_SECRET` 派生，D-126）绑定actor/authEpoch/restoreEpoch/conv/membershipId/after/through/过期时间，默认10分钟；旧恢复/授权世代拒绝并重建。limit限制扫描日志数（最大100），不是过滤后消息数，空items也可推进。
 - 读取当前实体投影，允许 Message.changeSeq 高于 through；客户端只合并更新版本，但 synced 只能由 scannedThrough/最后一页 through 推进。下一轮仍从这个 synced 读取日志，不把新实体版本误当成全量水位。
 - user changes 同协议，items为带第2节版本的资源当前授权状态；个人会话墓碑为`{conversationId,membershipId,state:'removed',viewerVersion}`，覆盖hiddenMessageIds/已读/设置/成员变化，不再用hiddenSince。旧移除事件只促使对账，不能凭迟到提示删除新membership；本人持久关系墓碑无正文可经个人同步读取。会话内容接口在成员不存在时返回404，旧membership游标resetRequired。
-- 日志过期、缺口 >1000 或 cursor 过期返回 resetRequired，不静默跳过。重建响应在同一个数据库一致快照内返回当前会话/最新消息页、baselineChangeSeq、baselineUserSeq；后续从 baseline 补发期间发生的新变化。
-- GET /sync/heads 仅返回当前可访问的 id、membershipId、lastChangeSeq、userChangeSeq，不携带正文。前台 30 秒一次（抖动），重连/回前台立即做；客户端始终区分 observed 和 synced。
+- 日志过期（`after` 低于该会话的 `change_log_floor`）、`after` 大于当前头、缺口 >1000、cursor 无效或过期、membership 已换（退出重入）都返回 `resetRequired: true`，不静默跳过。重建响应的 `baseline` 在同一个数据库一致快照内返回当前会话、最新消息页（`messages`、`users`、`hasMoreBefore`）、`baselineChangeSeq`、`baselineUserSeq`；后续从 baseline 补发期间发生的新变化。个人日志（`GET /api/me/changes`）同理：重置时 `baseline` 是 `{me, conversations, baselineUserSeq}`。日志保留 7 天，清理在同一语句里推进下限（D-126）。
+- GET /sync/heads 仅返回 `{userChangeSeq, conversations: [{id, membershipId, lastChangeSeq, metadataVersion, membershipVersion, viewerVersion}]}`，只含当前可访问的会话，不携带正文；`metadataVersion` 落后就重取会话（D-125）。前台 30 秒一次（抖动），重连/回前台立即做；客户端始终区分 observed 和 synced。
 - 普通提示合并后尽快补拉（目标 50ms 批处理），尾事件目标 35 秒内收敛。无内容的事件不直接写消息缓存。
 - agent.delta 仅给通过 03 第 6 节批次授权的接收者。index 不连续就停止拼接，通过 GET /messages/:id 获取持久快照；每秒持久快照的 streamRevision 单调递增，最后完成事件同样走 message.changed。最终事件丢失由周期对账恢复。
 - 重新生成使用新的 runId，切换前核对消息当前绑定；旧 run 的迟到增量一律丢弃。审批暂停把当前段标 sent，下一 resumeSeq 创建新段。

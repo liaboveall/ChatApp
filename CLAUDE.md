@@ -28,7 +28,7 @@
 
 **安全**（完整要求见 docs/07）
 - HTTP/WS用户身份只从服务端session获取；后台用户操作用服务端签发的持久delegation并检查origin/授权世代/当前业务权限。请求体不能指定Principal或冒用userId（D-079）。
-- 所有与会话相关的读写都必须经过 `authorize()`；对无权访问的私有资源返回 404。
+- 所有与会话相关的读写都必须经过 `authorize()`（实现是 `domain/authorize.ts` 的 `decide` / `enforce`）；对无权访问的私有资源返回 404，且回答与「根本没有这个资源」逐字相同，按消息 id 的接口同理。新增任何会话、消息、同步或目录路由，必须同时在 `apps/server/test/security/conversation-matrix.test.ts` 加一行，否则测试失败（D-136）。
 - 消息可见性基础是当前成员且 seq > visible_from_seq；引用、预览、附件也逐项投影。普通 WS 无正文，流式每批复核授权与来源；共享 Agent 只读当前成员共同可见历史（D-057、D-060）。
 - WS 绑定 session，持久撤权+5 秒复核；业务写入在事务锁内复核授权。Better Auth method/path 默认拒绝、禁止代登，注册确认+验证才激活（D-057–D-059）。
 - 业务变更、同步日志和 work_items 同事务；Valkey 丢队列由独立 Postgres 扫描恢复。observed 不等于 synced（D-056）。
@@ -78,10 +78,10 @@
 - **已经可用**：
   - 环境与基础设施：`bun run setup` · `doctor`（加 `--ai` 可以检查 DeepSeek key）· `infra:up` / `infra:down` / `infra:ps` / `infra:logs` · `infra:bootstrap` · `infra:reset --yes`（会删除全部本地数据，执行前先征得用户同意）
   - 检查：`lint` / `lint:fix` · `typecheck`（所有工作区包，含 `apps/web`）· `guard`（含架构边界）· `check`（以上加单元测试、令牌对比度、文案一致性，不需要任何服务）
-  - 数据库（M1a）：`db:generate` / `db:check` · `db:migrate` / `db:migrate:test` · `db:bootstrap`（生产也可用）/ `db:bootstrap:test` · `db:seed`（仅开发）
+  - 数据库（M1a）：`db:generate` / `db:check` · `db:migrate` / `db:migrate:test` · `db:bootstrap`（生产也可用）/ `db:bootstrap:test` · `db:seed`（仅开发；M2a 起还会建演示会话和 59 条消息，幂等，开发库要先 `db:migrate`）
   - 后端（M1a）：`dev:api` · `dev:worker` · `admin:create`（密码在用户自己的终端输入）· `admin:verify-email`
-  - 测试（M1a）：`test:integration`（集成、安全、契约、实时；需要先 `infra:up`、`infra:bootstrap`、`db:migrate:test`）· `test` · `test:infra:up` / `test:infra:down <runId>` · `test:fault`（只在独立实例里做故障注入，D-085）· `smoke:backend`（对运行中的 api/worker 做真实进程验收走查，用法见脚本头部）
-  - 前端（M1b）：`dev`（api、worker、Vite 一起；`-- api web` 选进程）· `dev:web` · `build` · `storybook` · `web:messages`（生成文案，`-- --check` 只核对）· `test:e2e`（Playwright 对生产构建运行，需要先 `infra:up`、`infra:bootstrap`；**不能和集成测试同时跑**，共用测试库；第一次要装浏览器和系统库，见 docs/09 第 2 节）· `test:visual`（在 Playwright 官方镜像里比较 Storybook 截图，需要 Docker；`-- --update-snapshots` 重新生成基线）
+  - 测试（M1a）：`test:integration`（集成、安全、契约、实时；需要先 `infra:up`、`infra:bootstrap`、`db:migrate:test`；单个文件用 `bun --env-file=.env.local test ./apps/server/test/<目录>/<文件>`，要从仓库根目录运行）· `test` · `test:coverage`（集成类测试加 `domain/` 行覆盖率 ≥ 90% 的检查，D-142；和 `test:integration` 一样用测试库，不能同时跑）/ `coverage:check`（只检查已有的 lcov）· `test:infra:up` / `test:infra:down <runId>` · `test:fault`（只在独立实例里做故障注入，D-085；M2a 起含 AT-01/02 的杀进程、清空队列、总线断开；Docker Desktop 偶发的内部路径误报会自动重建实例，D-141）· `smoke:backend`（对运行中的 api/worker 做真实进程验收走查，M2a 起共 22 步，用法见脚本头部）
+  - 前端（M1b）：`dev`（api、worker、Vite 一起；`-- api web` 选进程）· `dev:web` · `build` · `storybook` · `web:messages`（生成文案，`-- --check` 只核对）· `test:e2e`（Playwright 对生产构建运行，需要先 `infra:up`、`infra:bootstrap`；**不能和集成测试同时跑**，共用测试库；第一次要装浏览器和系统库，见 docs/09 第 2 节；E2E 里模拟断线用 `e2e/support/network.ts` 的 `controlNetwork`，不要单独用 `context.setOffline`，它断不开已建立的 WebSocket，D-134；写 E2E 要先等页面到位再量、再填：点链接后地址栏先变而旧页面还在，量尺寸要等入场动画结束（`e2e/support/ui.ts` 的 `animationsFinished`），都不用加容差，D-143；用 `--repeat-each` 重复跑会撞管理员登录限流，分批、每批不超过 7 次）· `test:visual`（在 Playwright 官方镜像里比较 Storybook 截图，需要 Docker；`-- --update-snapshots` 重新生成基线）
   - 设计原型（D，见 `design/README.md`）：`design:build`（`-- --minify` 是发布版）· `design:contrast`（令牌对比度自查，脚本在 `apps/web/tools`）；用真实 Windows Edge 做的浏览器检查：`design/prototype/tools/browser-checks/run.sh <keyboard|layout|media|flows|audit>`
 - **以下命令到对应的里程碑才会创建，在那之前不要假定它们存在**：
   - M2b：`edge:up` / `edge:down`

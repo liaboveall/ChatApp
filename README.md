@@ -34,7 +34,7 @@ bun run dev              # api、worker 和前端一起启动；浏览器打开 
 
 也可以分开启动：`bun run dev:api`（http://127.0.0.1:3100/api/docs）、`bun run dev:worker`、`bun run dev:web`。管理员用 `bun run admin:create` 创建；邮件在 Mailpit（http://localhost:8025）里看。
 
-详见 [docs/09-local-dev.md](docs/09-local-dev.md)。后端骨架（M1a）已完成并验收；前端骨架（M1b：登录、注册、验证邮箱、找回密码、设置、应用外壳）已实现，等待验收；聊天功能从 M2 开始。路线图见 [docs/11-roadmap.md](docs/11-roadmap.md)。
+详见 [docs/09-local-dev.md](docs/09-local-dev.md)。后端骨架（M1a）已完成并验收；前端骨架（M1b：登录、注册、验证邮箱、找回密码、设置、应用外壳）已完成并验收；聊天功能的后端（M2a：会话、成员、消息、同步、实时提示、在线状态）已完成并验收；聊天界面（M2b）接下来做。路线图见 [docs/11-roadmap.md](docs/11-roadmap.md)。
 
 ## 文档
 

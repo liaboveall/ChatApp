@@ -133,7 +133,7 @@ Events: api/worker ──publish──▶ Valkey channel "events:{APP_ENV}" ─�
 │     ├─ src/http/               route modules (thin): me, users, invites, conversations,
 │     │                          members, bans, messages, search, uploads, attachments, agent,
 │     │                          notifications, push, reports, admin, health, test (APP_ENV=test only)
-│     ├─ src/realtime/           gateway, hub (Bun pub/sub behind an interface), topics,
+│     ├─ src/realtime/           gateway, hub (in-process maps, D-130), topics,
 │     │                          presence, typing, focus, event bus, session binding
 │     ├─ src/domain/             services + authorize() + visibility + policies (ONLY business logic)
 │     ├─ src/agent/              runtime, tools/, prompts/, memory/, keys/ (user key crypto),
@@ -238,10 +238,11 @@ media单任务执行，60秒到期终止整个进程组；OOM/重启由generatio
 - 不声称模型、邮件和外部推送恰好执行一次；未知模型调用保守计费并暂停自动续跑，避免无界重试。
 
 ### 5.6 在线状态
-1. **建立连接**：WebSocket 建立后，在 Valkey 中写入两份数据：
-   - `presence:conn:{connectionId}`：一个 hash，记录 userId、所在实例、活跃状态、过期时间；
-   - `presence:conns:{userId}`：一个有序集合，成员是连接 id，分数是过期时间。
-2. **续期**：心跳每 25 秒续期一次；`presence.activity` 更新这个连接的活跃状态。
+1. **建立连接**：WebSocket 建立后，在 Valkey 中写入（M2a 的实际做法，D-131）：
+   - 每个用户一个 hash `u:{userId}`：`c:{connectionId}` 是「活跃状态|到期时间」，`f:{connectionId}` 是该连接正在看的会话和是否在前台；
+   - 一个全局的有序集合，成员是 `用户|连接`，分数是到期时间，供清扫使用；
+   - 所有写入、续期、移除都是原子的 Lua 脚本，返回变化前后的汇总状态，只在汇总状态变化时才发 `presence`。
+2. **续期**：心跳每 25 秒续期一次，连接 90 秒不续期视为已死；`presence.activity` 更新这个连接的活跃状态。
 3. **汇总**：
    - 任意一个连接活跃，用户就是"在线"；
    - 有连接但都不活跃，是"离开"；
@@ -254,7 +255,8 @@ media单任务执行，60秒到期终止整个进程组；OOM/重启由generatio
 ### 5.7 加入、退出与授权世代
 - 加入持有会话锁，检查封禁并原子设置 visible_from_seq、last_read_seq、随机 membership_id；推进 conversations.membership_version。重复加入不重置可见水位。
 - 成员增加、移出、重新加入、角色/禁言变化、归档均推进权限版本，取消受影响的共享 Agent run，写 user_changes、成员提示和撤权 work_items。
-- 退订事件用于迅速刷新 UI，不承担最终授权。网关每批内容派发查询当前 session 和成员，查询失败停止派发；事件总线重连先重新读取本机连接的授权。
+- 退订事件用于迅速刷新 UI，不承担最终授权。网关每批内容派发查询当前 session 和成员，查询失败停止派发；事件总线重连先重新读取本机连接的授权（`EventBus.onReconnect`：ioredis 重新就绪后立即复核本机全部连接的会话和订阅，不等下一个 5 秒，D-139）。
+- **订阅刷新的一致性（D-137，AT-02）**：网关对每个人只保存一份「正在订阅的会话集合」和「该集合所对应的个人序号」，两者一起更新。对同一个人同一时刻只做一次读取；读取期间又来了新的提示（`user.changed`、`conversation.removed`、5 秒兜底），不并发再读，而是标记「可能过时」，读完后重读一次，所以真正被采用的读数一定是在最新提示之后才开始的，较早取到、较晚送达的旧读数不能覆盖较新的状态，也不会让已撤销的订阅复活。`conversation.removed` 的提示只有序号大于网关已掌握的才立即停止订阅（过时的移除提示，比如那个人已经重新加入，不会再把会话拿走）；读取失败不改变任何东西，由 5 秒兜底补上；读取进行中该人的最后一个连接已关闭的，读数丢弃，不会交给他的下一个连接。5 秒兜底、总线重连和事件提示都走同一条读取路径。
 
 ### 5.8 登录会话失效
 - 普通退出/到期只终止相关session及push绑定，不提升全账号auth_epoch；安全撤销按下表更新origin/epoch/委托并写持久撤销工作。改密保留当前session时，同事务刷新其epoch并换绑新的origin，旧origin仍撤销，避免新任务继承已撤销来源。认证适配须原子完成，不能靠事后hook撤权；独立扫描补齐关闭/取消通知。
