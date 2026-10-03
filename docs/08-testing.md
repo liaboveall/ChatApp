@@ -66,7 +66,7 @@
 | 工作流 | 什么时候跑 | 内容 |
 |---|---|---|
 | `check` | 每次 push 和 PR | 安装依赖 → Biome 检查 → TS 7 类型检查 → 单元测试（含前端 Vitest）→ 令牌对比度与文案一致性 → 依赖边界检查（03 第 3 节）→ `guard` 扫描禁用写法和被跟踪的密钥文件 → 构建前端 → 确认 `routeTree.gen.ts` 是最新的 → Storybook 构建 |
-| `integration` | 每个 PR | 真实 Postgres/Valkey/Garage/Mailpit → 空库及上一发布夹具升级 → bootstrap 幂等/旧版兼容 → drizzle-kit check → 集成、实时、安全与契约测试，并按第 7 节检查 `domain/`（和将来的 `agent/`）的行覆盖率（`bun run test:coverage`，M2a 起；本地通过，工作流尚未在远端运行）→ 故障矩阵（独立的 `fault` 作业） |
+| `integration` | 每个 PR | 真实 Postgres/Valkey/Garage/Mailpit → 空库及上一发布夹具升级 → bootstrap 幂等/旧版兼容 → drizzle-kit check → 集成、实时、安全与契约测试，并按第 7 节检查 `domain/`（和将来的 `agent/`）的行覆盖率（`bun run test:coverage`，M2a 起；本地通过，远端 `78e0cf5` 上第一次运行就通过）→ 故障矩阵（独立的 `fault` 作业） |
 | `e2e` | M1b 起每个目标为 v2/main 的 PR，以及每晚 | 构建并启动整个应用 → Playwright（Chromium 和 WebKit 全量，Firefox 冒烟）→ 无障碍检查 → 在 Playwright 官方镜像里做视觉截图对比。**M1b 已写好**（`e2e`、`visual` 两个作业，推送到 main/v2、PR、每晚和手动触发），2026-10-03 在 `d214415` 上首次远端运行成功（`e2e` 作业 106 通过 / 3 跳过，`visual` 作业 64 通过） |
 | `security` | 每个 PR 和每周一次 | gitleaks、osv-scanner；M7 起加上 trivy 扫描镜像 |
 | `eval` | 手动触发，以及每周一次 | Agent 评测，需要仓库密钥 `DEEPSEEK_API_KEY` |
@@ -97,7 +97,7 @@
 - 不设全局的覆盖率门槛。
 - `domain/`（尤其是 `authorize()`、可见性判断和各项策略）以及 `agent/` 里的策略、预算和副作用账本代码，行覆盖率要达到 90% 以上，由 CI 检查。
 - bun test 的覆盖率门槛只能设全局值，所以按目录的检查用一个小脚本读取 lcov 结果来完成。
-- **已实现（M2a，D-142）**：`bun run test:coverage` 跑服务端的单元、集成、安全、契约、实时测试，写出 `coverage/lcov.info`，再由 `scripts/coverage-check.ts` 按 `scripts/lib/coverage.ts` 里的门槛检查：`apps/server/src/domain/` ≥ 90%；`apps/server/src/agent/` ≥ 90%（目录还不存在时跳过，M4 起生效；存在却没有数据则失败）。退出码 0 通过、1 不达标（列出拖后腿的文件）、2 没有 lcov。`bun run coverage:check` 只检查已有的 lcov。脚本本身有单元测试。`integration` 工作流的集成作业调用它（工作流已改，**远端尚未运行过**）。测试文件、`test/` 目录和依赖不计入。故障测试（`test/fault/`）需要独立实例，不在这次覆盖率运行里。
+- **已实现（M2a，D-142）**：`bun run test:coverage` 跑服务端的单元、集成、安全、契约、实时测试，写出 `coverage/lcov.info`，再由 `scripts/coverage-check.ts` 按 `scripts/lib/coverage.ts` 里的门槛检查：`apps/server/src/domain/` ≥ 90%；`apps/server/src/agent/` ≥ 90%（目录还不存在时跳过，M4 起生效；存在却没有数据则失败）。退出码 0 通过、1 不达标（列出拖后腿的文件）、2 没有 lcov。`bun run coverage:check` 只检查已有的 lcov。脚本本身有单元测试。`integration` 工作流的集成作业调用它（远端 `78e0cf5` 上第一次运行就通过：595 个测试，`domain/` 99.28%）。测试文件、`test/` 目录和依赖不计入。故障测试（`test/fault/`）需要独立实例，不在这次覆盖率运行里。
 
 ## 8. 独立复审故障验收矩阵
 
