@@ -13,12 +13,14 @@ import {
   FAULT_SERVICES,
   type FaultManifest,
   type FaultService,
+  FaultTargetRejected,
   loadManifest,
   verifyFaultTarget,
 } from '../../apps/server/test/support/fault/manifest.ts'
 import { runBootstrap } from '../../packages/db/src/bootstrap.ts'
 import { createDatabase } from '../../packages/db/src/client.ts'
 import { runMigrations } from '../../packages/db/src/migrate.ts'
+import { retryWhile } from './retry.ts'
 
 export const RUNS_DIR = resolve('.test-runs')
 const COMPOSE_FILE = 'infra/compose.test.yml'
@@ -80,7 +82,26 @@ async function garage(runId: string, env: Record<string, string>, args: string[]
   return await compose(runId, ['exec', '-T', 'garage', '/garage', ...args], env)
 }
 
+/**
+ * Docker Desktop (WSL) reports an internal bind-mount path for a container now and then, right after it is created (about
+ * one instance in three on the development machine). The verification refuses it, rightly, and by the time that is
+ * thrown the half-started instance has been removed by its own project name. A fresh instance is the remedy (docs/09), so
+ * it is created again, a few times; any other rejection is final.
+ */
 export async function startInstance(): Promise<{ manifestPath: string; manifest: FaultManifest }> {
+  const attempts = 4
+  return await retryWhile(
+    attempts,
+    (error) => error instanceof FaultTargetRejected && error.transient,
+    () => startInstanceOnce(),
+    (next) =>
+      console.warn(
+        `the container engine reported an internal bind-mount path; creating the instance again (attempt ${next} of ${attempts})`,
+      ),
+  )
+}
+
+async function startInstanceOnce(): Promise<{ manifestPath: string; manifest: FaultManifest }> {
   const runId = hex(4)
   const project = expectedProject(runId)
   const dir = join(RUNS_DIR, runId)
@@ -239,6 +260,7 @@ export async function startInstance(): Promise<{ manifestPath: string; manifest:
         s3AccessKeyId: secrets.s3KeyId,
         s3SecretAccessKey: secrets.s3Secret,
         smtpPort: ports.smtp,
+        mailpitUiPort: ports.mailpitUi,
       },
       markers,
     }

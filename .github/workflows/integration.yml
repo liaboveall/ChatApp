@@ -35,8 +35,8 @@ jobs:
         run: |
           bun run db:bootstrap:test
           bun run db:bootstrap:test
-      - name: Integration, realtime, security and contract tests
-        run: bun run test:integration
+      - name: Integration, realtime, security and contract tests, then the line-coverage floor of domain/ (docs/08 section 7)
+        run: bun run test:coverage
       - name: Service logs
         if: failure()
         run: docker compose -f infra/compose.dev.yml --env-file .env.local logs --no-color --tail=200
