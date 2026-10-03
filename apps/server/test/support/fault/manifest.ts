@@ -33,14 +33,20 @@ export type FaultManifest = {
     s3AccessKeyId: string
     s3SecretAccessKey: string
     smtpPort: number
+    /** The instance's Mailpit web/API port, to read what the worker delivered (absent in manifests of older runs). */
+    mailpitUiPort?: number
   }
   markers: { postgres: string; valkey: string; garage: string }
 }
 
 export class FaultTargetRejected extends Error {
-  constructor(reason: string) {
+  /** The rejection comes from how the container engine reports a fresh instance, not from the target: a new one may verify. */
+  readonly transient: boolean
+
+  constructor(reason: string, options: { transient?: boolean } = {}) {
     super(`fault target rejected: ${reason}`)
     this.name = 'FaultTargetRejected'
+    this.transient = options.transient ?? false
   }
 }
 
@@ -107,6 +113,7 @@ export async function verifyFaultTarget(
           : ''
         throw new FaultTargetRejected(
           `${service}: bind mount outside the run directory (${mount.source})${hint}`,
+          { transient: mount.source.startsWith('/run/desktop/') },
         )
       }
     }

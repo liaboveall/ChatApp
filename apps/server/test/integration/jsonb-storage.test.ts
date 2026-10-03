@@ -1,5 +1,5 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, test } from 'bun:test'
-import { appSettings, auditLogs, users, workItems } from '@chatapp/db'
+import { appSettings, auditLogs, conversations, messages, users, workItems } from '@chatapp/db'
 import { eq, sql } from 'drizzle-orm'
 import { writeAudit } from '../../src/domain/audit.ts'
 import { enqueueWork } from '../../src/domain/work.ts'
@@ -25,6 +25,8 @@ beforeEach(async () => {
 const COVERED = [
   'app_settings.value',
   'audit_logs.metadata',
+  'conversations.settings',
+  'messages.meta',
   'users.settings',
   'work_items.payload',
 ]
@@ -102,6 +104,42 @@ describe('jsonb columns hold real JSON', () => {
     expect(await stored('app_settings', 'value', "key = 'k'")).toEqual([
       { type: 'object', b: 'again', role: null },
     ])
+  })
+
+  test('conversation settings and message meta written through Drizzle are objects SQL can read', async () => {
+    const user = await createActiveUser(makeDeps(dbs.owner.db), { username: 'meta_user' })
+    const [conversation] = await dbs.owner.db
+      .insert(conversations)
+      .values({
+        // An agent conversation: the deferred owner check applies to channels and groups only.
+        kind: 'agent',
+        name: 'jsonb',
+        ownerId: user.id,
+        createdBy: user.id,
+        settings: { whoCanInvite: 'admins_only', agentEnabled: false },
+      })
+      .returning({ id: conversations.id })
+    const conversationId = conversation?.id ?? ''
+    await dbs.owner.db.insert(messages).values({
+      conversationId,
+      seq: 1,
+      changeSeq: 1,
+      kind: 'system',
+      executionSource: 'system',
+      meta: { system: { type: 'member_left', userId: user.id } },
+    })
+    const settings = (await dbs.owner.db.execute(
+      sql.raw(
+        `select jsonb_typeof(settings) as type, settings->>'whoCanInvite' as who from conversations where id = '${conversationId}'`,
+      ),
+    )) as unknown as Array<{ type: string; who: string }>
+    expect(settings).toEqual([{ type: 'object', who: 'admins_only' }])
+    const meta = (await dbs.owner.db.execute(
+      sql.raw(
+        `select jsonb_typeof(meta) as type, meta->'system'->>'type' as event from messages where conversation_id = '${conversationId}'`,
+      ),
+    )) as unknown as Array<{ type: string; event: string }>
+    expect(meta).toEqual([{ type: 'object', event: 'member_left' }])
   })
 
   test('user settings, whether written by the database default or by an update, are objects', async () => {
