@@ -1,5 +1,7 @@
 /** WebSocket outer structure and close codes (docs/05 section 4). Writes never go over WebSocket. */
 import { z } from 'zod'
+import { presenceStatusSchema } from './enums.ts'
+import { LIMITS } from './limits.ts'
 
 export const WS_PROTOCOL_VERSION = 1
 
@@ -20,6 +22,11 @@ export const WS_CLOSE = {
   TRY_AGAIN_LATER: 1013,
 } as const
 
+/** Topics are routes chosen by the server from the current relations; naming one is never an authorization (SEC-03). */
+export const convTopic = (conversationId: string): string => `conv:${conversationId}`
+export const userTopic = (userId: string): string => `user:${userId}`
+export const presenceTopic = (userId: string): string => `presence:${userId}`
+
 const envelope = <T extends string, D extends z.ZodType>(type: T, data: D) =>
   z.object({
     v: z.literal(WS_PROTOCOL_VERSION),
@@ -27,6 +34,8 @@ const envelope = <T extends string, D extends z.ZodType>(type: T, data: D) =>
     topic: z.string().optional(),
     data,
   })
+
+const count = z.number().int().min(0)
 
 export const wsHelloSchema = envelope(
   'hello',
@@ -42,19 +51,93 @@ export const wsHelloSchema = envelope(
 export const wsPongSchema = envelope('pong', z.object({ serverTime: z.iso.datetime() }))
 export const wsErrorSchema = envelope('error', z.object({ code: z.string(), message: z.string() }))
 
+/**
+ * Ordinary events are hints without content: ids and versions only. The client reads what changed over HTTP, which
+ * projects it for that person (docs/03 section 6, SEC-27).
+ */
+export const wsMessageChangedSchema = envelope(
+  'message.changed',
+  z.object({ conversationId: z.uuid(), messageId: z.uuid(), changeSeq: count }),
+)
+/** Shared metadata (name, description, settings, member count, archive) of a conversation changed. */
+export const wsConversationChangedSchema = envelope(
+  'conversation.changed',
+  z.object({ conversationId: z.uuid(), metadataVersion: count }),
+)
+export const wsMemberChangedSchema = envelope(
+  'member.changed',
+  z.object({ conversationId: z.uuid(), membershipVersion: count }),
+)
+/** My own log has news: my conversations, my settings, my read position, messages I hid. */
+export const wsUserChangedSchema = envelope('user.changed', z.object({ userChangeSeq: count }))
+/** My membership in a conversation ended; the cache is cleared once a newer removal tombstone is confirmed. */
+export const wsConversationRemovedSchema = envelope(
+  'conversation.removed',
+  z.object({ conversationId: z.uuid(), userChangeSeq: count }),
+)
+export const wsTypingSchema = envelope(
+  'typing',
+  z.object({
+    conversationId: z.uuid(),
+    userId: z.uuid(),
+    state: z.enum(['start', 'stop']),
+    expiresInMs: count,
+  }),
+)
+
+export const presenceEntrySchema = z.object({
+  userId: z.uuid(),
+  status: presenceStatusSchema,
+  lastSeenAt: z.iso.datetime().nullable(),
+})
+export type PresenceEntry = z.infer<typeof presenceEntrySchema>
+
+export const wsPresenceSchema = envelope('presence', presenceEntrySchema)
+export const wsPresenceSnapshotSchema = envelope(
+  'presence.snapshot',
+  z.object({ users: z.array(presenceEntrySchema) }),
+)
+
 export const wsServerMessageSchema = z.discriminatedUnion('type', [
   wsHelloSchema,
   wsPongSchema,
   wsErrorSchema,
+  wsMessageChangedSchema,
+  wsConversationChangedSchema,
+  wsMemberChangedSchema,
+  wsUserChangedSchema,
+  wsConversationRemovedSchema,
+  wsTypingSchema,
+  wsPresenceSchema,
+  wsPresenceSnapshotSchema,
 ])
 export type WsServerMessage = z.infer<typeof wsServerMessageSchema>
 
-/** Client messages carry no topic. Later milestones add typing, presence and focus. */
+const clientEnvelope = <T extends string, D extends z.ZodType>(type: T, data: D) =>
+  z.object({ v: z.literal(WS_PROTOCOL_VERSION), type: z.literal(type), data })
+
+/** Client messages carry no topic (docs/05 section 4.3). */
 export const wsClientMessageSchema = z.discriminatedUnion('type', [
   z.object({
     v: z.literal(WS_PROTOCOL_VERSION),
     type: z.literal('ping'),
     data: z.object({}).default({}),
   }),
+  /** At most once per `typingMinIntervalMs` per conversation; ignored for conversations I am not in. */
+  clientEnvelope(
+    'typing',
+    z.object({ conversationId: z.uuid(), state: z.enum(['start', 'stop']) }),
+  ),
+  /** Replaces the whole set of people whose presence I follow; answered with a `presence.snapshot`. */
+  clientEnvelope(
+    'presence.watch',
+    z.object({ userIds: z.array(z.uuid()).max(LIMITS.presenceWatchMax) }),
+  ),
+  clientEnvelope('presence.activity', z.object({ state: z.enum(['active', 'idle']) })),
+  /** The conversation being looked at and whether the page is in the foreground; only ever suppresses notifications. */
+  clientEnvelope(
+    'focus',
+    z.object({ conversationId: z.uuid().nullable(), foreground: z.boolean() }),
+  ),
 ])
 export type WsClientMessage = z.infer<typeof wsClientMessageSchema>
