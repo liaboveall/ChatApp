@@ -22,6 +22,13 @@
       "when": 1790913121941,
       "tag": "0002_normalize_jsonb",
       "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "7",
+      "when": 1790970828946,
+      "tag": "0003_m2a_conversations",
+      "breakpoints": true
     }
   ]
 }
