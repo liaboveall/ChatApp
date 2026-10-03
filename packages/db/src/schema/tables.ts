@@ -1,10 +1,11 @@
 /**
- * M1a tables (docs/04 sections 1 and 11). Property names are camelCase; the connection and drizzle-kit use
- * `casing: 'snake_case'`, so columns are snake_case. Better Auth reads and writes the property names, so the
- * auth tables below must keep exactly the field names its schema declares (checked by a conformance test).
+ * M1a tables (docs/04 sections 1 and 11) and M2a tables (sections 2 and 3). Property names are camelCase; the connection
+ * and drizzle-kit use `casing: 'snake_case'`, so columns are snake_case. Better Auth reads and writes the property names,
+ * so the auth tables below must keep exactly the field names its schema declares (checked by a conformance test).
  *
  * All tables live in one module because users, sessions, origins and registrations reference each other.
  */
+import type { ConversationSettings, MessageMeta } from '@chatapp/contracts'
 import { sql } from 'drizzle-orm'
 import {
   type AnyPgColumn,
@@ -14,6 +15,7 @@ import {
   index,
   integer,
   pgTable,
+  primaryKey,
   smallint,
   text,
   timestamp,
@@ -24,11 +26,23 @@ import {
   accountSource,
   activationStatus,
   challengePurpose,
+  conversationChangeKind,
+  conversationKind,
+  conversationState,
   delegationPurpose,
   delegationStatus,
+  executionSource,
   idempotencyState,
+  memberRole,
+  messageKind,
+  messageStatus,
+  muteMode,
+  notifyLevel,
   originRevokeReason,
+  privacyClass,
   registrationStatus,
+  userChangeEntity,
+  userChangeOperation,
   userRole,
   workKind,
   workStatus,
@@ -69,6 +83,8 @@ export const users = pgTable(
     accountSource: accountSource().notNull().default('registration'),
     authEpoch: counter(),
     userChangeSeq: counter(),
+    /** Entries of user_changes up to this number were purged (retention); a client behind it must rebuild (D-126). */
+    changeLogFloor: counter(),
     profileVersion: bigint({ mode: 'number' }).notNull().default(1),
     meVersion: bigint({ mode: 'number' }).notNull().default(1),
     avatarAttachmentId: uuid(),
@@ -105,6 +121,10 @@ export const users = pgTable(
       sql`${t.storageUsedBytes} >= 0 and ${t.storageReservedBytes} >= 0 and (${t.storageQuotaBytes} is null or ${t.storageQuotaBytes} >= 0)`,
     ),
     check('users_epochs_nonneg', sql`${t.authEpoch} >= 0 and ${t.userChangeSeq} >= 0`),
+    check(
+      'users_change_floor_range',
+      sql`${t.changeLogFloor} >= 0 and ${t.changeLogFloor} <= ${t.userChangeSeq}`,
+    ),
     // INV-18: an active account has a verified email; only registrations carry a registration_id, from the first INSERT.
     check(
       'users_active_needs_verified_email',
@@ -484,5 +504,345 @@ export const idempotencyRecords = pgTable(
     uniqueIndex('idempotency_scope_uidx').on(t.actorKey, t.operation, t.targetKey, t.key),
     check('idempotency_key_length', sql`char_length(${t.key}) between 1 and 128`),
     index('idempotency_expires_idx').on(t.expiresAt),
+  ],
+)
+
+// ───────────────────────── conversations (M2a, docs/04 section 2) ─────────────────────────
+
+export const conversations = pgTable(
+  'conversations',
+  {
+    id: id(),
+    kind: conversationKind().notNull(),
+    /** null for direct messages; 1-50 characters otherwise. */
+    name: text(),
+    description: text(),
+    /** Plain id until attachments exist (M3, D-091). */
+    avatarAttachmentId: uuid(),
+    /** Owner of a channel or group (and, for an archived one, who may restore it); the Agent's owner in M4. */
+    ownerId: uuid().references(() => users.id, { onDelete: 'set null' }),
+    settings: jsonbValue<ConversationSettings>().notNull().default({}),
+    /** M4: the conversation an assistant panel is bound to. */
+    panelForConversationId: uuid().references((): AnyPgColumn => conversations.id, {
+      onDelete: 'cascade',
+    }),
+    /** Allocators: a new message takes last_seq + 1 and last_change_seq + 1 in one UPDATE (INV-01). */
+    lastSeq: counter(),
+    lastChangeSeq: counter(),
+    /** Name, description, avatar, settings, member count or archive state changed. */
+    metadataVersion: bigint({ mode: 'number' }).notNull().default(1),
+    /** Members, roles, silences or bans changed. */
+    membershipVersion: counter(),
+    lastMessageAt: ts(),
+    memberCount: integer().notNull().default(0),
+    archivedAt: ts(),
+    /** conversation_changes entries up to this number were purged (retention); older cursors reset (D-126). */
+    changeLogFloor: counter(),
+    createdBy: uuid()
+      .notNull()
+      .references(() => users.id),
+    createdAt: createdAt(),
+    updatedAt: updatedAt(),
+  },
+  (t) => [
+    check(
+      'conversations_name_by_kind',
+      sql`(${t.kind} = 'dm' and ${t.name} is null) or (${t.kind} <> 'dm' and ${t.name} is not null and char_length(${t.name}) between 1 and 200)`,
+    ),
+    check(
+      'conversations_description_length',
+      sql`${t.description} is null or char_length(${t.description}) <= 1000`,
+    ),
+    check('conversations_dm_has_no_owner', sql`${t.kind} <> 'dm' or ${t.ownerId} is null`),
+    check(
+      'conversations_panel_only_agent',
+      sql`${t.panelForConversationId} is null or ${t.kind} = 'agent'`,
+    ),
+    check(
+      'conversations_counters',
+      sql`${t.lastSeq} >= 0 and ${t.lastChangeSeq} >= ${t.lastSeq} and ${t.metadataVersion} >= 1 and ${t.membershipVersion} >= 0 and ${t.memberCount} >= 0 and ${t.changeLogFloor} >= 0 and ${t.changeLogFloor} <= ${t.lastChangeSeq}`,
+    ),
+    // Channel names are unique among live channels, ignoring case and full-width forms (docs/04, L-03). `NFKC` is a
+    // keyword of the SQL NORMALIZE syntax, not a string.
+    uniqueIndex('conversations_channel_name_uidx')
+      .on(sql`lower(normalize(${t.name}, NFKC))`)
+      .where(sql`${t.kind} = 'channel' and ${t.archivedAt} is null`),
+    index('conversations_kind_archived_idx').on(t.kind, t.archivedAt),
+    index('conversations_channel_name_trgm_idx')
+      .using('gin', t.name.op('gin_trgm_ops'))
+      .where(sql`${t.kind} = 'channel'`),
+    uniqueIndex('conversations_panel_uidx')
+      .on(t.ownerId, t.panelForConversationId)
+      .where(sql`${t.panelForConversationId} is not null`),
+    index('conversations_owner_archived_idx').on(t.ownerId).where(sql`${t.archivedAt} is not null`),
+  ],
+)
+
+/**
+ * Append-only log of message changes, one row per change_seq (docs/04, D-056). It holds identifiers and the kind of
+ * change, never content; `message_id` has no foreign key so a removed message leaves a tombstone instead of a hole.
+ */
+export const conversationChanges = pgTable(
+  'conversation_changes',
+  {
+    conversationId: uuid()
+      .notNull()
+      .references(() => conversations.id, { onDelete: 'cascade' }),
+    changeSeq: bigint({ mode: 'number' }).notNull(),
+    messageId: uuid(),
+    kind: conversationChangeKind().notNull(),
+    createdAt: createdAt(),
+  },
+  (t) => [
+    primaryKey({ columns: [t.conversationId, t.changeSeq] }),
+    check('conversation_changes_seq_positive', sql`${t.changeSeq} >= 1`),
+    index('conversation_changes_created_idx').on(t.createdAt),
+  ],
+)
+
+/** The same for one person: memberships, roles, preferences, read position, hidden messages, own profile. */
+export const userChanges = pgTable(
+  'user_changes',
+  {
+    userId: uuid()
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    changeSeq: bigint({ mode: 'number' }).notNull(),
+    entityType: userChangeEntity().notNull(),
+    entityId: uuid().notNull(),
+    operation: userChangeOperation().notNull(),
+    createdAt: createdAt(),
+  },
+  (t) => [
+    primaryKey({ columns: [t.userId, t.changeSeq] }),
+    check('user_changes_seq_positive', sql`${t.changeSeq} >= 1`),
+    index('user_changes_created_idx').on(t.createdAt),
+  ],
+)
+
+/**
+ * A person's relation to a conversation, including the tombstone of one that ended (docs/04, D-082). There is no foreign
+ * key to the conversation: the tombstone must outlive it. `viewer_version` is the user_change_seq of the last change.
+ */
+export const userConversationStates = pgTable(
+  'user_conversation_states',
+  {
+    userId: uuid()
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    conversationId: uuid().notNull(),
+    membershipId: uuid(),
+    state: conversationState().notNull().default('active'),
+    viewerVersion: counter(),
+    updatedAt: updatedAt(),
+  },
+  (t) => [
+    primaryKey({ columns: [t.userId, t.conversationId] }),
+    check('user_conversation_states_version_nonneg', sql`${t.viewerVersion} >= 0`),
+    index('user_conversation_states_conversation_idx').on(t.conversationId),
+    index('user_conversation_states_removed_idx')
+      .on(t.updatedAt)
+      .where(sql`${t.state} = 'removed'`),
+  ],
+)
+
+/** One direct message per pair of people (INV-04): the smaller user id is `user_low`. */
+export const dmPairs = pgTable(
+  'dm_pairs',
+  {
+    userLow: uuid()
+      .notNull()
+      .references(() => users.id),
+    userHigh: uuid()
+      .notNull()
+      .references(() => users.id),
+    conversationId: uuid()
+      .notNull()
+      .unique('dm_pairs_conversation_id_unique')
+      .references(() => conversations.id, { onDelete: 'cascade' }),
+  },
+  (t) => [
+    primaryKey({ columns: [t.userLow, t.userHigh] }),
+    check('dm_pairs_ordered', sql`${t.userLow} < ${t.userHigh}`),
+    index('dm_pairs_high_idx').on(t.userHigh),
+  ],
+)
+
+export const conversationMembers = pgTable(
+  'conversation_members',
+  {
+    conversationId: uuid()
+      .notNull()
+      .references(() => conversations.id, { onDelete: 'cascade' }),
+    userId: uuid()
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    role: memberRole().notNull().default('member'),
+    joinedAt: createdAt(),
+    /** New for every join, never reused after leaving (D-082). */
+    membershipId: uuid()
+      .notNull()
+      .unique('conversation_members_membership_id_unique')
+      .default(sql`uuidv7()`),
+    /** Mirrors user_conversation_states.viewer_version; role and silence changes move it too. */
+    stateVersion: counter(),
+    /** Messages with seq above this are visible to the member (D-035, INV-09). */
+    visibleFromSeq: counter(),
+    /** Only moves forward: GREATEST(old, new) (INV-08). */
+    lastReadSeq: counter(),
+    /** Written by the creating transaction: groups and channels default to mentions, direct messages to all. */
+    notifyLevel: notifyLevel().notNull(),
+    muteMode: muteMode().notNull().default('off'),
+    mutedUntil: ts(),
+    /** Cannot send before this time; always finite. */
+    silencedUntil: ts(),
+    pinnedAt: ts(),
+    hiddenAt: ts(),
+  },
+  (t) => [
+    primaryKey({ columns: [t.conversationId, t.userId] }),
+    check(
+      'conversation_members_seq_order',
+      sql`${t.visibleFromSeq} >= 0 and ${t.lastReadSeq} >= ${t.visibleFromSeq} and ${t.stateVersion} >= 0`,
+    ),
+    // Only `until` carries a time, and it is always finite (D-088, INV-30).
+    check(
+      'conversation_members_mute_pair',
+      sql`(${t.muteMode} = 'until') = (${t.mutedUntil} is not null)`,
+    ),
+    index('conversation_members_user_idx').on(t.userId),
+    // At most one owner per conversation (INV-23); the deferred trigger in migration 0003 checks that there is one.
+    uniqueIndex('conversation_members_one_owner_uidx')
+      .on(t.conversationId)
+      .where(sql`${t.role} = 'owner'`),
+  ],
+)
+
+export const conversationBans = pgTable(
+  'conversation_bans',
+  {
+    conversationId: uuid()
+      .notNull()
+      .references(() => conversations.id, { onDelete: 'cascade' }),
+    userId: uuid()
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    bannedBy: uuid().references(() => users.id, { onDelete: 'set null' }),
+    reason: text(),
+    createdAt: createdAt(),
+  },
+  (t) => [
+    primaryKey({ columns: [t.conversationId, t.userId] }),
+    check(
+      'conversation_bans_reason_length',
+      sql`${t.reason} is null or char_length(${t.reason}) <= 400`,
+    ),
+    index('conversation_bans_user_idx').on(t.userId),
+  ],
+)
+
+/** Invitation links of a group (docs/01 section 4.2): only the hash of the code is stored. */
+export const conversationInvites = pgTable(
+  'conversation_invites',
+  {
+    id: id(),
+    conversationId: uuid()
+      .notNull()
+      .references(() => conversations.id, { onDelete: 'cascade' }),
+    codeHash: text().notNull().unique('conversation_invites_code_hash_unique'),
+    createdBy: uuid()
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    /** null = unlimited. */
+    maxUses: integer(),
+    useCount: integer().notNull().default(0),
+    expiresAt: ts().notNull(),
+    revokedAt: ts(),
+    createdAt: createdAt(),
+  },
+  (t) => [
+    check(
+      'conversation_invites_use_count_range',
+      sql`${t.useCount} >= 0 and (${t.maxUses} is null or ${t.useCount} <= ${t.maxUses})`,
+    ),
+    check('conversation_invites_max_uses_positive', sql`${t.maxUses} is null or ${t.maxUses} >= 1`),
+    index('conversation_invites_conversation_idx').on(t.conversationId),
+    index('conversation_invites_creator_idx').on(t.createdBy, t.conversationId),
+  ],
+)
+
+// ───────────────────────── messages (M2a, docs/04 section 3) ─────────────────────────
+
+export const messages = pgTable(
+  'messages',
+  {
+    id: id(),
+    conversationId: uuid()
+      .notNull()
+      .references(() => conversations.id, { onDelete: 'cascade' }),
+    /** Assigned at creation and never changed. */
+    seq: bigint({ mode: 'number' }).notNull(),
+    /** Assigned at the latest change; moves with every edit, recall and deletion (INV-02). */
+    changeSeq: bigint({ mode: 'number' }).notNull(),
+    /** null for system messages; the bot user for Agent messages. */
+    senderId: uuid().references(() => users.id),
+    kind: messageKind().notNull(),
+    status: messageStatus().notNull().default('sent'),
+    /** Markdown; null once recalled or deleted. */
+    body: text(),
+    replyToId: uuid().references((): AnyPgColumn => messages.id, { onDelete: 'set null' }),
+    /** The sender's stable key for this message and the fingerprint of the first request (INV-03, D-066). */
+    clientId: uuid(),
+    requestHash: text(),
+    /** Body semantics (edits) and streamed snapshots (M4). */
+    contentVersion: bigint({ mode: 'number' }).notNull().default(1),
+    streamRevision: counter(),
+    /** Set by the trusted entry point; only `interactive` moves a person's read position (D-083, INV-28). */
+    executionSource: executionSource().notNull(),
+    privacyClass: privacyClass().notNull().default('standard'),
+    contextEpoch: uuid(),
+    meta: jsonbValue<MessageMeta>().notNull().default({}),
+    editedAt: ts(),
+    recalledAt: ts(),
+    deletedAt: ts(),
+    deletedBy: uuid().references(() => users.id, { onDelete: 'set null' }),
+    createdAt: createdAt(),
+  },
+  (t) => [
+    uniqueIndex('messages_conversation_seq_uidx').on(t.conversationId, t.seq),
+    index('messages_conversation_change_idx').on(t.conversationId, t.changeSeq),
+    uniqueIndex('messages_sender_client_uidx')
+      .on(t.senderId, t.clientId)
+      .where(sql`${t.clientId} is not null`),
+    index('messages_reply_to_idx').on(t.replyToId).where(sql`${t.replyToId} is not null`),
+    check('messages_sender_unless_system', sql`${t.kind} = 'system' or ${t.senderId} is not null`),
+    check('messages_body_length', sql`${t.body} is null or char_length(${t.body}) <= 20000`),
+    check('messages_seq_order', sql`${t.seq} >= 1 and ${t.changeSeq} >= ${t.seq}`),
+    // A recalled or deleted message keeps no content (INV-06); at most one of the two ends it.
+    check(
+      'messages_cleared_when_gone',
+      sql`(${t.recalledAt} is null and ${t.deletedAt} is null) or ${t.body} is null`,
+    ),
+    check('messages_one_ending', sql`${t.recalledAt} is null or ${t.deletedAt} is null`),
+    check('messages_deleted_by_pair', sql`(${t.deletedAt} is null) = (${t.deletedBy} is null)`),
+    check('messages_versions_nonneg', sql`${t.contentVersion} >= 1 and ${t.streamRevision} >= 0`),
+  ],
+)
+
+/** "Delete for me": a view preference, not a withdrawal of the reader's access (docs/04). */
+export const messageHidden = pgTable(
+  'message_hidden',
+  {
+    userId: uuid()
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    messageId: uuid()
+      .notNull()
+      .references(() => messages.id, { onDelete: 'cascade' }),
+    hiddenAt: createdAt(),
+  },
+  (t) => [
+    primaryKey({ columns: [t.userId, t.messageId] }),
+    index('message_hidden_message_idx').on(t.messageId),
   ],
 )
