@@ -837,7 +837,7 @@ Base UI 提供无障碍的交互原语（菜单、弹窗、焦点管理等）；
 
 **D-142 按目录的覆盖率检查（落实 08 第 7 节）**
 - `bun run test:coverage`：跑服务端的单元、集成、安全、契约、实时测试并写出 `coverage/lcov.info`，然后 `bun scripts/coverage-check.ts coverage/lcov.info`；`bun run coverage:check` 只检查已有的 lcov。规则在 `scripts/lib/coverage.ts`：`apps/server/src/domain/` 行覆盖率 ≥ 90%；`apps/server/src/agent/` ≥ 90%，目录还不存在（M4 才有）时跳过，目录存在却没有数据则失败。退出码：通过 0，有一项不达标 1，没有 lcov 文件 2。纯函数有单元测试（`scripts/lib/coverage.test.ts`，含刚好低于门槛的组合与缺数据的情形）。
-- 接进 CI：`integration` 工作流的集成作业改用 `bun run test:coverage`。**这个工作流改动没有在远端运行过**。
+- 接进 CI：`integration` 工作流的集成作业改用 `bun run test:coverage`；远端 `78e0cf5` 上第一次运行就通过（595 个测试，`domain/` 99.28%，`agent/` 按规则跳过）。
 
 **D-143 E2E：先等页面到位再量、再填（WebKit 失败与「找回密码」偶发失败的根因，没有放宽任何断言）**
 - **WebKit 侧栏宽度测得 340.000061，断言要求 ≤ 340**：入场动画（`inspector-in`，transform）期间，Chromium 和 WebKit 的 `getBoundingClientRect` 宽度有 ±2⁻¹⁴ 的抖动；按帧探测三个引擎得到这个证据。原用例在动画期间量，WebKit 约 1/8 概率失败。**修复**：`e2e/support/ui.ts` 的 `animationsFinished(locator)`，等元素的全部动画 `finished` 之后再量；断言不变（真正的横向溢出仍会被抓到），没有加容差；修复后同一用例在 WebKit 连续 16 次通过。
