@@ -1,6 +1,6 @@
 import { createVerifiedMember } from './support/api.ts'
 import { expect, newContext, test } from './support/fixtures.ts'
-import { openSettings, signIn } from './support/ui.ts'
+import { animationsFinished, openSettings, signIn } from './support/ui.ts'
 
 /** The app shell (docs/02 sections 3, 4, 7; M1b): shortcuts, appearance, time zone, layout tiers, keyboard access. */
 
@@ -260,6 +260,8 @@ test.describe('layout', () => {
     await page.keyboard.press('Control+j')
     const inspector = page.getByRole('complementary', { name: '详情与助手' })
     await expect(inspector).toBeVisible()
+    // It slides in: measure the panel where it comes to rest, not a frame of the entrance.
+    await animationsFinished(inspector)
     const after = await main.boundingBox()
     expect(after?.width).toBe(before?.width)
     expect((await inspector.boundingBox())?.width).toBeLessThanOrEqual(340)

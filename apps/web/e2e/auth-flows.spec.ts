@@ -163,6 +163,10 @@ test.describe('password reset', () => {
 
     await page.goto('/login')
     await page.getByRole('link', { name: '忘记密码？' }).click()
+    // The address changes while the old page is still on screen (the new route's script is fetched first), and the sign-in
+    // form has an «邮箱» field too: without waiting for the new page the address is typed into the form that is about to
+    // be replaced, and the reset form is submitted empty.
+    await expect(page.getByRole('heading', { name: '找回密码' })).toBeVisible()
     await page.getByLabel('邮箱').fill(person.email)
     await page.getByRole('button', { name: '发送重置邮件' }).click()
     await expect(page.getByRole('heading', { name: '检查你的邮箱' })).toBeVisible()
