@@ -37,4 +37,6 @@ export type Services = {
   isReady: () => Promise<boolean>
   /** Best-effort hint that work was committed, so the dispatcher scans now instead of at its next tick. */
   wake: () => void
+  /** The WebSocket gateway of this process, once it exists; only the test routes reach into it (V-14). */
+  realtime?: { disconnect(options: { userId?: string; code?: number }): number }
 }

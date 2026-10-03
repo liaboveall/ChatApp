@@ -1,6 +1,10 @@
 /** Periodic scans straight from Postgres (docs/03 section 7): reconcile every minute, cleanup every ten. None depends on the queue. */
 import type { Deps } from '../domain/deps.ts'
-import { purgeExpiredRecords, purgeSessionsAndOrigins } from '../domain/maintenance.ts'
+import {
+  purgeExpiredRecords,
+  purgeSessionsAndOrigins,
+  purgeSyncLogs,
+} from '../domain/maintenance.ts'
 import { reconcileRegistrations } from '../domain/registration.ts'
 import { purgeFinishedWork, recoverExpiredWork, workBacklog } from '../domain/work-queue.ts'
 import { describeError, type Logger } from '../lib/logger.ts'
@@ -48,10 +52,12 @@ export function createMaintenance(parts: {
     const finished = await purgeFinishedWork(deps)
     const sessions = await purgeSessionsAndOrigins(deps)
     const expired = await purgeExpiredRecords(deps)
+    const logs = await purgeSyncLogs(deps)
     const total =
       finished +
       Object.values(sessions).reduce((a, b) => a + b, 0) +
-      Object.values(expired).reduce((a, b) => a + b, 0)
+      Object.values(expired).reduce((a, b) => a + b, 0) +
+      Object.values(logs).reduce((a, b) => a + b, 0)
     if (total > 0) log.info('cleanup.done', { count: total })
   })
 

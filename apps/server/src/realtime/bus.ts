@@ -11,6 +11,12 @@ export interface EventBus {
   publish(event: BusEvent): Promise<void>
   /** Returns an unsubscribe function. */
   subscribe(handler: (event: BusEvent) => void): Promise<() => Promise<void>>
+  /**
+   * Calls `listener` each time the subscribing connection is re-established after it was lost (not for the first
+   * connection). Everything published while it was away is gone, so this is the moment to look at the database again
+   * (docs/03 section 5.7). Returns a function that stops listening.
+   */
+  onReconnect(listener: () => void): () => void
 }
 
 export function createEventBus(parts: {
@@ -44,6 +50,18 @@ export function createEventBus(parts: {
       return async () => {
         parts.subscriber.off('message', listener)
         await parts.subscriber.unsubscribe(parts.channel).catch(() => undefined)
+      }
+    },
+    onReconnect: (listener) => {
+      // `ready` fires for the first connection too; only the ones after it are a return.
+      let connectedBefore = parts.subscriber.status === 'ready'
+      const onReady = () => {
+        if (connectedBefore) listener()
+        connectedBefore = true
+      }
+      parts.subscriber.on('ready', onReady)
+      return () => {
+        parts.subscriber.off('ready', onReady)
       }
     },
   }

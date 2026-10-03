@@ -12,10 +12,14 @@ import { securityHeaders } from './middleware/security-headers.ts'
 import { wakeOnWrite } from './middleware/wake-on-write.ts'
 import { createErrorHandler, errorResponse } from './responses.ts'
 import { authRoutes } from './routes/auth.ts'
+import { conversationRoutes } from './routes/conversations.ts'
 import { healthRoutes } from './routes/health.ts'
 import { inviteRoutes } from './routes/invites.ts'
 import { meRoutes } from './routes/me.ts'
+import { memberRoutes } from './routes/members.ts'
+import { messageRoutes } from './routes/messages.ts'
 import { testRoutes } from './routes/test.ts'
+import { userRoutes } from './routes/users.ts'
 
 const DOCS_CSP =
   "default-src 'none'; script-src https://cdn.jsdelivr.net 'unsafe-inline'; style-src 'unsafe-inline' https://cdn.jsdelivr.net; " +
@@ -58,9 +62,18 @@ export function createApp(services: Services, options: AppOptions = {}): OpenAPI
   authRoutes(app, services)
   inviteRoutes(app, services)
   meRoutes(app, services)
+  userRoutes(app, services)
+  conversationRoutes(app, services)
+  memberRoutes(app, services)
+  messageRoutes(app, services)
 
   const clock = services.deps.clock
-  if (services.config.env === 'test' && clock instanceof ManualClock) testRoutes(app, clock)
+  if (services.config.env === 'test') {
+    testRoutes(app, {
+      clock: clock instanceof ManualClock ? clock : undefined,
+      realtime: () => services.realtime,
+    })
+  }
 
   app.openAPIRegistry.registerComponent('securitySchemes', 'cookieAuth', {
     type: 'apiKey',

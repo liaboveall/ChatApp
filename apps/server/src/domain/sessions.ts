@@ -101,15 +101,39 @@ export async function resolveSessionPrincipal(
 }
 
 /**
+ * Locks user rows in id order, in one statement, so two transactions that name the same people can never wait for each
+ * other (docs/03 section 5.1: users first, sorted by UUID). Ids that do not exist are simply absent from the result.
+ */
+export async function lockUsers(tx: Tx, userIds: readonly string[]): Promise<UserRow[]> {
+  const ids = [...new Set(userIds)].sort()
+  if (ids.length === 0) return []
+  return await tx
+    .select()
+    .from(users)
+    .where(inArray(users.id, ids))
+    .orderBy(asc(users.id))
+    .for('update')
+}
+
+/**
  * First step of every write on behalf of a session: lock the user row, then re-check that the principal is still
  * current. A security revocation that committed earlier makes this fail; one that starts later waits for the lock.
+ * `alsoLock` names other people the operation changes (it allocates their personal sequence numbers): they are locked
+ * together with the actor, in id order, before anything else.
  */
 export async function lockAndRevalidate(
   tx: Tx,
   deps: Pick<Deps, 'clock' | 'config'>,
   principal: SessionPrincipal,
+  options: { alsoLock?: readonly string[] } = {},
 ): Promise<UserRow> {
-  const [user] = await tx.select().from(users).where(eq(users.id, principal.userId)).for('update')
+  const alsoLock = options.alsoLock ?? []
+  const user =
+    alsoLock.length === 0
+      ? (await tx.select().from(users).where(eq(users.id, principal.userId)).for('update'))[0]
+      : (await lockUsers(tx, [principal.userId, ...alsoLock])).find(
+          (row) => row.id === principal.userId,
+        )
   const now = deps.clock.now()
   if (!user || !accountAllowsSession(user, now) || user.authEpoch !== principal.authEpoch) {
     throw new AppError('UNAUTHENTICATED', 'Session is no longer valid')

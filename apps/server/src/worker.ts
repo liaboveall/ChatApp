@@ -11,12 +11,14 @@ import type { Deps } from './domain/deps.ts'
 import { createDispatcher } from './jobs/dispatcher.ts'
 import { createEmailWorker } from './jobs/email.ts'
 import { createMaintenance } from './jobs/maintenance.ts'
+import { createPresenceSweeper } from './jobs/presence.ts'
 import { DEFAULT_JOB_OPTIONS, QUEUE, queuePrefix, type WorkJobData } from './jobs/queues.ts'
 import { createSmtpMailer } from './jobs/smtp.ts'
 import { systemClock } from './lib/clock.ts'
 import { createLogger, describeError } from './lib/logger.ts'
 import { createBullConnection, createValkey } from './lib/valkey.ts'
 import { createEventBus } from './realtime/bus.ts'
+import { createPresenceStore } from './realtime/presence.ts'
 import { uuidv7 } from './runtime/ids.ts'
 import { assertDatabaseReady } from './startup.ts'
 
@@ -50,6 +52,7 @@ async function main(): Promise<void> {
       timezone: config.timezone,
       auth: {
         tokenEncryptionKey: config.auth.tokenEncryptionKey,
+        cursorKey: config.auth.cursorKey,
         restoreEpoch: config.auth.restoreEpoch,
       },
       product: config.product,
@@ -74,12 +77,19 @@ async function main(): Promise<void> {
     environment: config.env,
   })
   const maintenance = createMaintenance({ deps, log })
+  const presence = createPresenceSweeper({
+    deps,
+    store: createPresenceStore(valkey, `presence:${config.env}`),
+    bus,
+    log,
+  })
 
   await bus.subscribe((event) => {
     if (event.type === 'work.wake') dispatcher.wake()
   })
   dispatcher.start()
   maintenance.start()
+  presence.start()
   log.info('worker.started', { reason: config.env })
 
   let stopping = false
@@ -89,6 +99,7 @@ async function main(): Promise<void> {
     log.info('worker.stopping')
     await dispatcher.stop()
     await maintenance.stop()
+    await presence.stop()
     await emailWorker.close()
     await emailQueue.close()
     queueConnection.disconnect()

@@ -3,6 +3,7 @@
  * `loadConfig` is pure: entry points pass `process.env`, tests pass a literal. Failures list the variable names and
  * the reason, never the values.
  */
+import { createHmac } from 'node:crypto'
 import { timezoneSchema } from '@chatapp/contracts'
 import { z } from 'zod'
 import { parseTrustedProxies } from '../lib/ip.ts'
@@ -36,6 +37,8 @@ export type Config = {
     secret: string
     /** 32 raw bytes encrypting one-time credentials awaiting delivery (D-076). */
     tokenEncryptionKey: Uint8Array
+    /** 32 raw bytes signing sync cursors: HMAC of a fixed label under the auth secret, so it needs no new secret (D-126). */
+    cursorKey: Uint8Array
     restoreEpoch: string
   }
   smtp: {
@@ -233,6 +236,9 @@ export function loadConfig(source: Record<string, string | undefined>): Config {
     auth: {
       secret: raw.BETTER_AUTH_SECRET,
       tokenEncryptionKey: tokenKey,
+      cursorKey: new Uint8Array(
+        createHmac('sha256', raw.BETTER_AUTH_SECRET).update('chatapp:cursor:v1').digest(),
+      ),
       restoreEpoch: raw.RESTORE_EPOCH,
     },
     smtp: {

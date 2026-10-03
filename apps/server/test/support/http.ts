@@ -60,6 +60,8 @@ export async function createTestApp(
     log?: Logger
     /** For example `{ env: 'production' }` to inspect what a production app registers. */
     config?: Partial<ReturnType<typeof testConfig>>
+    /** Another Valkey than the shared test one (rate limits live there): the isolated instance of the fault suite. */
+    valkeyUrl?: string
   } = {},
 ): Promise<TestApp> {
   const config = testConfig()
@@ -71,7 +73,7 @@ export async function createTestApp(
       destination: { write: (chunk: string) => void logs.push(chunk) },
     })
   const deps = makeDeps(dbs.app.db, { log })
-  const valkey = await createValkey(config.valkeyUrl, 'test-http')
+  const valkey = await createValkey(options.valkeyUrl ?? config.valkeyUrl, 'test-http')
   const runId = Math.random().toString(36).slice(2)
   const services: Services = {
     config: { ...config, origin: TEST_ORIGIN, ...options.config },
@@ -116,8 +118,13 @@ export async function createTestApp(
     request,
     newJar: () => new Map(),
     close: async () => {
-      const keys = await valkey.keys(`rl:test-http-${runId}:*`)
-      if (keys.length > 0) await valkey.del(...keys)
+      try {
+        const keys = await valkey.keys(`rl:test-http-${runId}:*`)
+        if (keys.length > 0) await valkey.del(...keys)
+      } catch {
+        // Valkey is away or has only just returned (a fault test took it down): the counters carry their own expiry and
+        // belong to this run alone, so leaving them is harmless, and a test must not fail on its own tidying up.
+      }
       valkey.disconnect()
     },
   }

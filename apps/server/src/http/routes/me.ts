@@ -19,6 +19,7 @@ import {
 } from '../../domain/sessions.ts'
 import type { HttpEnv, Services } from '../context.ts'
 import { principalOf, requireSession } from '../middleware/session.ts'
+import { POLICIES } from '../policies.ts'
 
 const errors = {
   401: {
@@ -126,9 +127,13 @@ export function meRoutes(app: OpenAPIHono<HttpEnv>, services: Services): void {
     return c.json(me, 200)
   })
 
-  app.openapi(patchMeRoute, async (c) =>
-    c.json(await updateMe(services.deps, principalOf(c), c.req.valid('json')), 200),
-  )
+  app.openapi(patchMeRoute, async (c) => {
+    const principal = principalOf(c)
+    await services.limiter.enforce([
+      { policy: POLICIES.profileUpdateUser, subject: principal.userId },
+    ])
+    return c.json(await updateMe(services.deps, principal, c.req.valid('json')), 200)
+  })
 
   app.openapi(listDevicesRoute, async (c) => {
     const devices = await listDevices(services.deps, principalOf(c))

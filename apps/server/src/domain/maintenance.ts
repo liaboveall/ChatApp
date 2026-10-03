@@ -6,14 +6,16 @@ import { LIMITS } from '@chatapp/contracts'
 import {
   authChallenges,
   authorizationOrigins,
+  conversationInvites,
   executionDelegations,
   idempotencyRecords,
   registrationInviteUses,
   sessions,
+  userConversationStates,
   usernameReservations,
   verifications,
 } from '@chatapp/db'
-import { and, inArray, isNull, lt, notExists, or, sql } from 'drizzle-orm'
+import { and, eq, inArray, isNull, lt, notExists, or, sql } from 'drizzle-orm'
 import type { Deps } from './deps.ts'
 
 const DAY_MS = 86_400_000
@@ -86,6 +88,72 @@ export async function purgeSessionsAndOrigins(deps: Deps): Promise<MaintenanceRe
     sessionsExpired: expired.length,
     delegationsPurged: oldDelegations.length,
     originsPurged: origins.length,
+  }
+}
+
+/**
+ * The sync logs keep seven days (docs/04 section 10). Purging records how far each log was cut, in the same statement as
+ * the delete: a client whose position is below that floor can no longer be replayed and is told to rebuild (D-126). Left
+ * conversations keep their tombstone for as long as any cursor could refer to it, then it goes too.
+ */
+export async function purgeSyncLogs(deps: Deps): Promise<MaintenanceResult> {
+  const now = deps.clock.now()
+  const cutoff = new Date(now.getTime() - LIMITS.changeLogRetentionDays * DAY_MS)
+  const conversationRows = await deps.db.execute<{ id: string }>(sql`
+    with purged as (
+      delete from conversation_changes
+      where (conversation_id, change_seq) in (
+        select conversation_id, change_seq from conversation_changes where created_at < ${cutoff} limit ${BATCH * 5}
+      )
+      returning conversation_id, change_seq
+    ), tops as (
+      select conversation_id, max(change_seq) as top from purged group by conversation_id
+    )
+    update conversations c set change_log_floor = greatest(c.change_log_floor, tops.top)
+    from tops where c.id = tops.conversation_id
+    returning c.id
+  `)
+  const userRows = await deps.db.execute<{ id: string }>(sql`
+    with purged as (
+      delete from user_changes
+      where (user_id, change_seq) in (
+        select user_id, change_seq from user_changes where created_at < ${cutoff} limit ${BATCH * 5}
+      )
+      returning user_id, change_seq
+    ), tops as (
+      select user_id, max(change_seq) as top from purged group by user_id
+    )
+    update users u set change_log_floor = greatest(u.change_log_floor, tops.top)
+    from tops where u.id = tops.user_id
+    returning u.id
+  `)
+  const tombstones = await deps.db
+    .delete(userConversationStates)
+    .where(
+      and(
+        eq(userConversationStates.state, 'removed'),
+        lt(
+          userConversationStates.updatedAt,
+          new Date(now.getTime() - LIMITS.removedStateRetentionDays * DAY_MS),
+        ),
+      ),
+    )
+    .returning({ conversationId: userConversationStates.conversationId })
+  // Links that ended long ago are only clutter.
+  const links = await deps.db
+    .delete(conversationInvites)
+    .where(
+      or(
+        lt(conversationInvites.expiresAt, new Date(now.getTime() - 30 * DAY_MS)),
+        lt(conversationInvites.revokedAt, new Date(now.getTime() - 30 * DAY_MS)),
+      ),
+    )
+    .returning({ id: conversationInvites.id })
+  return {
+    conversationsTrimmed: conversationRows.length,
+    usersTrimmed: userRows.length,
+    removedTombstones: tombstones.length,
+    conversationInvites: links.length,
   }
 }
 

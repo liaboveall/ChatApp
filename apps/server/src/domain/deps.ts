@@ -13,6 +13,8 @@ export type DomainConfig = {
   auth: {
     /** 32 raw bytes encrypting one-time credentials awaiting delivery. */
     tokenEncryptionKey: Uint8Array
+    /** 32 raw bytes signing pagination cursors (derived from the auth secret, never stored). */
+    cursorKey: Uint8Array
     /** Current disaster-recovery generation (RESTORE_EPOCH). */
     restoreEpoch: string
   }

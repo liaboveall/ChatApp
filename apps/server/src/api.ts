@@ -19,6 +19,8 @@ import { RateLimiter } from './lib/rate-limit.ts'
 import { createValkey } from './lib/valkey.ts'
 import { createEventBus } from './realtime/bus.ts'
 import { Gateway } from './realtime/gateway.ts'
+import { createPresenceStore } from './realtime/presence.ts'
+import { connectGatewayToBus } from './realtime/wiring.ts'
 import { uuidv7 } from './runtime/ids.ts'
 import { startServer } from './runtime/server.ts'
 import { assertDatabaseReady, createWaker } from './startup.ts'
@@ -54,6 +56,7 @@ async function main(): Promise<void> {
       timezone: config.timezone,
       auth: {
         tokenEncryptionKey: config.auth.tokenEncryptionKey,
+        cursorKey: config.auth.cursorKey,
         restoreEpoch: config.auth.restoreEpoch,
       },
       product: config.product,
@@ -61,6 +64,22 @@ async function main(): Promise<void> {
     passwords: sdkPasswords,
     log,
   }
+  const gateway = new Gateway(
+    deps,
+    log,
+    {
+      revalidateMs: LIMITS.wsRevalidateMs,
+      heartbeatMs: LIMITS.wsHeartbeatMs,
+      pongTimeoutMs: LIMITS.wsPongTimeoutMs,
+      maxConnectionsPerUser: LIMITS.wsMaxConnectionsPerUser,
+      frameBytes: LIMITS.wsFrameBytes,
+      sendBufferBytes: LIMITS.wsSendBufferBytes,
+      messageWindowMs: 10_000,
+      maxMessagesPerWindow: 200,
+    },
+    Date.now,
+    { bus, presence: createPresenceStore(valkey, `presence:${config.env}`) },
+  )
   const services: Services = {
     config,
     deps,
@@ -70,22 +89,13 @@ async function main(): Promise<void> {
     resolveClientIp: createClientIpResolver(config.trustedProxies),
     isReady: createReadiness({ db: database.db, valkey, blobs: createBlobStore(config.s3) }),
     wake: createWaker(() => bus.publish({ type: 'work.wake' })),
+    realtime: gateway,
   }
   const app = createApp(services)
   // SEC-29: test-only routes must not exist outside APP_ENV=test.
   if (config.env !== 'test') assertNoTestRoutes(app)
 
-  const gateway = new Gateway(deps, log, {
-    revalidateMs: LIMITS.wsRevalidateMs,
-    heartbeatMs: LIMITS.wsHeartbeatMs,
-    pongTimeoutMs: LIMITS.wsPongTimeoutMs,
-    maxConnectionsPerUser: LIMITS.wsMaxConnectionsPerUser,
-    frameBytes: LIMITS.wsFrameBytes,
-    sendBufferBytes: LIMITS.wsSendBufferBytes,
-    messageWindowMs: 10_000,
-    maxMessagesPerWindow: 200,
-  })
-  await bus.subscribe((event) => gateway.handleEvent(event))
+  await connectGatewayToBus(bus, gateway)
   gateway.start()
 
   const server = startServer({
