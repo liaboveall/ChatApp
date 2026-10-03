@@ -89,3 +89,42 @@ export function randomBase32(bytes: number): string {
 export function hmacSha256Hex(secret: string, data: string): string {
   return createHmac('sha256', secret).update(data).digest('hex')
 }
+
+/** `payload.signature`, both base64url: a value the client can hold but not change (pagination cursors). */
+export function signPayload(key: Uint8Array, payload: unknown): string {
+  const body = Buffer.from(JSON.stringify(payload)).toString('base64url')
+  const mac = createHmac('sha256', key).update(body).digest('base64url')
+  return `${body}.${mac}`
+}
+
+/** The payload of a token made by `signPayload` under the same key, or null for anything else (bad shape, tampered, wrong key). */
+export function verifyPayload(key: Uint8Array, token: string): unknown {
+  const parts = token.split('.')
+  const [body, mac] = parts
+  if (parts.length !== 2 || !body || !mac) return null
+  const expected = createHmac('sha256', key).update(body).digest('base64url')
+  if (!constantTimeEqual(mac, expected)) return null
+  try {
+    return JSON.parse(Buffer.from(body, 'base64url').toString('utf8'))
+  } catch {
+    return null
+  }
+}
+
+/** A fingerprint of a request: key order does not matter, so the same fields always give the same hash (D-066). */
+export function fingerprint(value: unknown): string {
+  return sha256Hex(JSON.stringify(sortKeys(value)))
+}
+
+function sortKeys(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(sortKeys)
+  if (value !== null && typeof value === 'object') {
+    return Object.fromEntries(
+      Object.entries(value as Record<string, unknown>)
+        .filter(([, entry]) => entry !== undefined)
+        .sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))
+        .map(([key, entry]) => [key, sortKeys(entry)]),
+    )
+  }
+  return value
+}

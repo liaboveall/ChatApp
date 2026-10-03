@@ -26,6 +26,7 @@ export function makeDeps(
       timezone: config.timezone,
       auth: {
         tokenEncryptionKey: config.auth.tokenEncryptionKey,
+        cursorKey: config.auth.cursorKey,
         restoreEpoch: config.auth.restoreEpoch,
       },
       product: config.product,

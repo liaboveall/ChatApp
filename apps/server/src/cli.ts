@@ -2,7 +2,7 @@
  * Operator commands (docs/03 section 3, docs/04 section 9):
  *   bun apps/server/src/cli.ts migrate        apply migrations as the owner, create/grant the application role
  *   bun apps/server/src/cli.ts db:bootstrap   idempotent production-safe base data
- *   bun apps/server/src/cli.ts db:seed        development only: bootstrap plus three demo members
+ *   bun apps/server/src/cli.ts db:seed        development only: bootstrap, three demo members and demo conversations
  *   bun apps/server/src/cli.ts admin:create --email E --username U --name N   the password is typed at a prompt
  *   bun apps/server/src/cli.ts admin:verify-email --email E                    mark an email as verified (audited)
  * Secrets are never printed. Run through the root scripts, which load .env.local.
@@ -23,6 +23,7 @@ import {
 import { verifyEmailManually } from './domain/credentials.ts'
 import type { Deps } from './domain/deps.ts'
 import type { PasswordProblem } from './domain/password-policy.ts'
+import { DEMO_USERNAMES, seedDemoContent } from './domain/seed.ts'
 import { systemClock } from './lib/clock.ts'
 import { silentLogger } from './lib/logger.ts'
 import { uuidv7 } from './runtime/ids.ts'
@@ -89,6 +90,7 @@ function cliDeps(config: Config, db: Deps['db']): Deps {
       timezone: config.timezone,
       auth: {
         tokenEncryptionKey: config.auth.tokenEncryptionKey,
+        cursorKey: config.auth.cursorKey,
         restoreEpoch: config.auth.restoreEpoch,
       },
       product: config.product,
@@ -170,7 +172,10 @@ async function adminVerifyEmail(config: Config): Promise<void> {
   }
 }
 
-/** Development only: three demo members whose password is SEED_DEMO_PASSWORD. Existing ones are left alone. */
+/**
+ * Development only: three demo members whose password is SEED_DEMO_PASSWORD, and a few conversations with three days
+ * of talk between them. Whatever exists is left alone.
+ */
 async function seed(config: Config): Promise<void> {
   if (config.env === 'production') fail('db:seed is for development only')
   const password = process.env.SEED_DEMO_PASSWORD
@@ -180,7 +185,7 @@ async function seed(config: Config): Promise<void> {
   try {
     const deps = cliDeps(config, db)
     let created = 0
-    for (const name of ['alice', 'bob', 'carol']) {
+    for (const name of DEMO_USERNAMES) {
       try {
         await createAccountFromCli(deps, {
           email: `${name}@example.test`,
@@ -195,7 +200,12 @@ async function seed(config: Config): Promise<void> {
         if ((error as { code?: unknown }).code !== 'CONFLICT') throw error
       }
     }
-    console.log(`seed ok: ${created} demo members created, ${3 - created} already present`)
+    const content = await seedDemoContent(deps)
+    console.log(
+      `seed ok: ${created} demo members created, ${DEMO_USERNAMES.length - created} already present; ` +
+        `${content.conversationsCreated} conversations created with ${content.messagesSent} messages, ` +
+        `${content.conversationsPresent} already present`,
+    )
   } finally {
     await close()
   }
