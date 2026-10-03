@@ -39,11 +39,71 @@ export const LIMITS = {
   inviteNoteMaxLength: 100,
   inviteQuotaDefault: 5,
 
+  /** A username can change once in this many days, and the name given up stays reserved for as long (docs/01 section 4.3). */
+  usernameChangeCooldownDays: 30,
+  usernameReserveDays: 30,
+
   // Per-user defaults that administrators may override per person (docs/01 section 7).
   defaultStorageQuotaBytes: 5 * 1024 * MiB,
   defaultAiDailyTokens: 500_000,
   /** Abuse guard: live (unexpired, unrevoked) invitations a non-administrator may hold. */
   maxLiveInvitesPerMember: 20,
+
+  // Conversations (docs/01 sections 4.4 and 7). Member limits and counts the administrator may change are constants
+  // until M7 adds app_settings.
+  conversationNameMaxGraphemes: 50,
+  conversationNameMaxCodeUnits: 200,
+  conversationDescriptionMaxLength: 500,
+  groupMemberLimit: 500,
+  channelMemberLimit: 5000,
+  /** Conversations (channels, groups, direct messages) one person can be in at the same time. */
+  maxConversationsPerUser: 200,
+  /** People added in one request, and people named when a conversation is created. */
+  addMembersMax: 100,
+  conversationInviteDefaultTtlDays: 7,
+  conversationInviteMaxTtlDays: 90,
+  conversationInviteMaxUses: 10_000,
+  /** Abuse guard: live invitation links one member may hold in one conversation. */
+  maxLiveConversationInvitesPerMember: 10,
+  maxMuteDays: 366,
+
+  // Messages (docs/01 sections 4.5 and 7).
+  messageMaxCodePoints: 5000,
+  agentMessageMaxCodePoints: 20_000,
+  messageEditWindowMs: 24 * 60 * 60 * 1000,
+  messageRecallWindowMs: 2 * 60 * 1000,
+  /** Added on the server only, to absorb network delay; the client shows the plain two minutes. */
+  messageRecallGraceMs: 5_000,
+  messagePageDefault: 50,
+  messagePageMax: 100,
+  /** Characters of a message shown in a reply quote and in the conversation list preview. */
+  excerptMaxCodePoints: 100,
+  /** Messages and sends per person (docs/01 section 7); the second one counts every conversation together. */
+  messageRateConversationLimit: 10,
+  messageRateConversationWindowMs: 10_000,
+  messageRateUserLimit: 60,
+  messageRateUserWindowMs: 60_000,
+
+  // Sync logs (docs/05 section 4.5, docs/03 section 5.2).
+  changeLogRetentionDays: 7,
+  changesPageMax: 100,
+  changesPageDefault: 100,
+  /** A client further behind than this many log entries rebuilds from a snapshot instead of paging. */
+  changesResetGap: 1000,
+  changesCursorTtlMs: 10 * 60 * 1000,
+  /** Tombstones of left conversations outlive every cursor that could still refer to them. */
+  removedStateRetentionDays: 7,
+  membersPageDefault: 50,
+  membersPageMax: 100,
+  channelsPageDefault: 20,
+  channelsPageMax: 50,
+  userSearchMax: 20,
+  userSearchQueryMaxLength: 64,
+
+  // Realtime (docs/01 section 4.7, docs/05 section 4.3).
+  typingMinIntervalMs: 3_000,
+  typingExpiresMs: 5_000,
+  presenceWatchMax: 200,
 
   // Sessions and credentials.
   sessionTtlDays: 30,
