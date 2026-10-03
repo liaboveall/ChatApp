@@ -30,7 +30,7 @@ bun run doctor                 # end-to-end checks; add --ai to also test the De
 - **后端（M1a 已完成）**，接着执行：
   ```bash
   bun run db:migrate         # 以拥有者账号迁移，并创建/授权无特权的应用账号 chatapp_app
-  bun run db:seed            # 仅开发：bootstrap（Agent 账号、保留名）加 3 个演示成员（密码取自 SEED_DEMO_PASSWORD）
+  bun run db:seed            # 仅开发：bootstrap（Agent 账号、保留名）、3 个演示成员（密码取自 SEED_DEMO_PASSWORD）和演示会话（两个频道、一个群、一个私信，59 条消息，D-135）
   bun run dev:api            # API 与 WebSocket，127.0.0.1:3100，热重载
   bun run dev:worker         # 另一个终端：派发器、邮件队列、定时对账与清理
   ```
@@ -103,7 +103,7 @@ bun run doctor                 # end-to-end checks; add --ai to also test the De
 现有 chatapp_test、Valkey db1 及 chatapp-test 桶只做不改实例状态的普通集成测试（`bun run test:integration`）。所有 stop/kill、FLUSHALL、限内存、断网、磁盘类故障只在 `infra/compose.test.yml` 起的独立实例里做：
 
 - `bun run test:infra:up`：生成 runId，起 compose 项目 `chatapp-test-<runId>`（独立 Postgres/Valkey/Garage/Mailpit 容器、卷、网络，随机密码，每次运行选定后固定的随机回环端口），跑迁移与 bootstrap，写入随机实例标记，生成 `.test-runs/<runId>/manifest.json`（权限 600，已被 git 忽略）。`bun run test:infra:down <runId>`（或 `--latest`）只拆除这一个项目；清单核验不过就什么也不删，容器已停止（比如 Docker Desktop 重启后）也能拆。
-- `bun run test:fault`：起一个新实例，跑 `apps/server/test/fault`，无论结果都拆除。故障套件先 `verifyFaultTarget`：`APP_ENV=test`、project 与 run-id 标签、完整容器 id、卷/网络标签、只绑 127.0.0.1 且无开发端口、库名 `chatapp_test`、三个服务里读回的随机标记；动作只经 `act()` 并每次重新核对标签。AT-34 的 11 项（开发服务带哨兵、伪造目标全部被拒、清理不越界）在这里。
+- `bun run test:fault`：起一个新实例，跑 `apps/server/test/fault`，无论结果都拆除。故障套件先 `verifyFaultTarget`：`APP_ENV=test`、project 与 run-id 标签、完整容器 id、卷/网络标签、只绑 127.0.0.1 且无开发端口、库名 `chatapp_test`、三个服务里读回的随机标记；动作只经 `act()` 并每次重新核对标签。AT-34 的 11 项（开发服务带哨兵、伪造目标全部被拒、清理不越界）在这里。M2a 起还有 AT-01（3 个）和 AT-02（2 个），共 16 个（D-140）：测试用 `apps/server/test/support/fault/instance.ts` 在这个实例上启动**真实的 api 与 worker 子进程**（它们的环境完整替换为实例的端点和密钥，不继承开发环境），对它们 SIGKILL / SIGSTOP / SIGCONT，并清空或停掉实例的 Valkey。**Docker Desktop 的偶发误报**（D-141）：刚创建的容器偶尔（本机约三分之一）会报告内部的 `/run/desktop/…` 绑定路径，核验按规则拒绝它；`test:fault` 与 `test:infra:up` 会把整个实例重新创建（最多 4 次，输出里有「creating the instance again」），其他任何核验失败都不重试。
 - 不使用 `docker system prune` / `volume prune` 或按名字前缀删除；不继承开发 compose 的 name、container_name、卷或 bind 挂载。
 - M3 启用媒体时，本地开发的 worker 也运行在 Linux 容器内，经内部网络访问开发依赖，与 media 共享私有 Unix socket；不能假定宿主机 Bun 可访问 Docker 内 Unix socket。故障套件使用同样的 worker/media 拓扑，凭据和卷仍隔离。纯后端热重载在 M1a 阶段继续在宿主机运行。
 - M7 本地删除 journal 使用第二套独立存储服务模拟故障；V-19 最终证据仍须真实异地服务及原主机不可访问场景。只开本机第二桶不能证明灾难独立性。
@@ -122,14 +122,15 @@ bun run doctor                 # end-to-end checks; add --ai to also test the De
 | `guard` | 禁止 raw HTML 写法（SEC-05），禁止跟踪 env 文件和其他密钥文件 | ✅ 可用 |
 | `check` | 依次运行 lint、typecheck（所有工作区包，含 `apps/web`）、guard（含架构边界检查）、单元测试（后端 bun test 加前端 Vitest，不需要任何服务）、令牌对比度自查、文案生成物一致性检查。**提交前必须通过** | ✅ 可用 |
 | `db:generate` / `db:migrate` / `db:migrate:test` / `db:check` | 生成迁移 / 以拥有者迁移并授权应用账号（开发库 / 测试库）/ drizzle-kit 一致性检查 | ✅ 可用 |
-| `db:seed` | 仅开发：bootstrap 加 3 个演示成员（`db:studio` 未创建） | ✅ 可用 |
+| `db:seed` | 仅开发：bootstrap、3 个演示成员，加 M2a 的演示会话（综合讨论、技术闲聊、周末爬山、Alice 与 Bob 的私信，消息回溯三天，幂等；开发库要先 `bun run db:migrate`）（`db:studio` 未创建） | ✅ 可用 |
 | `db:bootstrap` / `db:bootstrap:test` | 生产也可用的幂等基础数据：Agent 账号、保留名、bootstrap 标记；无演示账号 | ✅ 可用 |
 | `dev:api` / `dev:worker` | 启动后端开发服务（API 与 WebSocket / 派发器、邮件队列、对账、清理） | ✅ 可用 |
 | `dev` / `dev:web` | 同时启动 api、worker、Vite / 只启动前端（`bun run dev -- api web` 可选择进程） | ✅ 可用（M1b） |
 | `admin:create` / `admin:verify-email` | 创建管理员（密码在自己的终端里输入；规则同注册，被拒时指出字段和原因）/ 手动标记邮箱已验证（写审计） | ✅ 可用 |
 | `test` / `test:unit` / `test:integration` | 全部 / 单元（`check` 已包含）/ 集成、安全、契约、实时（需要先 `infra:up`、`infra:bootstrap`、`db:migrate:test`） | ✅ 可用 |
-| `smoke:backend` | 对**正在运行**的 api 与 worker 做真实进程验收走查（管理员 → 邀请码 → 注册 → Mailpit 收邮件 → 验证 → 登录 → WebSocket → 退出即断开）。用法和前置条件见脚本头部注释；建议对测试环境（`APP_ENV=test`）运行，它会在目标库里留下账号；集成测试会清空测试库（连 bootstrap 数据一起），所以先 `bun run db:bootstrap:test` | ✅ 可用 |
-| `test:infra:up` / `test:infra:down` / `test:fault` | 每 run 独立拓扑、限定清理及故障矩阵（AT-34） | ✅ 可用 |
+| `test:coverage` / `coverage:check` | 集成、安全、契约、实时测试加单元测试，带覆盖率运行并按目录检查行覆盖率（`domain/` ≥ 90%，`agent/` 有了之后同样，D-142）/ 只检查已有的 `coverage/lcov.info`。`test:coverage` 与 `test:integration` 一样用测试库，**不能同时跑**；输出写进被 git 忽略的 `coverage/` | ✅ 可用（M2a） |
+| `smoke:backend` | 对**正在运行**的 api 与 worker 做真实进程验收走查（管理员 → 邀请码 → 注册 → Mailpit 收邮件 → 验证 → 登录 → WebSocket → 退出即断开；M2a 起再加两个成员，走一遍建频道、加入、消息提示、已读、typing、在线状态、编辑撤回、权限和移出，共 22 步）。用法和前置条件见脚本头部注释；建议对测试环境（`APP_ENV=test`）运行，它会在目标库里留下账号；集成测试会清空测试库（连 bootstrap 数据一起），所以先 `bun run db:bootstrap:test` | ✅ 可用 |
+| `test:infra:up` / `test:infra:down` / `test:fault` | 每 run 独立拓扑、限定清理及故障矩阵（AT-34；M2a 起含 AT-01/02 的杀进程、清空队列、总线断开） | ✅ 可用 |
 | `design:build` / `design:contrast` | 构建设计原型（`--minify` 为发布版）/ 令牌对比度自查（脚本在 `apps/web/tools/contrast.ts`，D-114），不需要任何服务 | ✅ 可用（D） |
 | `test:e2e` / `test:visual` | 端到端测试（Playwright，对生产构建运行，需要 `infra:up`）/ 视觉测试（在 Playwright 官方 Linux 镜像里运行，基线也在那里生成；加 `-- --update-snapshots` 重新生成基线，提交前要逐张看过变化的 PNG） | ✅ 可用（M1b） |
 | `storybook` / `build` | 组件库（:6006）/ 前端生产构建（`apps/web/dist`） | ✅ 可用（M1b） |
@@ -163,6 +164,8 @@ bun run doctor                 # end-to-end checks; add --ai to also test the De
 | S3 报签名错误 | 检查 `S3_ENDPOINT` 是否为 `http://localhost:3900`，`S3_REGION` 是否为 `garage` |
 | 登录后 Cookie 不生效，或注册、登录报来源不允许（M1b 起） | 必须通过 `http://localhost:5173` 访问（经过 Vite 代理，`Origin` 要等于 `APP_ORIGIN`），不要直接访问 3100，也不要用 `127.0.0.1:5173` |
 | 浏览器测试启动失败，提示缺少共享库（libnspr4 等） | 装一次系统库：`cd apps/web && sudo node_modules/.bin/playwright install-deps`（需要 sudo） |
+| `test:fault` / `test:infra:up` 报 `bind mount outside the run directory … /run/desktop/…` | Docker Desktop 对刚创建的容器偶尔报告内部路径，核验拒绝它是对的；命令会自动把实例重新创建（最多 4 次）。连续 4 次都这样才失败：重启 Docker Desktop 后重试，不要放宽核验（D-141） |
+| 反复 `--repeat-each` 跑 E2E 时出现 `administrator sign-in failed: 429` | 测试辅助函数每次都以管理员身份登录，登录限流约 8 次之后回 429，是限流在起作用；每次 `playwright test` 启动都会清零计数，所以分批（每批不超过 7 次）运行 |
 | `test:e2e` 一开始就报测试库或端口被占用 | E2E 与集成测试共用测试库，不能同时跑；3102、4173 被旧进程占着时先结束它们（`ss -ltnp` 查看） |
 | Windows 浏览器打不开 WSL 里的 `localhost:5173`（M1b 起） | 先在 WSL 里 `curl http://localhost:5173` 确认服务在监听。WSL 为 NAT 网络模式（`wslinfo --networking-mode` 输出 `nat`，Windows 用户目录下没有 `.wslconfig`），已用临时服务验证过：WSL 里监听 `127.0.0.1` 的端口，Windows 上用 `localhost` 和 `127.0.0.1` 都能访问 |
 | 视觉测试的截图总是对不上 | 基线只在 Playwright 的 Linux 镜像里生成和比对，本机（WSL 与 Windows）的字体都不同。用 `bun run test:visual`，它会在容器里运行 |

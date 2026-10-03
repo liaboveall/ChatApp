@@ -14,10 +14,10 @@
 | 单元 | bun test（后端）、Vitest 5（前端） | 与源文件放在一起，文件名为 `*.test.ts` | 纯逻辑：权限策略、可见性判断、时限计算、Markdown 规则、版本合并与完整同步水位、预算计算、保留名规范化 |
 | 集成（API） | bun test，加上真实的 Postgres、Valkey、Garage | `apps/server/test/integration/` | 每个接口的正常路径、校验失败、无权访问（404/403）、幂等、限流、并发（邀请名额、存储配额） |
 | 实时（WS） | bun test 在随机端口启动 api，用真实的 WebSocket 客户端连接 | `apps/server/test/realtime/` | 认证、来源校验、会话失效断开、订阅隔离、事件结构、不泄露加入前的内容、正在输入和在线状态、多实例经 Valkey 转发 |
-| 安全回归 | bun test 和 Playwright | `apps/server/test/security/`、`apps/web/e2e/`（M1b：`isolation`、`realtime`、`scenario-11-devices`） | L-01 到 L-24，以及每条 SEC 要求（见 07） |
+| 安全回归 | bun test 和 Playwright | `apps/server/test/security/`（M2a：`conversation-matrix.test.ts` 权限矩阵、`legacy.test.ts` 的 L-xx 回归）、`apps/web/e2e/`（M1b：`isolation`、`realtime`、`scenario-11-devices`） | L-01 到 L-24，以及每条 SEC 要求（见 07）。权限矩阵把每个会话、消息、同步和目录接口按六类调用者对群、频道、私信各调一遍，并要求每个路由在表里都有一行（D-136） |
 | 契约 | bun test | `apps/server/test/contract/` | 由路由生成 OpenAPI 快照并与上次比对，接口的变化必须是有意为之 |
 | 数据库迁移 | CI 脚本 | — | 空库迁移、上一发布版含真实关系的数据夹具升级、bootstrap 幂等、新旧应用兼容、drizzle-kit check；演示 seed 单独验证 |
-| 端到端 | Playwright 1.63 | `apps/web/e2e/` | 多人场景：用两到三个互相隔离的浏览器环境同时登录。Chromium 和 WebKit 全量运行，Firefox 只跑冒烟（带 `@smoke` 标记的用例）。**对生产构建运行**：`vite preview` 发送生产的 CSP，API 与 worker 用测试环境，邮件取自 Mailpit 的 API，每个测试自动断言零 CSP 违规和零意外控制台错误（D-122）。M1b 有 8 个文件：`scenario-1-registration`、`scenario-11-devices`、`auth-flows`、`shell`、`isolation`、`realtime`、`passkey`、`a11y` |
+| 端到端 | Playwright 1.63 | `apps/web/e2e/` | 多人场景：用两到三个互相隔离的浏览器环境同时登录。Chromium 和 WebKit 全量运行，Firefox 只跑冒烟（带 `@smoke` 标记的用例）。**对生产构建运行**：`vite preview` 发送生产的 CSP，API 与 worker 用测试环境，邮件取自 Mailpit 的 API，每个测试自动断言零 CSP 违规和零意外控制台错误（D-122）。M1b 有 8 个文件：`scenario-1-registration`、`scenario-11-devices`、`auth-flows`、`shell`、`isolation`、`realtime`、`passkey`、`a11y`；M2a 加了 `network`（模拟断线的辅助函数 `support/network.ts` 与它的验证，V-14、D-134） |
 | 无障碍 | `@axe-core/playwright` | 与端到端测试一起（`a11y.spec.ts`） | 关键页面没有 WCAG 2.2 A/AA 与 best-practice 违规；M1b 覆盖登录前的页面、外壳及其对话框、设置面板，浅色与深色各一遍。Storybook 的 a11y 面板是 `todo` 模式，只报告不阻断 |
 | 视觉 | Playwright 截图，对象是 Storybook 中的关键组件 | `apps/web/visual/` | 防止设计还原走样；浅色和深色模式都要截。**基线只在 Playwright 官方 Linux 镜像里生成和比对**（`bun run test:visual`），本机（WSL 与 Windows）的字体不同，直接截图永远对不上。M1b：64 张基线，逐像素严格比较，只有 Chromium（D-123） |
 | Agent 评测 | `bun run eval`（调用真实的 DeepSeek） | `apps/server/evals/` | 见 06 第 12 节 |
@@ -27,7 +27,7 @@
 
 1. 管理员生成邀请码 → 新用户通过注册链接注册 → 在 Mailpit 中打开验证邮件 → 登录。（M1b ✅ `scenario-1-registration.spec.ts`，Chromium、WebKit、Firefox 都通过）
 2. A 创建频道，B 加入；双方实时收发消息，都能看到"正在输入"，未读数正确。（M2b）
-3. B 断线，A 在此期间发消息、编辑消息；B 恢复后，这些变化都补齐，没有重复。（M2b）断线用服务端测试接口或 `page.routeWebSocket` 模拟，不依赖 `context.setOffline`（V-14）。
+3. B 断线，A 在此期间发消息、编辑消息；B 恢复后，这些变化都补齐，没有重复。（M2b）断线用 `apps/web/e2e/support/network.ts` 的 `controlNetwork`（HTTP 用 `context.setOffline`，WebSocket 用 `page.routeWebSocket`：断开已建立的连接、离线时拒绝重连、恢复后放行；要在页面第一次连接之前安装）或服务端测试接口 `/api/test/realtime/disconnect` 模拟：`setOffline` 单独用在三个引擎里都断不开已经建立的 WebSocket（V-14 已验证，D-134）。
 4. A 在 2 分钟内撤回一条消息，B 看到撤回提示；超过时限后，撤回按钮不再出现。（M2b）
 5. 私信和群组的隔离：C 不是成员，所有访问方式都返回 404；页面上也看不到这些会话。（M2b）
 6. 上传图片：显示上传进度 → 出现缩略图 → 点开预览；下载该图片时带有正确的安全响应头。（M3）
@@ -66,15 +66,15 @@
 | 工作流 | 什么时候跑 | 内容 |
 |---|---|---|
 | `check` | 每次 push 和 PR | 安装依赖 → Biome 检查 → TS 7 类型检查 → 单元测试（含前端 Vitest）→ 令牌对比度与文案一致性 → 依赖边界检查（03 第 3 节）→ `guard` 扫描禁用写法和被跟踪的密钥文件 → 构建前端 → 确认 `routeTree.gen.ts` 是最新的 → Storybook 构建 |
-| `integration` | 每个 PR | 真实 Postgres/Valkey/Garage/Mailpit → 空库及上一发布夹具升级 → bootstrap 幂等/旧版兼容 → drizzle-kit check → 集成、实时、安全与故障矩阵 |
-| `e2e` | M1b 起每个目标为 v2/main 的 PR，以及每晚 | 构建并启动整个应用 → Playwright（Chromium 和 WebKit 全量，Firefox 冒烟）→ 无障碍检查 → 在 Playwright 官方镜像里做视觉截图对比。**M1b 已写好**（`e2e`、`visual` 两个作业，推送到 main/v2、PR、每晚和手动触发），**还没有在远端运行过** |
+| `integration` | 每个 PR | 真实 Postgres/Valkey/Garage/Mailpit → 空库及上一发布夹具升级 → bootstrap 幂等/旧版兼容 → drizzle-kit check → 集成、实时、安全与契约测试，并按第 7 节检查 `domain/`（和将来的 `agent/`）的行覆盖率（`bun run test:coverage`，M2a 起；本地通过，工作流尚未在远端运行）→ 故障矩阵（独立的 `fault` 作业） |
+| `e2e` | M1b 起每个目标为 v2/main 的 PR，以及每晚 | 构建并启动整个应用 → Playwright（Chromium 和 WebKit 全量，Firefox 冒烟）→ 无障碍检查 → 在 Playwright 官方镜像里做视觉截图对比。**M1b 已写好**（`e2e`、`visual` 两个作业，推送到 main/v2、PR、每晚和手动触发），2026-10-03 在 `d214415` 上首次远端运行成功（`e2e` 作业 106 通过 / 3 跳过，`visual` 作业 64 通过） |
 | `security` | 每个 PR 和每周一次 | gitleaks、osv-scanner；M7 起加上 trivy 扫描镜像 |
 | `eval` | 手动触发，以及每周一次 | Agent 评测，需要仓库密钥 `DEEPSEEK_API_KEY` |
 | `load` | 手动触发 | k6 压力测试 |
 | `image`（M7 起） | 推送到 main 或打版本标签时 | 在 GitHub 的 `ubuntu-24.04-arm` 机器上构建 arm64 镜像（另外构建 amd64，供本地彩排）→ 扫描 → 在同一台 arm64 机器上用 `compose.prod.yml` 启动整套服务，执行迁移和冒烟测试 → 推送到 GHCR |
 
 - CI 里所有工具的版本都和本地一致：Bun 版本写在 `package.json` 的 `packageManager` 字段里，并且提交锁文件；Docker 镜像锁定精确版本。
-- 合并到 v2/main 前，当前合并 SHA 的 check、integration、security，以及 M1b 起启用的 e2e 必须通过；M7 的发布候选另要求 image/arm64 与恢复、混合负载证据。未创建的工作流必须在对应里程碑建立；现有 `check`、`integration`、`security`、`e2e`（M1b 创建，尚无远端运行记录），`eval`、`load`、`image` 未创建。
+- 合并到 v2/main 前，当前合并 SHA 的 check、integration、security，以及 M1b 起启用的 e2e 必须通过；M7 的发布候选另要求 image/arm64 与恢复、混合负载证据。未创建的工作流必须在对应里程碑建立；现有 `check`、`integration`、`security`、`e2e`（M1b 创建，`d214415` 上首次远端运行成功），`eval`、`load`、`image` 未创建。
 - CI 必过项与路径过滤保持一致，不能因为跳过工作流就显示完成；失败后的修复必须重跑修复 SHA。只改文档时允许契约/链接检查替代业务重跑，但不得据此更新运行时通过记录。
 
 ## 6. 完成标准（Definition of Done）
@@ -97,10 +97,11 @@
 - 不设全局的覆盖率门槛。
 - `domain/`（尤其是 `authorize()`、可见性判断和各项策略）以及 `agent/` 里的策略、预算和副作用账本代码，行覆盖率要达到 90% 以上，由 CI 检查。
 - bun test 的覆盖率门槛只能设全局值，所以按目录的检查用一个小脚本读取 lcov 结果来完成。
+- **已实现（M2a，D-142）**：`bun run test:coverage` 跑服务端的单元、集成、安全、契约、实时测试，写出 `coverage/lcov.info`，再由 `scripts/coverage-check.ts` 按 `scripts/lib/coverage.ts` 里的门槛检查：`apps/server/src/domain/` ≥ 90%；`apps/server/src/agent/` ≥ 90%（目录还不存在时跳过，M4 起生效；存在却没有数据则失败）。退出码 0 通过、1 不达标（列出拖后腿的文件）、2 没有 lcov。`bun run coverage:check` 只检查已有的 lcov。脚本本身有单元测试。`integration` 工作流的集成作业调用它（工作流已改，**远端尚未运行过**）。测试文件、`test/` 目录和依赖不计入。故障测试（`test/fault/`）需要独立实例，不在这次覆盖率运行里。
 
 ## 8. 独立复审故障验收矩阵
 
-AT-01–AT-24对应14的历史F发现，AT-25–AT-37覆盖15的复审与一致性修订；下列都是要求；**应用验收只执行了 M1a、M1b 范围内的部分**（M1a：AT-04、05、25、26 应用部分、27 API 部分、28 契约部分、34，以及 01/02/13/16/23 的 M1a 子集，证据和限制见 PROGRESS 的 M1a 交接记录；M1b：AT-17 的账号命名空间、AT-21 的自动化部分、AT-37 的时区部分，以及 AT-23 的 `e2e` 工作流，证据和限制见 PROGRESS 的 M1b 交接记录），其余尚未执行。使用可控屏障/时钟和真实依赖，实例故障先通过AT-34隔离门槛。每项证据记录负责人、SHA、测试名/命令、环境、结果和限制，未创建测试不可标通过。
+AT-01–AT-24对应14的历史F发现，AT-25–AT-37覆盖15的复审与一致性修订；下列都是要求；**应用验收只执行了 M1a、M1b 范围内的部分**（M1a：AT-04、05、25、26 应用部分、27 API 部分、28 契约部分、34，以及 01/02/13/16/23 的 M1a 子集，证据和限制见 PROGRESS 的 M1a 交接记录；M1b：AT-17 的账号命名空间、AT-21 的自动化部分、AT-37 的时区部分，以及 AT-23 的 `e2e` 工作流，证据和限制见 PROGRESS 的 M1b 交接记录；M2a：AT-03 的消息与可见性部分、AT-12 与 AT-31 的服务端部分、AT-13 的发送、创建与重放前撤权部分、AT-16 的转让与最后 owner、AT-32 的策略部分、AT-37 的免打扰部分，以及 AT-01/02 的服务端部分（持久提示；隔离实例里的杀进程与清空队列；总线断开；写入与撤权的锁序竞争；订阅刷新的乱序，D-137 到 D-140；前台 35 秒收敛的客户端部分属 M2b），证据和限制见 PROGRESS 的 M2a 交接记录与「M2a 复核问题的修复」），其余尚未执行。使用可控屏障/时钟和真实依赖，实例故障先通过AT-34隔离门槛。每项证据记录负责人、SHA、测试名/命令、环境、结果和限制，未创建测试不可标通过。
 
 | 编号 | 最晚阶段 | 故障/输入 | 必须断言 |
 |---|---|---|---|
@@ -154,7 +155,7 @@ AT-01–AT-24对应14的历史F发现，AT-25–AT-37覆盖15的复审与一致�
 
 ## 10. 手工验收清单（真机与辅助技术，V-22）
 
-自动化测试替代不了这些：Playwright 的按键不经过浏览器自己的快捷键层，虚拟认证器不是真实硬件，axe 只能发现一部分无障碍问题。M1b 验收时由用户做第一轮，其余在 M7 前补齐。做法：`bun run dev`，浏览器打开 `http://localhost:5173`（必须是 `localhost`，D-122），用管理员生成邀请码、注册一个新账号。把结果（浏览器和版本、通过与否、报错文字或截图）告诉我，我记入 PROGRESS。
+自动化测试替代不了这些：Playwright 的按键不经过浏览器自己的快捷键层，虚拟认证器不是真实硬件，axe 只能发现一部分无障碍问题。M1b 已于 2026-10-03 验收，但这份清单没有结果记录，仍待做，M7 前补齐。做法：`bun run dev`，浏览器打开 `http://localhost:5173`（必须是 `localhost`，D-122），用管理员生成邀请码、注册一个新账号。把结果（浏览器和版本、通过与否、报错文字或截图）告诉我，我记入 PROGRESS。
 
 1. **外壳与原型对比（M1b 验收项）**：浅色、深色各看一遍登录页、外壳和设置的三页，对照原型；换几个强调色和透明度档位，把窗口从宽拖到窄（到 320 宽）。哪里与原型不一致，写下来。
 2. **V-16 快捷键，逐浏览器**（Chrome、Edge、Firefox、Safari，在普通标签页里；PWA 窗口属 M6）。在应用里依次按：⌘K / Ctrl+K（命令面板）、⌘J / Ctrl+J（助手面板）、⌘, / Ctrl+,（设置）、⌘/ / Ctrl+/（快捷键帮助）。每个键记录两件事：应用的面板有没有出现；浏览器有没有先把它用掉（比如聚焦地址栏或搜索栏、打开下载或设置页）。有冲突就告诉我，我给出替代键并更新 02 第 7 节。

@@ -32,6 +32,7 @@ Better Auth 的 Drizzle adapter 需要开启 `usePlural: true`，这样表名才
 | activation_status | enum | not null，default `pending` | pending / active / revoked；登录要求 active 且 email_verified |
 | account_source | enum | not null，default `registration` | registration / cli / bootstrap。CHECK：active 必须 email_verified；只有 registration 来源带 registration_id。CLI 与 bootstrap 是 INV-18 的受审计例外（D-099） |
 | auth_epoch / user_change_seq | bigint | default 0 | 账号授权世代 / 个人同步水位 |
+| change_log_floor | bigint | default 0，≤ user_change_seq | 个人日志（`user_changes`）已清理到的序号；游标低于它必须重置（M2a，D-126） |
 | profile_version / me_version | bigint | default 1 | 公开资料版本 / 本人资料与设置版本；所覆盖字段见 05，变化同事务递增 |
 | avatar_attachment_id | uuid | null → attachments | image 只是服务端派生的 URL |
 | is_bot | boolean | default false | 为 true 表示 Agent |
@@ -130,6 +131,7 @@ V-13 必须验证 adapter 创建事务可以实施上述锁和关联；否则先
 | panel_for_conversation_id | uuid | null → conversations，级联删除 | 面板对话所绑定的会话，只用于 `kind = 'agent'` |
 | last_seq | bigint | default 0 | 最后一条消息的 seq |
 | last_change_seq | bigint | default 0 | 最后一次变更的序号 |
+| change_log_floor | bigint | default 0，≤ last_change_seq | `conversation_changes` 已清理到的序号，只增不减；游标低于它必须重置（M2a，D-126） |
 | metadata_version | bigint | default 1 | 名称、简介、头像、设置、人数、归档等共享资料变化递增，不替代消息 change_seq |
 | membership_version | bigint | default 0 | 成员、角色、禁言、归档变更时递增；用于 Agent 来源与权限失效 |
 | last_message_at | timestamptz | null | |
@@ -155,14 +157,14 @@ V-13 必须验证 adapter 创建事务可以实施上述锁和关联；否则先
 - avatar_attachment_id 只允许 ready 且用途匹配的附件；替换、解绑与清理同事务，旧附件进入 deleting。消息附件一旦绑定不能再被当作头像；删除消息采用 ON DELETE SET NULL，但 deleting/tombstone 必须优先于“未绑定仅上传者可读”。
 
 ### conversation_changes / user_changes（M2a）
-- conversation_changes：PK (conversation_id, change_seq)，message_id（可空）、kind、created_at；不存正文，引用已删实体时保留墓碑 id，不用级联删除该日志项。会话整体删除由 user_changes 通知。
-- user_changes：PK (user_id, change_seq)，entity_type、entity_id、operation、created_at；对应 users.user_change_seq 同事务递增。成员加入/移出、隐藏、已读、个人设置、通知及会话列表变化均有可恢复条目。
-- 两类日志保留 7 天，记录 earliest_available_seq；清理与读游标边界协调。成员变动的 membership_id 与固定 through 游标防止退出重入复用旧缓存。协议见 05 第 4.5 节。
+- conversation_changes：PK (conversation_id, change_seq)，message_id（可空）、kind（`message_created` / `message_edited` / `message_recalled` / `message_deleted`）、created_at；不存正文，引用已删实体时保留墓碑 id，不用级联删除该日志项。会话整体删除由 user_changes 通知。
+- user_changes：PK (user_id, change_seq)，entity_type、entity_id、operation、created_at；对应 users.user_change_seq 同事务递增。`entity_type` 取 `conversation`（我与某会话的关系的任何变化：加入、移出、重入、角色、禁言、通知、免打扰、置顶、隐藏、已读）、`message_hidden`（我「仅自己删除」的消息）、`me`（我的资料）；`operation` 取 `upsert` / `remove`。通知（M6）以后加新的实体类型。**名称、简介、设置、人数、归档是会话的共享资料，不写进个人日志**：它们推进 `conversations.metadata_version`，靠会话主题上的 `conversation.changed` 和 sync heads 的 `metadataVersion` 传播，避免改一次大频道的名字就写几百行（D-125）。
+- 两类日志保留 7 天（worker 每 10 分钟清理）；清理在**同一条语句**里删除过期条目，并把 `conversations.change_log_floor` / `users.change_log_floor` 推进到被删的最大序号（只增不减，取代原来设想的 earliest_available_seq）。`after` 低于下限、高于当前头、缺口超过 1000，或游标无效、过期、绑定的 membership 已不是当前这个，都返回 `resetRequired` 加一致快照（D-126）。成员变动的 membership_id 与固定 through 游标防止退出重入复用旧缓存。协议见 05 第 4.5 节。
 
 ### user_conversation_states（M2a，D-082）
-- PK (user_id,conversation_id)，membership_id（可空）、state（active/hidden/archived/removed）、viewer_version、updated_at。conversation_id 是可保留删除墓碑的标识，不因实体删除级联清除此行。
+- PK (user_id,conversation_id)，membership_id（可空）、state（`active` / `hidden` / `removed`；枚举里还有 `archived`，保留不用：归档是会话的共享资料，由 `conversations.archived_at` 对每个成员派生，不逐人写，D-125）、viewer_version、updated_at。conversation_id 是可保留删除墓碑的标识，不因实体删除级联清除此行（表上没有指向 conversations 的外键）。
 - 关系加入/移出/重入、已读、个人通知设置、隐藏消息等改变本人投影时，锁用户及关系行，以本次 users.user_change_seq 分配 viewer_version，并同步更新活动成员的 state_version；退出先写 removed 与新版本再删除成员行。新 membership_id 不复用旧 viewer_version。
-- active/hidden/archived 随关系保留；removed 最少保留7天且覆盖全部有效游标期限。删除墓碑后，旧游标/缓存必须 reset，客户端本地重建代次拒绝先前在途响应。账号注销时清理此表。消息新增不必向每个成员复制个人版本，预览用05的复合版本。
+- active/hidden 随关系保留；removed 最少保留7天且覆盖全部有效游标期限（清理时一并删除，D-126）。删除墓碑后，旧游标/缓存必须 reset，客户端本地重建代次拒绝先前在途响应。账号注销时清理此表。消息新增不必向每个成员复制个人版本，预览用05的复合版本。
 
 ### `dm_pairs`
 | 列 | 类型 | 说明 |
@@ -262,7 +264,7 @@ V-13 必须验证 adapter 创建事务可以实施上述锁和关联；否则先
 **可见性**：消息对某个成员可见，当且仅当 `seq > 该成员的 visible_from_seq`（INV-09）。
 
 ### `message_mentions`
-表结构为 `(message_id, user_id)`，两列组成主键。另建索引 `(user_id)`，用于查询"@我的"。
+表结构为 `(message_id, user_id)`，两列组成主键。另建索引 `(user_id)`，用于查询"@我的"。**M3 才建这张表**：M2a 的消息 `mentions` 恒为 `[]`，附件也恒为 `[]`（D-128）。
 
 ### `message_hidden`
 表结构为 `(user_id, message_id, hidden_at)`，前两列组成主键，记录“仅自己删除”。变更同时写 user_changes，以个人序号补发，不用时间戳排序；它是视图偏好，不是撤销原始读权限。
@@ -501,7 +503,7 @@ V-13 必须验证 adapter 创建事务可以实施上述锁和关联；否则先
 
 - work_items：id、kind、dedupe_key（unique）、entity_id、entity_version、status（pending/leased/running/retry/done/dead/uncertain）、delivery_seq、attempts、available_at、lease_epoch、lease_until、last_error_code、created_at、finished_at。payload 仅存标识。索引 (status,available_at)，消费者只以当前 epoch 条件提交。
 - idempotency_records：actor_key、operation、target_key、key（联合唯一）、request_hash、resource_type、resource_id、state、created_at、expires_at。普通操作的占位、业务写入和结果 id 同事务，未提交占位随回滚消失；长上传/注册用对应 durable 状态机。
-- 回复重放重新授权并加载当前资源；相同键不同参数 409，原资源删除返回墓碑/410，不能创建替代资源。已提交的唯一键冲突由读取已有行处理，不捕获错误后继续使用已失败的事务。
+- 回复重放重新授权并加载当前资源；相同键不同参数 409，原资源删除返回墓碑/410，不能创建替代资源。重新授权包括历史水位（INV-09）：发送者退出或被移出后重新加入，水位前移，原消息已在新水位之下的重放按「消息不存在」404，不返回原 DTO，也不用同一个 clientId 再写一条（D-138）；消息的投影对传入的行本身也按水位过滤，不论这一行是怎么找到的。已提交的唯一键冲突由读取已有行处理，不捕获错误后继续使用已失败的事务。
 - backup_runs（M7）：id、epoch、status、snapshot_at、lease_until、manifest_key/hash、object_count、deletion_journal_applied_seq/hash、offsite_verified_at、last_error。已应用水位只推进到连续无缺口的applied序号，不能取最大完成项；与DB快照同读。全局删除屏障与删除器串行协调，等待在途删除完成；台账不代替加密备份。
 - deletion_operations（M7）：id、actor_id、action、target_manifest（仅id/版本/截止时间）、request_hash、version、status（prepared/journaled/applied/failed）、journal_epoch/seq/hash、created_at、applied_at。准备时授权并冻结目标，相关实体记录delete_operation_id/待删除状态以拒绝并发编辑/绑定和目标扩展；journaled按不可撤回意图执行，不依赖原session。稳定operation id承接幂等键；清空数据、applied及version更新同事务。failed仅限确定未被异地接受的永久失败，网络未知保持pending对账，不能误解冻。
 - 删除 journal 是独立异地对象链，顺序/完整性/保留/恢复规则以10第7节为准；本地 deletion_operations 或普通备份都不能冒充这个独立来源。无权查询 operation 返回404，status 响应不含待删内容。
