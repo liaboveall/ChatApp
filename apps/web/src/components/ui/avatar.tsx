@@ -1,4 +1,4 @@
-import { Sparkles } from 'lucide-react'
+import { Hash, Sparkles } from 'lucide-react'
 import type { CSSProperties } from 'react'
 import { cx } from '@/lib/cx.ts'
 import { Icon } from './icon.tsx'
@@ -27,6 +27,8 @@ type AvatarProps = {
   seed: string
   size?: number
   bot?: boolean
+  /** A glyph instead of the initial: a channel is a hash sign. */
+  glyph?: 'hash'
   status?: PresenceStatus
   /** Localized text for the status dot, read by assistive technology. */
   statusLabel?: string
@@ -39,6 +41,7 @@ export function Avatar({
   seed,
   size = 36,
   bot,
+  glyph,
   status,
   statusLabel,
   className,
@@ -46,7 +49,13 @@ export function Avatar({
   const style = { '--size': `${size}px`, '--h': hueOf(seed) } as CSSProperties
   return (
     <span className={cx('avatar', bot && 'avatar--bot', className)} style={style}>
-      {bot ? <Icon icon={Sparkles} /> : <span aria-hidden="true">{initialOf(name)}</span>}
+      {bot ? (
+        <Icon icon={Sparkles} />
+      ) : glyph === 'hash' ? (
+        <Icon icon={Hash} />
+      ) : (
+        <span aria-hidden="true">{initialOf(name)}</span>
+      )}
       {status ? (
         <span className="presence" data-status={status} role="img" aria-label={statusLabel} />
       ) : null}

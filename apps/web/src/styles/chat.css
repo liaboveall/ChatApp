@@ -1,0 +1,859 @@
+/* Chat (docs/02 section 5): the timeline is solid; only the toolbar and the composer float above it as glass. Values come
+   from the prototype confirmed at D4 (design/prototype/src/styles/40-chat.css); the structure is the app's own. */
+
+.window {
+  --inset: color-mix(in srgb, var(--shade) 16%, transparent);
+}
+
+/* The conversation fills the main panel; the list scrolls behind the glass toolbar and composer. */
+.content[data-layout="fill"] {
+  overflow: hidden;
+  padding-top: 0;
+}
+.convo {
+  position: absolute;
+  inset: 0;
+  --composer-h: 76px;
+}
+.timeline {
+  position: absolute;
+  inset: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+.timeline:focus-visible {
+  outline: none;
+}
+.timeline__inner {
+  max-width: 860px;
+  margin: 0 auto;
+  padding: 0 16px;
+}
+/* Spacers under the glass bars: the first row starts below the toolbar, the last ends above the composer. */
+.t-pad-top {
+  height: calc(var(--toolbar-h) + 8px);
+}
+.t-pad-bottom {
+  height: calc(var(--composer-h) + 28px);
+}
+
+/* The "load earlier" control sits outside the feed (an ARIA feed may only contain articles). */
+.timeline-more {
+  position: absolute;
+  top: calc(var(--toolbar-h) + 8px);
+  left: 50%;
+  z-index: 8;
+  transform: translateX(-50%);
+}
+/* In the page-by-page mode the "load newer" control sits just above the composer. */
+.timeline-newer {
+  position: absolute;
+  bottom: calc(var(--composer-h) + 16px);
+  left: 50%;
+  z-index: 8;
+  transform: translateX(-50%);
+}
+
+/* ---- Separators and notices (they hang under the row above, aria-hidden) ---- */
+
+.date-sep {
+  display: flex;
+  justify-content: center;
+  margin: 18px 0 8px;
+}
+.date-sep span {
+  padding: 2px 10px;
+  border-radius: 999px;
+  background: var(--fill);
+  color: var(--label-secondary);
+  font-size: var(--fs-footnote);
+  line-height: var(--lh-footnote);
+  font-weight: 600;
+}
+.unread-div {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 16px 0 10px;
+  color: var(--accent-text);
+  font-size: var(--fs-subheadline);
+  line-height: var(--lh-subheadline);
+  font-weight: 600;
+}
+.unread-div::before,
+.unread-div::after {
+  content: "";
+  flex: 1;
+  height: 1px;
+  background: color-mix(in srgb, var(--accent-solid) 55%, transparent);
+}
+.sys {
+  margin: 10px 24px;
+  text-align: center;
+  color: var(--label-secondary);
+  font-size: var(--fs-subheadline);
+  line-height: var(--lh-subheadline);
+  text-wrap: balance;
+}
+.sys strong {
+  font-weight: 600;
+  color: var(--label);
+}
+.history-boundary {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  max-width: 520px;
+  margin: 8px auto 12px;
+  padding: 10px 14px;
+  border-radius: var(--radius-card);
+  background: var(--fill);
+  color: var(--label);
+  font-size: var(--fs-callout);
+  line-height: var(--lh-callout);
+}
+.history-boundary .icon {
+  flex: none;
+  color: var(--label-secondary);
+  margin-top: 1px;
+}
+
+/* ---- Message rows ---- */
+
+.t-row {
+  min-width: 0;
+}
+.msg-article {
+  position: relative;
+  min-width: 0;
+  border-radius: 14px;
+}
+.msg-article[data-first="true"] {
+  margin-top: 12px;
+}
+.msg-article:focus-visible {
+  outline-offset: 4px;
+}
+.msg-sender {
+  margin: 0 0 3px 40px;
+  font-size: var(--fs-subheadline);
+  line-height: var(--lh-subheadline);
+  font-weight: 600;
+  color: var(--label-secondary);
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  column-gap: 6px;
+  row-gap: 2px;
+}
+.msg {
+  --row-bg: var(--bg-content);
+  position: relative;
+  display: flex;
+  align-items: flex-end;
+  gap: 12px;
+  padding: 1px 0;
+  margin-top: 2px;
+  min-width: 0;
+}
+.msg[data-who="out"] {
+  justify-content: flex-end;
+}
+.msg__avatar {
+  flex: none;
+  width: 28px;
+  align-self: flex-end;
+}
+.msg__col {
+  position: relative;
+  display: grid;
+  gap: 2px;
+  max-width: 65%;
+  min-width: 0;
+}
+.msg[data-who="out"] .msg__col {
+  justify-items: end;
+}
+.msg--flash::before {
+  content: "";
+  position: absolute;
+  inset: -4px -10px;
+  z-index: 0;
+  border-radius: 14px;
+  background: color-mix(in srgb, var(--accent-solid) 20%, transparent);
+  animation: flash 1s ease-out both;
+  pointer-events: none;
+}
+@keyframes flash {
+  to {
+    opacity: 0;
+  }
+}
+.msg > * {
+  position: relative;
+  z-index: 1;
+}
+
+/* Exact time on hover or focus, beside the bubble on the side away from the screen edge; out of the row's flow. */
+.msg__time {
+  position: absolute;
+  top: 50%;
+  transform: translateY(-50%);
+  opacity: 0;
+  font-size: var(--fs-footnote);
+  line-height: var(--lh-footnote);
+  color: var(--label-secondary);
+  white-space: nowrap;
+  pointer-events: none;
+  transition: opacity 0.12s;
+}
+.msg[data-who="in"] .msg__time {
+  left: calc(100% + 12px);
+}
+.msg[data-who="out"] .msg__time {
+  right: calc(100% + 12px);
+}
+.msg-article:hover .msg__time,
+.msg-article:focus-within .msg__time,
+.msg-article:focus-visible .msg__time {
+  opacity: 1;
+}
+
+/* Hover toolbar: reply and more. It floats over solid content, so it uses the glass without blur: any number of
+   messages can be lit (one hovered, one focused) without adding backdrop layers. */
+.msg__tools {
+  position: absolute;
+  top: -16px;
+  z-index: 6;
+  display: flex;
+  gap: 1px;
+  padding: 2px;
+  border-radius: 12px;
+  opacity: 0;
+  pointer-events: none;
+  transform: translateY(4px) scale(0.96);
+  transition:
+    opacity 0.12s,
+    transform var(--dur-snappy) var(--spring-snappy);
+}
+.msg[data-who="in"] .msg__tools {
+  left: 40px;
+}
+.msg[data-who="out"] .msg__tools {
+  right: 0;
+}
+.msg-article:hover .msg__tools,
+.msg-article:focus-within .msg__tools {
+  opacity: 1;
+  pointer-events: auto;
+  transform: none;
+}
+.msg__tools .icon-btn {
+  width: 30px;
+  height: 30px;
+}
+
+/* ---- Bubble ---- */
+
+.bubble {
+  position: relative;
+  padding: 7px 12px;
+  border-radius: var(--radius-bubble);
+  font-size: var(--fs-message);
+  line-height: var(--lh-message);
+  font-weight: var(--fw-message);
+  overflow-wrap: anywhere;
+  text-wrap: pretty;
+  min-width: 0;
+}
+.bubble--in {
+  background: var(--bubble-in);
+  color: var(--label);
+}
+.bubble--out {
+  background: var(--bubble-out);
+  color: var(--on-accent);
+}
+.msg[data-who="in"] .bubble--join-prev {
+  border-top-left-radius: var(--radius-bubble-join);
+}
+.msg[data-who="in"] .bubble--join-next {
+  border-bottom-left-radius: var(--radius-bubble-join);
+}
+.msg[data-who="out"] .bubble--join-prev {
+  border-top-right-radius: var(--radius-bubble-join);
+}
+.msg[data-who="out"] .bubble--join-next {
+  border-bottom-right-radius: var(--radius-bubble-join);
+}
+/* Tail on the last bubble of a group. The carve-out takes the row background. */
+.bubble--tail::before,
+.bubble--tail::after {
+  content: "";
+  position: absolute;
+  bottom: 0;
+  height: 20px;
+}
+.msg[data-who="in"] .bubble--tail::before {
+  left: -7px;
+  width: 20px;
+  background: var(--bubble-in);
+  border-bottom-right-radius: 16px 14px;
+}
+.msg[data-who="in"] .bubble--tail::after {
+  left: -10px;
+  width: 10px;
+  background: var(--row-bg);
+  border-bottom-right-radius: 10px;
+}
+.msg[data-who="out"] .bubble--tail::before {
+  right: -7px;
+  width: 20px;
+  background: var(--bubble-out);
+  border-bottom-left-radius: 16px 14px;
+}
+.msg[data-who="out"] .bubble--tail::after {
+  right: -10px;
+  width: 10px;
+  background: var(--row-bg);
+  border-bottom-left-radius: 10px;
+}
+.bubble__edited {
+  margin-left: 6px;
+  font-size: var(--fs-footnote);
+  line-height: var(--lh-footnote);
+  opacity: 0.8;
+  white-space: nowrap;
+}
+.bubble__quote {
+  display: block;
+  width: calc(100% + 8px);
+  margin: -2px -4px 6px;
+  padding: 5px 9px;
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--label) 7%, transparent);
+  color: var(--label-secondary);
+  font-size: var(--fs-subheadline);
+  line-height: var(--lh-subheadline);
+  text-align: left;
+  cursor: pointer;
+}
+.bubble__quote b {
+  display: block;
+  color: var(--label);
+  font-weight: 600;
+}
+.bubble__quote span {
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.bubble--out .bubble__quote {
+  background: var(--inset);
+  color: var(--on-accent);
+}
+.bubble--out .bubble__quote b {
+  color: var(--on-accent);
+}
+.bubble__quote[data-hidden="true"] {
+  cursor: default;
+  font-style: italic;
+}
+
+/* Sending is desaturated (never faded text); a failure shows a red mark next to the bubble. */
+.bubble--sending {
+  filter: saturate(0.4);
+}
+.msg__fail {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  align-self: center;
+  border-radius: 999px;
+  color: var(--danger-text);
+}
+.msg__fail:hover {
+  background: color-mix(in srgb, var(--danger-solid) 12%, transparent);
+}
+.msg__fail .icon {
+  width: 20px;
+  height: 20px;
+}
+
+/* ---- Typing ---- */
+
+.typing {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 4px 6px;
+  min-height: 28px;
+}
+.typing__dots {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  height: 26px;
+  padding: 0 12px;
+  border-radius: 14px;
+  background: var(--bubble-in);
+}
+.typing__dots i {
+  width: 6px;
+  height: 6px;
+  border-radius: 999px;
+  background: var(--label-secondary);
+  animation: bounce 1.2s ease-in-out infinite;
+}
+.typing__dots i:nth-child(2) {
+  animation-delay: 0.15s;
+}
+.typing__dots i:nth-child(3) {
+  animation-delay: 0.3s;
+}
+@keyframes bounce {
+  0%,
+  60%,
+  100% {
+    transform: translateY(0);
+    opacity: 0.55;
+  }
+  30% {
+    transform: translateY(-4px);
+    opacity: 1;
+  }
+}
+.typing__label {
+  font-size: var(--fs-subheadline);
+  line-height: var(--lh-subheadline);
+  color: var(--label-secondary);
+}
+
+/* ---- Composer (floating glass capsule) ---- */
+
+.composer-dock {
+  position: absolute;
+  inset: auto 16px 16px;
+  z-index: 15;
+  pointer-events: none;
+}
+.composer-dock > * {
+  pointer-events: auto;
+}
+.composer {
+  max-width: 828px;
+  margin: 0 auto;
+  border-radius: 26px;
+  display: grid;
+}
+.composer__ctx {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 10px 0 18px;
+  font-size: var(--fs-subheadline);
+  line-height: var(--lh-subheadline);
+  color: var(--label-secondary);
+}
+.composer__ctx b {
+  color: var(--label);
+  font-weight: 600;
+}
+.composer__ctx-bar {
+  align-self: stretch;
+  width: 3px;
+  border-radius: 2px;
+  background: var(--accent-solid);
+}
+.composer__ctx-text {
+  flex: 1;
+  min-width: 0;
+}
+.composer__row {
+  display: flex;
+  align-items: flex-end;
+  gap: 2px;
+  padding: 6px 8px;
+}
+.composer__row .icon-btn {
+  flex: none;
+  margin-bottom: 1px;
+}
+.composer__ctx .icon-btn {
+  flex: none;
+}
+.composer__ctx-text span {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.msg__retry {
+  display: flex;
+  justify-content: flex-end;
+  gap: 4px;
+}
+.composer__input {
+  flex: 1;
+  min-width: 0;
+  min-height: 36px;
+  max-height: 40vh;
+  padding: 7px 8px;
+  border: 0;
+  background: transparent;
+  color: var(--label);
+  font-size: var(--fs-message);
+  line-height: var(--lh-message);
+  resize: none;
+  overflow-y: auto;
+  field-sizing: content;
+}
+.composer__input:focus-visible {
+  outline: none;
+}
+.composer:has(.composer__input:focus-visible) {
+  box-shadow:
+    0 0 0 2px var(--focus-ring),
+    inset 0 1px 0 var(--glass-highlight),
+    0 10px 30px var(--glass-shadow-color);
+}
+.composer__send {
+  align-self: flex-end;
+}
+.composer__hint {
+  padding: 0 18px 8px;
+  font-size: var(--fs-footnote);
+  line-height: var(--lh-footnote);
+  color: var(--label-secondary);
+}
+.composer__hint[data-over="true"] {
+  color: var(--danger-text);
+}
+.composer__locked {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  min-height: 48px;
+  padding: 8px 16px;
+  color: var(--label-secondary);
+  font-size: var(--fs-callout);
+  line-height: var(--lh-callout);
+  text-align: center;
+}
+@container win (max-width: 767px) {
+  .composer__row {
+    flex-wrap: wrap;
+  }
+  .composer__input {
+    order: -1;
+    flex: 1 1 100%;
+  }
+}
+
+@keyframes pop-in {
+  from {
+    opacity: 0;
+    transform: scale(0.94);
+  }
+}
+
+/* ---- Jump to latest ---- */
+
+.jump {
+  position: absolute;
+  right: 20px;
+  bottom: calc(var(--composer-h) + 28px);
+  z-index: 25;
+  display: grid;
+  place-items: center;
+  width: 40px;
+  height: 40px;
+  border-radius: 999px;
+  color: var(--label);
+  animation: pop-in var(--dur-bouncy) var(--spring-bouncy) both;
+}
+.jump .badge {
+  position: absolute;
+  top: -8px;
+  left: -8px;
+  box-shadow: 0 0 0 2px var(--bg-content);
+}
+
+/* New messages spring in. */
+.msg--new .bubble {
+  animation: msg-in var(--dur-bouncy) var(--spring-bouncy) both;
+}
+.msg--new[data-who="out"] .bubble {
+  transform-origin: bottom right;
+}
+.msg--new[data-who="in"] .bubble {
+  transform-origin: bottom left;
+}
+@keyframes msg-in {
+  from {
+    opacity: 0;
+    transform: translateY(10px) scale(0.92);
+  }
+}
+
+/* Narrow windows: bubbles may use more of the width than the 65% of the desktop layout. */
+@container win (max-width: 767px) {
+  .msg__time {
+    display: none;
+  }
+  .msg__col {
+    max-width: 84%;
+  }
+  .timeline__inner {
+    padding: 0 10px;
+  }
+}
+
+/* A conversation that is still loading, missing or not mine. */
+.convo-state {
+  display: grid;
+  place-content: center;
+  justify-items: center;
+  gap: 12px;
+  height: 100%;
+  padding: calc(var(--toolbar-h) + 16px) 24px 24px;
+  text-align: center;
+  color: var(--label-secondary);
+}
+
+.sidebar__loading {
+  padding: 16px 12px;
+  color: var(--label-secondary);
+  font-size: var(--fs-subheadline);
+  line-height: var(--lh-subheadline);
+}
+.s-list {
+  display: grid;
+  gap: 1px;
+}
+/* The rows are links (they navigate), but they are drawn like the rest of the list: no underline, normal text colour. */
+.s-item,
+.s-item:hover {
+  text-decoration: none;
+  color: var(--label);
+}
+
+/* The system's "reduce motion" and the setting turn every animation into a plain fade. */
+@media (prefers-reduced-motion: reduce) {
+  .msg--new .bubble,
+  .jump {
+    animation: none;
+  }
+}
+
+/* ---- Search input and chips (pickers, discovery) ---- */
+
+.search--field {
+  background: var(--fill);
+  box-shadow: 0 0 0 1px var(--control-border);
+  color: var(--label-secondary);
+}
+.search--field:focus-within {
+  box-shadow: 0 0 0 2px var(--focus-ring);
+}
+.search__input {
+  flex: 1;
+  min-width: 0;
+  border: 0;
+  background: transparent;
+  color: var(--label);
+  font-size: var(--fs-callout);
+  line-height: var(--lh-callout);
+}
+.search__input:focus-visible {
+  outline: none;
+}
+.search__input::-webkit-search-cancel-button {
+  display: none;
+}
+
+/* ---- Dialog forms and the person picker ---- */
+
+.dialog--form {
+  width: min(480px, calc(100% - 32px));
+}
+.dialog-form {
+  display: grid;
+  gap: 14px;
+  margin-top: 12px;
+}
+.dialog-form .dialog__actions {
+  margin-top: 4px;
+}
+.picker {
+  display: grid;
+  gap: 8px;
+}
+.picker__chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  padding: 2px 4px 2px 10px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--accent-solid) 14%, transparent);
+  color: var(--accent-text);
+  font-size: var(--fs-callout);
+  line-height: var(--lh-callout);
+  font-weight: 600;
+}
+.chip__remove {
+  display: grid;
+  place-items: center;
+  width: 24px;
+  height: 24px;
+  border-radius: 999px;
+}
+.chip__remove:hover {
+  background: color-mix(in srgb, var(--accent-solid) 18%, transparent);
+}
+.picker__results {
+  max-height: 220px;
+  overflow-y: auto;
+}
+.picker__note {
+  padding: 8px 4px;
+  color: var(--label-secondary);
+  font-size: var(--fs-subheadline);
+  line-height: var(--lh-subheadline);
+}
+.person {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  min-height: 44px;
+  padding: 4px 8px;
+  border-radius: 8px;
+  text-align: left;
+}
+.person > span {
+  display: grid;
+  min-width: 0;
+}
+.person__name {
+  font-size: var(--fs-callout);
+  line-height: var(--lh-callout);
+  font-weight: 600;
+}
+.person__sub {
+  font-size: var(--fs-subheadline);
+  line-height: var(--lh-subheadline);
+  color: var(--label-secondary);
+}
+.person:hover {
+  background: var(--fill-hover);
+}
+.person[aria-pressed="true"] {
+  background: color-mix(in srgb, var(--accent-solid) 12%, transparent);
+}
+
+/* ---- Pages inside the main panel (discovery, archived) ---- */
+
+.page {
+  display: grid;
+  align-content: start;
+  gap: 16px;
+  max-width: 760px;
+  margin: 0 auto;
+  padding: 24px 20px 40px;
+}
+.page__head {
+  display: grid;
+  gap: 12px;
+}
+.page__lead {
+  color: var(--label-secondary);
+  font-size: var(--fs-callout);
+  line-height: var(--lh-callout);
+}
+.page__state,
+.page__more {
+  display: grid;
+  place-items: center;
+  padding: 16px;
+}
+.list-rows {
+  display: grid;
+  gap: 2px;
+}
+.list-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 8px;
+  border-radius: var(--radius-control);
+}
+.list-row:hover {
+  background: var(--fill-hover);
+}
+.list-row__body {
+  flex: 1;
+  min-width: 0;
+  display: grid;
+  gap: 1px;
+}
+.list-row__title {
+  font-size: var(--fs-headline);
+  line-height: var(--lh-headline);
+  font-weight: 600;
+  color: var(--label);
+  text-decoration: none;
+}
+.list-row__text {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--label-secondary);
+  font-size: var(--fs-callout);
+  line-height: var(--lh-callout);
+}
+.list-row__text:empty {
+  display: none;
+}
+.list-row__meta {
+  color: var(--label-secondary);
+  font-size: var(--fs-subheadline);
+  line-height: var(--lh-subheadline);
+}
+
+.convo-state__text {
+  max-width: 52ch;
+  color: var(--label);
+  font-size: var(--fs-body);
+  line-height: var(--lh-body);
+  text-wrap: balance;
+}
+
+.join-preview {
+  display: grid;
+  justify-items: center;
+  gap: 6px;
+  padding: 8px 0 4px;
+  text-align: center;
+}
+.join-preview__text {
+  max-width: 44ch;
+  color: var(--label);
+  font-size: var(--fs-callout);
+  line-height: var(--lh-callout);
+}
+.join-preview__meta {
+  color: var(--label-secondary);
+  font-size: var(--fs-subheadline);
+  line-height: var(--lh-subheadline);
+}

@@ -1,14 +1,15 @@
-import { PanelRight, Sparkles, X } from 'lucide-react'
+import { Sparkles, X } from 'lucide-react'
 import { useEffect } from 'react'
 import { IconButton } from '@/components/ui/button.tsx'
 import { SegmentedControl } from '@/components/ui/controls.tsx'
 import { EmptyState } from '@/components/ui/feedback.tsx'
+import { Details } from '@/features/inspector/details.tsx'
 import { type InspectorTab, useShell } from '@/lib/shell-state.ts'
 import { m } from '@/paraglide/messages.js'
 
 /**
- * Right panel (docks at 1280 px and wider, floats over the content below that). M1 holds placeholders: the details tab
- * fills with members and conversation settings in M2, the assistant tab with the Agent panel in M4.
+ * Right panel (docks at 1280 px and wider, floats over the content below that). The details tab shows the open
+ * conversation's members and settings (M2b); the assistant tab is a placeholder until the Agent panel arrives with M4.
  */
 export function Inspector() {
   const tab = useShell((state) => state.inspector)
@@ -50,9 +51,7 @@ export function Inspector() {
       </div>
       <div className="inspector__body scroll">
         {tab === 'details' ? (
-          <EmptyState icon={PanelRight} title={m.shell_inspector_details_title()}>
-            {m.shell_inspector_details_text()}
-          </EmptyState>
+          <Details />
         ) : (
           <EmptyState icon={Sparkles} title={m.shell_inspector_assistant_title()}>
             {m.shell_inspector_assistant_text()}

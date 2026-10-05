@@ -218,12 +218,16 @@ describe('heartbeat', () => {
     const { client } = makeClient()
     client.start()
     last().hello(undefined, 10_000)
+    const pings = () =>
+      last()
+        .sent.map((frame) => JSON.parse(frame).type as string)
+        .filter((type) => type === 'ping')
     vi.advanceTimersByTime(10_000)
-    expect(last().sent.map((frame) => JSON.parse(frame).type)).toEqual(['ping'])
+    expect(pings()).toHaveLength(1)
     last().reply({ v: 1, type: 'pong', data: { serverTime: new Date().toISOString() } })
     vi.advanceTimersByTime(10_000)
     expect(FakeSocket.instances).toHaveLength(1)
-    expect(last().sent).toHaveLength(2)
+    expect(pings()).toHaveLength(2)
   })
 
   test('no pong within ten seconds: the connection is considered dead and replaced', () => {
@@ -236,9 +240,9 @@ describe('heartbeat', () => {
   })
 })
 
-describe('focus skeleton', () => {
-  test('is tracked, and only sent once the server understands it', () => {
-    const quiet = makeClient()
+describe('focus', () => {
+  test('is tracked always, and sent unless it is turned off', () => {
+    const quiet = makeClient({ focusSupported: false })
     quiet.client.start()
     last().hello()
     quiet.client.setFocus({ conversationId: 'c1', foreground: false })
@@ -246,13 +250,98 @@ describe('focus skeleton', () => {
     expect(last().sent).toEqual([])
 
     FakeSocket.instances = []
-    const loud = makeClient({ focusSupported: true })
+    const loud = makeClient()
     loud.client.start()
     last().hello()
+    last().sent.length = 0
     loud.client.setFocus({ conversationId: 'c2' })
     expect(JSON.parse(last().sent[0] ?? '{}')).toMatchObject({
       type: 'focus',
       data: { conversationId: 'c2', foreground: true },
     })
+  })
+
+  test('the current focus is sent again after every hello, because the server forgets it with the connection', () => {
+    const { client } = makeClient()
+    client.start()
+    last().hello()
+    client.setFocus({ conversationId: 'c3', foreground: true })
+    last().endWith(1006)
+    vi.advanceTimersByTime(1000)
+    last().hello()
+    const frames = last().sent.map((text) => JSON.parse(text) as { type: string; data: unknown })
+    expect(frames.at(-1)).toMatchObject({
+      type: 'focus',
+      data: { conversationId: 'c3', foreground: true },
+    })
+  })
+})
+
+describe('events and signals', () => {
+  const typing = {
+    v: 1,
+    type: 'typing',
+    topic: 'conv:0198d0c0-0000-7000-8000-0000000000aa',
+    data: {
+      conversationId: '0198d0c0-0000-7000-8000-0000000000aa',
+      userId: '0198d0c0-0000-7000-8000-0000000000bb',
+      state: 'start',
+      expiresInMs: 5000,
+    },
+  }
+
+  test('frames other than hello, pong and error go to onEvent; malformed ones and unknown types do not', () => {
+    const onEvent = vi.fn()
+    const client = new RealtimeClient({
+      url: 'ws://test/ws',
+      onSessionLost: vi.fn(),
+      onEvent,
+      WebSocketImpl: FakeSocket as unknown as typeof WebSocket,
+      random: () => 0.5,
+      isHidden: () => false,
+    })
+    client.start()
+    last().hello()
+    last().reply(typing)
+    last().reply({ v: 1, type: 'something.new', data: {} })
+    last().reply({ v: 1, type: 'typing', data: { conversationId: 'not-a-uuid' } })
+    expect(onEvent).toHaveBeenCalledTimes(1)
+    expect(onEvent.mock.calls[0]?.[0]).toMatchObject({ type: 'typing' })
+  })
+
+  test('onHello fires for every hello, not for other frames', () => {
+    const onHello = vi.fn()
+    const client = new RealtimeClient({
+      url: 'ws://test/ws',
+      onSessionLost: vi.fn(),
+      onHello,
+      WebSocketImpl: FakeSocket as unknown as typeof WebSocket,
+      random: () => 0.5,
+      isHidden: () => false,
+    })
+    client.start()
+    last().hello()
+    last().reply(typing)
+    expect(onHello).toHaveBeenCalledTimes(1)
+    last().endWith(1006)
+    vi.advanceTimersByTime(1000)
+    last().hello()
+    expect(onHello).toHaveBeenCalledTimes(2)
+  })
+
+  test('send goes out only while the connection is open and is never queued', () => {
+    const { client } = makeClient()
+    expect(client.send({ v: 1, type: 'ping', data: {} })).toBe(false)
+    client.start()
+    expect(client.send({ v: 1, type: 'ping', data: {} })).toBe(false)
+    last().hello()
+    last().sent.length = 0
+    expect(client.send({ v: 1, type: 'presence.activity', data: { state: 'idle' } })).toBe(true)
+    expect(last().sent).toHaveLength(1)
+    last().endWith(1006)
+    expect(client.send({ v: 1, type: 'ping', data: {} })).toBe(false)
+    vi.advanceTimersByTime(1000)
+    last().hello()
+    expect(last().sent.some((text) => text.includes('presence.activity'))).toBe(false)
   })
 })

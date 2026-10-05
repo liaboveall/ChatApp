@@ -1,9 +1,12 @@
 import type { Me } from '@chatapp/contracts'
-import { MessagesSquare, Search, Settings } from 'lucide-react'
+import { useNavigate, useRouterState } from '@tanstack/react-router'
+import { Archive, Compass, Hash, MessageCircle, Plus, Search, Settings, Users } from 'lucide-react'
 import { Avatar } from '@/components/ui/avatar.tsx'
 import { IconButton } from '@/components/ui/button.tsx'
-import { EmptyState } from '@/components/ui/feedback.tsx'
 import { Icon } from '@/components/ui/icon.tsx'
+import { Menu, MenuItem } from '@/components/ui/menu.tsx'
+import type { NewKind } from '@/features/conversations/new-conversation-dialog.tsx'
+import { SidebarList } from '@/features/conversations/sidebar-list.tsx'
 import { keyLabel } from '@/lib/platform.ts'
 import { m } from '@/paraglide/messages.js'
 
@@ -11,13 +14,17 @@ type SidebarProps = {
   me: Pick<Me, 'id' | 'username' | 'displayName' | 'avatarUrl'>
   onOpenPalette: () => void
   onOpenSettings: (section: 'appearance' | 'account') => void
+  onCreate: (kind: NewKind) => void
 }
 
 /**
- * Search field, the conversation list (empty until M2) and the signed-in user's card. Every part of the card is a real
- * control: the name opens the account settings, the gear opens the settings.
+ * Search field, the conversation list and the signed-in user's card. Every part of the card is a real control: the name
+ * opens the account settings, the gear opens the settings.
  */
-export function Sidebar({ me, onOpenPalette, onOpenSettings }: SidebarProps) {
+export function Sidebar({ me, onOpenPalette, onOpenSettings, onCreate }: SidebarProps) {
+  const navigate = useNavigate()
+  const path = useRouterState({ select: (state) => state.location.pathname })
+  const currentId = /^\/c\/([0-9a-f-]{36})$/i.exec(path)?.[1]
   return (
     <>
       <div className="sidebar__top">
@@ -32,11 +39,29 @@ export function Sidebar({ me, onOpenPalette, onOpenSettings }: SidebarProps) {
           <span className="search__text">{m.shell_search_placeholder()}</span>
           <kbd>{keyLabel('mod')} K</kbd>
         </button>
+        <Menu
+          align="end"
+          trigger={<IconButton label={m.sidebar_new()} icon={Plus} aria-haspopup="menu" />}
+        >
+          <MenuItem icon={Hash} onClick={() => onCreate('channel')}>
+            {m.sidebar_new_channel()}
+          </MenuItem>
+          <MenuItem icon={Users} onClick={() => onCreate('group')}>
+            {m.sidebar_new_group()}
+          </MenuItem>
+          <MenuItem icon={MessageCircle} onClick={() => onCreate('dm')}>
+            {m.sidebar_new_dm()}
+          </MenuItem>
+          <MenuItem icon={Compass} onClick={() => void navigate({ to: '/channels' })}>
+            {m.sidebar_browse()}
+          </MenuItem>
+          <MenuItem icon={Archive} onClick={() => void navigate({ to: '/archived' })}>
+            {m.sidebar_archived()}
+          </MenuItem>
+        </Menu>
       </div>
       <div className="sidebar__scroll scroll">
-        <EmptyState icon={MessagesSquare} title={m.shell_empty_title()} className="sidebar__empty">
-          <span className="sidebar__empty-text">{m.shell_empty_text()}</span>
-        </EmptyState>
+        <SidebarList meId={me.id} currentId={currentId} />
       </div>
       <div className="sidebar__user">
         <button

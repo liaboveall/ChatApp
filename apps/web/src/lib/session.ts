@@ -5,6 +5,7 @@
  */
 import type { QueryClient } from '@tanstack/react-query'
 import { setUnauthenticatedHandler } from './api.ts'
+import { clearPendingInvite } from './pending-invite.ts'
 import { queryKeys } from './queries.ts'
 import { clearScopedStorage } from './storage.ts'
 import { announce, listen } from './tab-sync.ts'
@@ -16,6 +17,11 @@ export type SessionDeps = {
   queryClient: QueryClient
   /** Closes the realtime connection and forgets its state. */
   stopRealtime: () => void
+  /**
+   * Stops the sync engine and empties every client store that holds conversation data (drafts, unsent messages, typing,
+   * presence). Passed in, not imported, so this module does not depend on the sync layer (and the sync layer may use it).
+   */
+  resetClientState: () => void
   /** Navigates to the sign-in page. */
   toSignIn: (reason: SessionEnd) => void
   /** Another tab signed in: re-run the route guards. */
@@ -46,10 +52,12 @@ function resetLocal(): void {
   if (!deps) return
   generation += 1
   deps.stopRealtime()
+  deps.resetClientState()
   void deps.queryClient.cancelQueries()
   deps.queryClient.clear()
   deps.queryClient.setQueryData(queryKeys.me, null)
   clearScopedStorage()
+  clearPendingInvite()
 }
 
 /** The session is gone (signed out here, or the server said so). Idempotent while no new session exists. */

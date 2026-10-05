@@ -201,6 +201,19 @@ export function AppearanceSection() {
               onCheckedChange={(value) => appearance.set('compactSidebar', !value)}
             />
           </Row>
+          <Row
+            title={m.settings_timeline_paged()}
+            help={m.settings_timeline_paged_help()}
+            titleId={`${sizeId}-paged`}
+          >
+            <Switch
+              labelledBy={`${sizeId}-paged`}
+              checked={appearance.timelineMode === 'paged'}
+              onCheckedChange={(value) =>
+                appearance.set('timelineMode', value ? 'paged' : 'virtual')
+              }
+            />
+          </Row>
         </Box>
       </Group>
       <Group title={m.settings_language()}>

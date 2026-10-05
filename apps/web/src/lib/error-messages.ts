@@ -54,6 +54,10 @@ export function describeError(error: unknown): string {
       return m.error_conflict()
     case 'QUOTA_EXCEEDED':
       return m.error_quota()
+    case 'WINDOW_EXPIRED':
+      return m.error_window_expired()
+    case 'CONVERSATION_BANNED':
+      return m.join_banned()
     default:
       return error.requestId
         ? m.error_internal_with_id({ requestId: error.requestId })

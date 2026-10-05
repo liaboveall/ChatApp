@@ -3,6 +3,8 @@ import { createFileRoute, Outlet, redirect, useNavigate } from '@tanstack/react-
 import { useEffect } from 'react'
 import { z } from 'zod'
 import { realtime } from '@/app/realtime.ts'
+import { useSyncLifecycle } from '@/app/use-sync-lifecycle.ts'
+import { prefetchMarkdown } from '@/components/markdown/lazy.ts'
 import { authApi } from '@/features/auth/auth-api.ts'
 import { SETTINGS_SECTIONS } from '@/features/settings/settings-sheet.tsx'
 import { useAutoTimezone } from '@/features/settings/use-auto-timezone.ts'
@@ -38,7 +40,8 @@ async function signOut(): Promise<void> {
 }
 
 function AppRoute() {
-  const navigate = useNavigate({ from: '/' })
+  // No `from`: opening settings must stay on whatever screen is open (a conversation, a list), not go home.
+  const navigate = useNavigate()
   const { me: fromGuard } = Route.useRouteContext()
   const { settings } = Route.useSearch()
   const { data } = useQuery(meQuery)
@@ -48,6 +51,9 @@ function AppRoute() {
     if (data === null) endSession('expired')
   }, [data])
   useRealtimeBridge(realtime)
+  useSyncLifecycle(me)
+  // The Markdown chunk is big: ask for it once the app is on screen and the browser is idle (D-145).
+  useEffect(prefetchMarkdown, [])
   useAutoTimezone(me)
   return (
     <AppFrame

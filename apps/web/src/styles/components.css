@@ -284,6 +284,33 @@
   display: block;
 }
 
+/* A select keeps the browser's own arrow and popup; only the box is drawn like the other fields. */
+.select {
+  width: 100%;
+  min-height: 34px;
+  padding: 6px 8px;
+  border: 1px solid var(--control-border);
+  border-radius: var(--radius-control);
+  background: var(--fill);
+  color: var(--label);
+  font-size: var(--fs-body);
+  line-height: var(--lh-body);
+  transition: border-color 0.15s;
+}
+.select:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 1px;
+  border-color: var(--focus-ring);
+}
+.select[aria-invalid="true"] {
+  border-color: var(--danger-text);
+}
+.select[disabled] {
+  border-color: var(--separator);
+  color: var(--label-disabled);
+  cursor: not-allowed;
+}
+
 .input-wrap {
   position: relative;
   display: flex;

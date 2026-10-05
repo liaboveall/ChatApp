@@ -18,7 +18,7 @@ import {
 } from '@/features/auth/password-rules.tsx'
 import { ApiError, api } from '@/lib/api.ts'
 import { describeError, passwordProblemMessage } from '@/lib/error-messages.ts'
-import { devicesQuery, queryKeys } from '@/lib/queries.ts'
+import { devicesQuery, queryKeys, writeMe } from '@/lib/queries.ts'
 import { endSession } from '@/lib/session.ts'
 import { showToast } from '@/lib/toast.ts'
 import { describeUserAgent, deviceTitle } from '@/lib/user-agent.ts'
@@ -32,6 +32,7 @@ import {
   renamePasskey,
 } from '@/lib/webauthn.ts'
 import { m } from '@/paraglide/messages.js'
+import { EditProfileDialog } from './profile-dialog.tsx'
 import { Box, Group, Row } from './settings-ui.tsx'
 
 const formatDate = (value: Date | string | null | undefined): string => {
@@ -47,6 +48,7 @@ const formatDateTime = (value: string): string =>
 // ───────────────────────── profile ─────────────────────────
 
 function ProfileGroup({ me }: { me: Me }) {
+  const [editing, setEditing] = useState(false)
   return (
     <Group title={m.settings_profile()}>
       <Box>
@@ -56,11 +58,19 @@ function ProfileGroup({ me }: { me: Me }) {
         <Row title={m.settings_profile_username()}>
           <span className="text-callout">@{me.username}</span>
         </Row>
+        <Row title={m.settings_profile_bio()}>
+          <span className="text-callout">{me.bio ?? m.settings_profile_bio_empty()}</span>
+        </Row>
         <Row title={m.settings_profile_email()} help={m.settings_profile_email_help()}>
           <span className="text-callout">{me.email}</span>
         </Row>
       </Box>
-      <p className="text-subheadline text-label-secondary">{m.settings_profile_later()}</p>
+      <div>
+        <Button kind="tinted" size="sm" icon={Pencil} onClick={() => setEditing(true)}>
+          {m.settings_profile_edit()}
+        </Button>
+      </div>
+      <EditProfileDialog me={me} open={editing} onOpenChange={setEditing} />
     </Group>
   )
 }
@@ -498,7 +508,7 @@ function TimezoneGroup({ me }: { me: Me }) {
         schema: meSchema,
       }),
     onSuccess: (updated) => {
-      queryClient.setQueryData(queryKeys.me, updated)
+      writeMe(queryClient, updated)
       showToast(m.settings_timezone_saved())
     },
     onError: async (error) => {

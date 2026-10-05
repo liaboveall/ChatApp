@@ -42,6 +42,27 @@ describe('matchShortcut', () => {
     expect(matchShortcut(press('k', { ctrlKey: true, defaultPrevented: true }), false)).toBeNull()
   })
 
+  test('⌥ and ⌥⇧ with the up and down arrows move through the conversations', () => {
+    const alt = { altKey: true }
+    expect(matchShortcut(press('ArrowUp', alt), false)).toBe('previous')
+    expect(matchShortcut(press('ArrowDown', alt), false)).toBe('next')
+    expect(matchShortcut(press('ArrowUp', { ...alt, shiftKey: true }), false)).toBe(
+      'previousUnread',
+    )
+    expect(matchShortcut(press('ArrowDown', { ...alt, shiftKey: true }), false)).toBe('nextUnread')
+    // Apple platforms report the arrows the same way.
+    expect(matchShortcut(press('ArrowDown', alt), true)).toBe('next')
+  })
+
+  test('the arrows alone, with ⌘/Ctrl, or with AltGr are not navigation', () => {
+    expect(matchShortcut(press('ArrowUp'), false)).toBeNull()
+    expect(matchShortcut(press('ArrowUp', { shiftKey: true }), false)).toBeNull()
+    expect(matchShortcut(press('ArrowUp', { ctrlKey: true }), false)).toBeNull()
+    expect(matchShortcut(press('ArrowUp', { altKey: true, ctrlKey: true }), false)).toBeNull()
+    expect(matchShortcut(press('ArrowUp', { altKey: true, metaKey: true }), true)).toBeNull()
+    expect(matchShortcut(press('ArrowUp', { altKey: true, isComposing: true }), false)).toBeNull()
+  })
+
   test('on a layout without Latin letters the physical key decides, on a Latin layout the letter does', () => {
     // Russian layout: Ctrl+K sends key "л" on the physical K key.
     expect(matchShortcut(press('л', { ctrlKey: true, code: 'KeyK' }), false)).toBe('palette')
