@@ -2,6 +2,7 @@ import {
   type Browser,
   type BrowserContext,
   test as base,
+  errors,
   expect,
   type Page,
   type TestInfo,
@@ -78,6 +79,8 @@ class Registry {
   /** When each context had its network cut (`until` is infinite while it still is). */
   readonly outages = new Map<BrowserContext, { from: number; until: number }[]>()
   readonly pageErrors: string[] = []
+  /** Navigations that Firefox did not report and that were made again (see `repeatLostNavigations`). */
+  readonly repeatedNavigations: string[] = []
   readonly problems: string[] = []
   readonly violations = new Map<string, { text: string; where: string }>()
   readonly allowances: Allowance[] = []
@@ -92,9 +95,47 @@ class Registry {
 
 const registries = new WeakMap<TestInfo, Registry>()
 
+/**
+ * How long Firefox gets to report that a navigation has begun before the navigation is made again (D-170). A healthy one
+ * takes a second or two, even on a runner with two cores.
+ */
+const FIREFOX_NAVIGATION_TRY_MS = 10_000
+
+/**
+ * Firefox sometimes never tells the tool that the first document of a new page has been committed (the protocol log has
+ * `Page.navigationStarted` twice, then the `DOMContentLoaded` and `load` of the new document, and no
+ * `Page.navigationCommitted`; it happens when the machine is short of CPU, about 1 time in 10 on a CI runner and almost every
+ * second time on two cores). `goto` then waits for the whole test time, whatever it is told to wait for, and the tool's idea
+ * of the page stays that of the empty one: no locator finds anything. The page itself is complete after a quarter of a
+ * second. A second navigation, which does not change the process that shows the page any more, is reported properly (20
+ * of 20 in the stress test of D-170), so a navigation that is not reported within a few seconds is made again, and the test
+ * is told how often that happened.
+ */
+function repeatLostNavigations(page: Page, registry: Registry): void {
+  const goto = page.goto.bind(page)
+  const tries = 3
+  page.goto = async (url, options) => {
+    for (let attempt = 1; ; attempt += 1) {
+      const last = attempt === tries
+      const asked = options?.timeout ? options.timeout : FIREFOX_NAVIGATION_TRY_MS
+      try {
+        return await goto(
+          url,
+          last ? options : { ...options, timeout: Math.min(asked, FIREFOX_NAVIGATION_TRY_MS) },
+        )
+      } catch (error) {
+        if (last || !(error instanceof errors.TimeoutError)) throw error
+        registry.repeatedNavigations.push(url)
+      }
+    }
+  }
+}
+
 /** Gives a context the probes and listeners every context of a test gets. */
 async function instrument(context: BrowserContext, registry: Registry): Promise<void> {
   registry.contexts.push(context)
+  if (registry.engine === 'firefox')
+    context.on('page', (page) => repeatLostNavigations(page, registry))
   // Violations reach the test the moment they happen, so one on a page that is closed later is not lost.
   await context.exposeBinding(
     '__reportViolation',
@@ -216,6 +257,12 @@ export const test = base.extend<Fixtures>({
       await use(undefined)
       try {
         if (testInfo.status === 'timedOut') await describeOpenPages(registry, testInfo)
+        if (registry.repeatedNavigations.length > 0) {
+          testInfo.annotations.push({
+            type: 'navigation made again',
+            description: `${registry.repeatedNavigations.length} × (Firefox did not report the commit of the document, D-170): ${registry.repeatedNavigations.join(', ')}`,
+          })
+        }
         await check(registry, testInfo)
       } finally {
         // The contexts a test opened with `newContext()` are not closed by Playwright: a page left open keeps its connection
