@@ -22,7 +22,9 @@ concurrency:
 jobs:
   e2e:
     runs-on: ubuntu-24.04
-    timeout-minutes: 30
+    # The ten-thousand-message scenarios read the whole conversation (T2 alone is allowed ten minutes); Chromium and WebKit
+    # both run everything, so this is longer than it was before M2b.
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@v7
       - uses: oven-sh/setup-bun@v2
@@ -59,6 +61,19 @@ jobs:
       - name: Stop services
         if: always()
         run: bun run infra:down
+
+  # The gateway's configuration: the compose file is valid and Nginx loads the site in the pinned image. The suite that
+  # runs against the live gateway is local only (docs/12 D-147): Docker on a hosted runner has another network topology.
+  edge-config:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version-file: package.json
+      - name: Compose file and nginx -t in the pinned image
+        run: bun scripts/edge.ts configtest
 
   visual:
     runs-on: ubuntu-24.04
