@@ -71,16 +71,17 @@
 
 ## 5. Nginx 站点（`infra/nginx/chatapp.conf`，部署到 `/etc/nginx/sites-available/chatapp`）
 
-**同一份配置文件**也用于本地的 CSP 测试（M2b）和彩排（M7）。本地的 Nginx 容器只替换证书路径和上游地址（D-045）。
+**同一份配置文件**也用于本地的网关测试（M2b，已实现，D-147）和彩排（M7）。本地的 Nginx 容器（`infra/compose.edge.yml`，`bun run edge:up`）只替换证书路径和上游地址（`infra/nginx/env/` 里的两个小文件，D-045）。M2b 起 `infra/nginx/` 里有：`chatapp.conf`（站点）、`security-headers.conf`、`transport-security.conf`、`proxy-api.conf`、`empty.conf`（换掉镜像自带的 `default.conf`）和 `env/local-*.conf`。
 
 要点：
 - **监听与证书**：`server_name chat.<域名>`；证书由 certbot 管理；`listen 443 ssl`，开启 http2。可选开启 HTTP/3，但需要在云厂商的安全列表和主机防火墙两处都放行 UDP 443。
 - **静态文件**：`root /opt/chatapp/web/current`。SPA 回退规则是 `try_files $uri /index.html`：
   - `/assets/*` 从独立追加的共享哈希目录提供，缓存 1 年（immutable）；至少保留 7 天且至少最近 3 版，不仅切换 current 后把旧资源藏起来。资源缺失返回真实 404，不回退 index.html；
-  - `index.html` 设置 `no-cache`。
+  - `index.html` 设置 `no-cache`；
+  - web root 里没有 Vite 自己的 `.vite/`（`scripts/edge.ts` 组装时排除；部署脚本同样）。
 - **安全响应头**（SEC-06、SEC-22）：
-  - 静态文件的 CSP 等头写在 `infra/nginx/security-headers.conf` 片段里，在每个需要的 location 中 `include`。这样可以避开 `add_header` 在子 location 中不继承的问题。取值以 `apps/web/tools/csp.ts` 为准（M1b 的 E2E 就在这份策略下运行，D-116）；M2b 要加测试核对 Nginx 片段与它逐字一致。
-  - HSTS 写独立 transport-security.conf 片段，add_header 加 always，在每个 HTTPS location（含 assets、API、attachments、WS、错误页）显式 include；不能仅靠 server 级继承。
+  - 静态文件的 CSP 等头写在 `infra/nginx/security-headers.conf` 片段里，在每个需要的 location 中 `include`。这样可以避开 `add_header` 在子 location 中不继承的问题。取值以 `apps/web/tools/csp.ts` 为准（M1b 的 E2E 就在这份策略下运行，D-116）；`scripts/edge-config.test.ts`（M2b，`bun run check` 里已包含）核对 Nginx 片段与它逐字一致，E2E 夹具则核对每个文档响应的 `Content-Security-Policy` 头逐字等于它（D-148）。
+  - HSTS 写独立 transport-security.conf 片段，add_header 加 always，在每个 HTTPS location（含 assets、API、attachments、WS、错误页）显式 include；不能仅靠 server 级继承。**server 块里也 include 一次**（M2b 的网关套件发现：请求行解析不了——例如 `GET /%zz`——时 Nginx 在选定 location 之前就回 400，没有 location 可取头，只剩 server 级）；自己写了 `add_header` 的 location 不继承 server 级的，所以不会出现两份（`edge-config.test.ts` 核对 server 块也带它，网关套件逐项核对每种响应恰好一份）。
   - 静态 CSP 等由 security-headers.conf 设置；API/附件的 CSP 等由应用负责，HSTS 仍只由 Nginx 设置，避免重复。
 - **`location /api/`**：`proxy_pass http://127.0.0.1:3100`，并设置：
   - `proxy_set_header X-Real-IP $remote_addr` 和 `X-Forwarded-For`，应用只信任本机代理写入的这些头（SEC-28）；
@@ -92,7 +93,7 @@
 - **健康检查**：`/api/healthz`、`/api/readyz` 走 `/api/` 转发，不会被 SPA 回退拦走，外部监控能真实反映后端状态。
 - **限流**：给 `/api/auth/` 和 `/api/invites/check` 配置 `limit_req_zone`，作为应用层限流之外的第二道防线。
 - **请求预算**：应用总读取/空闲超时按05执行，Nginx补client_body_timeout（JSON/envelope 5s、上传15s）及header限额；网关的空闲超时不能冒充总请求时限。拒绝请求压缩、异常Content-Length/Transfer-Encoding，返回413/415/408时仍使用安全日志/响应头。
-- **访问日志（D-077）**：独立chatapp-access.log按天轮转。专用log_format只含`$request_id`、method、status、耗时、remote_addr和`$chatapp_route`；route由map输出auth/search/upload/api/static/ws/unknown等常量，不输出任何原始路径、query、Referer、User-Agent、Cookie或Location。禁止默认combined、`$request`、`$request_uri`以及以`$uri`作为日志回退。
+- **访问日志（D-077）**：独立chatapp-access.log按天轮转。每类路由一个专用log_format（`chatapp_static`、`asset`、`api`、`auth`、`upload`、`attachment`、`monitoring`、`ws`、`redirect`；不用 `map`：服务器上的 1.28 的正则 `map` 有未修复的 CVE，升到 1.30 之前站点文件必须在 1.28 上也安全，D-169），字段只有`$request_id`、method、status、耗时、remote_addr、路由类别常量和`$upstream_http_x_request_id`（应用自己的请求 id，网关自己回的响应为空，用来把一行日志和应用日志对上），不输出任何原始路径、query、Referer、User-Agent、Cookie或Location。禁止默认combined、`$request`、`$request_uri`以及以`$uri`作为日志回退。`scripts/edge-config.test.ts` 检查格式里没有这些变量；edge 套件（`apps/web/edge/3-abuse.spec.ts`）发出带哨兵的请求，在网关日志和 API 日志里都找不到哨兵，请求 id 两边都能对上。
 - **错误输出**：Nginx原文error_log可能附带request行，本站server及敏感location将原文写`/dev/null`，以状态/耗时、上游健康及脱敏应用requestId定位；启动配置检查单独记录不含用户请求的诊断。必须在edge复现400/413、body超时、502/504、未知及编码路由，确认没有逃到上级日志；不改其他站点配置。认证页面统一Referrer-Policy:no-referrer，无第三方分析资源。
 - **不设** `default_server`，不改其他站点的文件。
 

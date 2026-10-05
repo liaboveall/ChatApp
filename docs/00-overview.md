@@ -26,7 +26,7 @@
 | 数据 | PostgreSQL 18（含 pgvector）+ Drizzle ORM；Valkey 9.1（事件总线、在线状态、限流、BullMQ 队列）；Garage（自托管 S3） |
 | 认证 | Better Auth 1.7：邮箱密码 + Passkey，凭邀请码注册 |
 | AI / Agent | AI SDK 7 的 `ToolLoopAgent`；按用户指定，目前只用 `deepseek-flash`（V4.1-Flash）：快速模式关闭思考，深度模式开启思考。可以用站点 key，也可以用户自带 key（M5a）；同库业务效果事务去重；持久 run/审批/取消、来源范围世代、调用前预算预占 |
-| 前端 | React 19.3 + React Compiler、Vite 8、TanStack Router/Query、Tailwind 4、Base UI、react-virtuoso |
+| 前端 | React 19.3 + React Compiler、Vite 8、TanStack Router/Query、Tailwind 4、Base UI、virtua |
 | 实时 | HTTP 写入与按权限读取；普通 WS 仅发变更提示，流式逐接收者授权；同步日志固定上界，前台周期对账；撤权不依赖订阅缓存 |
 | 权限 | HTTP/WS用服务端session，后台用受限持久delegation；统一authorize和可见性投影（当前成员且消息在加入之后），搜索/Agent/附件共同遵守 |
 | 数据 | Postgres 业务+work_items 同事务，Valkey 仅运输/瞬态层；完整副本清理、对象删除时限与恢复隔离；保留期见 04 第 10 节、01 第 4.11 节 |

@@ -17,8 +17,8 @@
 | 安全回归 | bun test 和 Playwright | `apps/server/test/security/`（M2a：`conversation-matrix.test.ts` 权限矩阵、`legacy.test.ts` 的 L-xx 回归）、`apps/web/e2e/`（M1b：`isolation`、`realtime`、`scenario-11-devices`） | L-01 到 L-24，以及每条 SEC 要求（见 07）。权限矩阵把每个会话、消息、同步和目录接口按六类调用者对群、频道、私信各调一遍，并要求每个路由在表里都有一行（D-136） |
 | 契约 | bun test | `apps/server/test/contract/` | 由路由生成 OpenAPI 快照并与上次比对，接口的变化必须是有意为之 |
 | 数据库迁移 | CI 脚本 | — | 空库迁移、上一发布版含真实关系的数据夹具升级、bootstrap 幂等、新旧应用兼容、drizzle-kit check；演示 seed 单独验证 |
-| 端到端 | Playwright 1.63 | `apps/web/e2e/` | 多人场景：用两到三个互相隔离的浏览器环境同时登录。Chromium 和 WebKit 全量运行，Firefox 只跑冒烟（带 `@smoke` 标记的用例）。**对生产构建运行**：`vite preview` 发送生产的 CSP，API 与 worker 用测试环境，邮件取自 Mailpit 的 API，每个测试自动断言零 CSP 违规和零意外控制台错误（D-122）。M1b 有 8 个文件：`scenario-1-registration`、`scenario-11-devices`、`auth-flows`、`shell`、`isolation`、`realtime`、`passkey`、`a11y`；M2a 加了 `network`（模拟断线的辅助函数 `support/network.ts` 与它的验证，V-14、D-134） |
-| 无障碍 | `@axe-core/playwright` | 与端到端测试一起（`a11y.spec.ts`） | 关键页面没有 WCAG 2.2 A/AA 与 best-practice 违规；M1b 覆盖登录前的页面、外壳及其对话框、设置面板，浅色与深色各一遍。Storybook 的 a11y 面板是 `todo` 模式，只报告不阻断 |
+| 端到端 | Playwright 1.63 | `apps/web/e2e/` | 多人场景：用两到三个互相隔离的浏览器环境同时登录。Chromium 和 WebKit 全量运行，Firefox 只跑冒烟（带 `@smoke` 标记的用例）。**对生产构建运行**：`vite preview` 发送生产的 CSP，API 与 worker 用测试环境，邮件取自 Mailpit 的 API，每个测试自动断言零 CSP 违规和零意外控制台错误（D-122）。M1b 有 8 个文件：`scenario-1-registration`、`scenario-11-devices`、`auth-flows`、`shell`、`isolation`、`realtime`、`passkey`、`a11y`；M2a 加了 `network`（模拟断线的辅助函数 `support/network.ts` 与它的验证，V-14、D-134）。M2b 起夹具对**每个**浏览器上下文断言零违规（D-148：`newContext()` 登记并在测试结束关闭；`allowConsole`、`claimViolation` 必须匹配到才算数；文档响应的 CSP 头逐字等于 `tools/csp.ts`），并新增 `scenario-2-chat`、`scenario-3-reconnect`、`scenario-4-recall`、`scenario-5-isolation`、`scenario-10-boundary`、`scenario-12-ime`、`security`、`inspector`、`profile`、`consistency`、`timeline-perf`、`latency`、`accessibility`（`support/chat.ts` 是 API 与界面两类助手，`support/perf.ts` 是性能探针，`support/network.ts` 另有 `muteHints`）。带 `@perf` 标记的用例（`timeline-perf`、`latency`）只在单独的 `perf` 项目里跑（Chromium，有显卡时用显卡合成，D-161），其余项目都不跑它们；WebKit 和 Firefox 在截图时往页面里塞的内联样式、断网期间浏览器对失败请求的控制台报告、Firefox 里 `fill` 之后紧跟的回车，夹具和助手各有处理（D-165）。`apps/web/edge/` 是只在本机跑的网关套件（`bun run test:edge`，D-147） |
+| 无障碍 | `@axe-core/playwright` | 与端到端测试一起（`a11y.spec.ts`） | 关键页面没有 WCAG 2.2 A/AA 与 best-practice 违规；M1b 覆盖登录前的页面、外壳及其对话框、设置面板，浅色与深色各一遍；M2b 加会话页（时间线、输入栏）、详情面板及其菜单与对话框、侧栏与消息菜单、私信资料、新建会话对话框、频道发现与已归档页、读屏分页模式、找不到会话的页面、没人写过消息的会话（空的 feed 会被 axe 判严重违规，D-164）（弹层里的菜单关掉 axe 的 `region` 规则，其余全开）。`accessibility.spec.ts` 补 axe 查不出来的两件事（AT-21）：在一万条消息的会话里用键盘走（↑ 三十次、PageUp、滚轮拉走很远、End、Home、Esc），焦点任何时刻都不落到 `<body>`；320 CSS 像素宽（桌面 400% 缩放的等价布局）下从抽屉里选会话、发消息、看详情，页面不横向溢出（D-166）。Storybook 的 a11y 面板是 `todo` 模式，只报告不阻断 |
 | 视觉 | Playwright 截图，对象是 Storybook 中的关键组件 | `apps/web/visual/` | 防止设计还原走样；浅色和深色模式都要截。**基线只在 Playwright 官方 Linux 镜像里生成和比对**（`bun run test:visual`），本机（WSL 与 Windows）的字体不同，直接截图永远对不上。M1b：64 张基线，逐像素严格比较，只有 Chromium（D-123） |
 | Agent 评测 | `bun run eval`（调用真实的 DeepSeek） | `apps/server/evals/` | 见 06 第 12 节 |
 | 压力 | k6（Docker 镜像，锁定版本） | `infra/load/` | M7：500 个 WebSocket 连接、每秒 20 条消息，p95 < 300 ms；彩排时把容器的 CPU 限制到接近服务器的 2 核 |
@@ -26,17 +26,17 @@
 ## 3. 端到端测试必须覆盖的场景
 
 1. 管理员生成邀请码 → 新用户通过注册链接注册 → 在 Mailpit 中打开验证邮件 → 登录。（M1b ✅ `scenario-1-registration.spec.ts`，Chromium、WebKit、Firefox 都通过）
-2. A 创建频道，B 加入；双方实时收发消息，都能看到"正在输入"，未读数正确。（M2b）
-3. B 断线，A 在此期间发消息、编辑消息；B 恢复后，这些变化都补齐，没有重复。（M2b）断线用 `apps/web/e2e/support/network.ts` 的 `controlNetwork`（HTTP 用 `context.setOffline`，WebSocket 用 `page.routeWebSocket`：断开已建立的连接、离线时拒绝重连、恢复后放行；要在页面第一次连接之前安装）或服务端测试接口 `/api/test/realtime/disconnect` 模拟：`setOffline` 单独用在三个引擎里都断不开已经建立的 WebSocket（V-14 已验证，D-134）。
-4. A 在 2 分钟内撤回一条消息，B 看到撤回提示；超过时限后，撤回按钮不再出现。（M2b）
-5. 私信和群组的隔离：C 不是成员，所有访问方式都返回 404；页面上也看不到这些会话。（M2b）
+2. A 创建频道，B 加入；双方实时收发消息，都能看到"正在输入"，未读数正确。（M2b ✅ `scenario-2-chat.spec.ts`）
+3. B 断线，A 在此期间发消息、编辑消息；B 恢复后，这些变化都补齐，没有重复。（M2b ✅ `scenario-3-reconnect.spec.ts`，另含 AC-06：只吞掉提示、连接和 HTTP 都正常，35 秒内靠对账补齐）断线用 `apps/web/e2e/support/network.ts` 的 `controlNetwork`（HTTP 用 `context.setOffline`，WebSocket 用 `page.routeWebSocket`：断开已建立的连接、离线时拒绝重连、恢复后放行；要在页面第一次连接之前安装）或服务端测试接口 `/api/test/realtime/disconnect` 模拟：`setOffline` 单独用在三个引擎里都断不开已经建立的 WebSocket（V-14 已验证，D-134）。
+4. A 在 2 分钟内撤回一条消息，B 看到撤回提示；超过时限后，撤回按钮不再出现。（M2b ✅ `scenario-4-recall.spec.ts`：A 的浏览器时钟拨慢 10 分钟，消息用 `POST /api/test/messages/{id}/age` 变老 3 分钟）
+5. 私信和群组的隔离：C 不是成员，所有访问方式都返回 404；页面上也看不到这些会话。（M2b ✅ `scenario-5-isolation.spec.ts`，页面文字和每个 API 路径的回答都与「根本没有这个 id」逐字相同；L-05 在同一个文件）
 6. 上传图片：显示上传进度 → 出现缩略图 → 点开预览；下载该图片时带有正确的安全响应头。（M3）
 7. 群里 @Agent 总结共同可见的讨论：所有有权成员看到流式回复，只有调用者能看工具调用卡片；额度按预占/结算显示；重新生成原位替换。（M4）
 8. 让 Agent 代发一条消息 → 当前回复收尾并显示"等待批准" → 出现审批卡片 → 点批准 → 消息以本人身份发出，并标注"经助手代发"。（M5a）
 9. C 关闭页面后收到私信推送（在测试中模拟推送服务来验证）。（M6）
-10. D 在群里有一段历史之后才加入：D 看不到加入前的消息；引用了旧消息的回复显示"原消息不可见"；D 被"移出并封禁"后，用群邀请链接无法再加入。（M2b）
+10. D 在群里有一段历史之后才加入：D 看不到加入前的消息；引用了旧消息的回复显示"原消息不可见"；D 被"移出并封禁"后，用群邀请链接无法再加入。（M2b ✅ `scenario-10-boundary.spec.ts`）
 11. 用户在设备甲注销设备乙：设备乙的实时连接被关闭，HTTP 会话接口拒绝并跳转登录页（M1b ✅ `scenario-11-devices.spec.ts`）；“注销后收不到聊天内容”在 M2b 消息功能存在后扩展验证。
-12. 用中文输入法组字时按回车，只确认候选词，不发送消息。Chromium 里通过 CDP 模拟输入法组字过程。（M2b）
+12. 用中文输入法组字时按回车，只确认候选词，不发送消息。Chromium 里通过 CDP 模拟输入法组字过程。（M2b ✅ `scenario-12-ime.spec.ts`，仅 Chromium）
 13. 用户填写自带key（模拟模型）：不扣站点额度；key失效时“使用站点额度发起新请求”打开空白新段。原私有prompt/图片/摘要/记忆不能通过历史或全范围工具进入site运行。（M5a）
 14. 本人普通退出后定时消息仍执行但不推进已读；撤销发起设备/改密后相应任务取消，已提交效果不重复。（M5a）
 15. 删除返回202时显示待完成，异地journal确认后才显示成功；重连补齐操作状态。（M7）
@@ -101,7 +101,7 @@
 
 ## 8. 独立复审故障验收矩阵
 
-AT-01–AT-24对应14的历史F发现，AT-25–AT-37覆盖15的复审与一致性修订；下列都是要求；**应用验收只执行了 M1a、M1b 范围内的部分**（M1a：AT-04、05、25、26 应用部分、27 API 部分、28 契约部分、34，以及 01/02/13/16/23 的 M1a 子集，证据和限制见 PROGRESS 的 M1a 交接记录；M1b：AT-17 的账号命名空间、AT-21 的自动化部分、AT-37 的时区部分，以及 AT-23 的 `e2e` 工作流，证据和限制见 PROGRESS 的 M1b 交接记录；M2a：AT-03 的消息与可见性部分、AT-12 与 AT-31 的服务端部分、AT-13 的发送、创建与重放前撤权部分、AT-16 的转让与最后 owner、AT-32 的策略部分、AT-37 的免打扰部分，以及 AT-01/02 的服务端部分（持久提示；隔离实例里的杀进程与清空队列；总线断开；写入与撤权的锁序竞争；订阅刷新的乱序，D-137 到 D-140；前台 35 秒收敛的客户端部分属 M2b），证据和限制见 PROGRESS 的 M2a 交接记录与「M2a 复核问题的修复」），其余尚未执行。使用可控屏障/时钟和真实依赖，实例故障先通过AT-34隔离门槛。每项证据记录负责人、SHA、测试名/命令、环境、结果和限制，未创建测试不可标通过。
+AT-01–AT-24对应14的历史F发现，AT-25–AT-37覆盖15的复审与一致性修订；下列都是要求；**应用验收只执行了 M1a、M1b、M2a、M2b 范围内的部分**（M1a：AT-04、05、25、26 应用部分、27 API 部分、28 契约部分、34，以及 01/02/13/16/23 的 M1a 子集，证据和限制见 PROGRESS 的 M1a 交接记录；M1b：AT-17 的账号命名空间、AT-21 的自动化部分、AT-37 的时区部分，以及 AT-23 的 `e2e` 工作流，证据和限制见 PROGRESS 的 M1b 交接记录；M2a：AT-03 的消息与可见性部分、AT-12 与 AT-31 的服务端部分、AT-13 的发送、创建与重放前撤权部分、AT-16 的转让与最后 owner、AT-32 的策略部分、AT-37 的免打扰部分，以及 AT-01/02 的服务端部分（持久提示；隔离实例里的杀进程与清空队列；总线断开；写入与撤权的锁序竞争；订阅刷新的乱序，D-137 到 D-140；前台 35 秒收敛的客户端部分属 M2b），证据和限制见 PROGRESS 的 M2a 交接记录与「M2a 复核问题的修复」），**M2b**：AT-01 的前台 35 秒收敛（`scenario-3-reconnect` 的 AC-06 用例）；AT-03 的界面部分（`scenario-10-boundary`：加入前的内容不在页面上，引用读作「原消息不可见」）；AT-12、AT-31 的客户端部分（`lib/sync/engine.test.ts` 与 `merge.test.ts`，E2E `consistency`、`profile`）；AT-19 的响应头部分、AT-26 与 AT-27 的网关部分（`apps/web/edge/` 25 个用例，只在本机跑，D-147、D-167；AT-19 的 watchdog 与旧哈希资源属 M7 彩排，AT-27 的上传 100 MiB 属 M3、信封 256 KiB 与并发超限没测）；AT-21 的自动化部分（axe 浅色与深色、`accessibility.spec.ts` 的键盘用例与 320 px 用例；读屏和真机属 V-22）；证据和限制见 PROGRESS 的 M2b 交接记录），其余尚未执行。使用可控屏障/时钟和真实依赖，实例故障先通过AT-34隔离门槛。每项证据记录负责人、SHA、测试名/命令、环境、结果和限制，未创建测试不可标通过。
 
 | 编号 | 最晚阶段 | 故障/输入 | 必须断言 |
 |---|---|---|---|

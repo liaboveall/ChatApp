@@ -71,8 +71,8 @@ Events: api/worker ──publish──▶ Valkey channel "events:{APP_ENV}" ─�
 | 组件原语 | `@base-ui/react`（Radix 备选） | 1.8.0 |
 | 动效 | motion | 14.0.0 |
 | 图标 | lucide-react | 1.50.0 |
-| 虚拟列表 | react-virtuoso（M2b 开头先验证聊天场景，V-09） | 4.18.16 |
-| Markdown（流式也安全） | streamdown（代码高亮用 shiki 4.4.3，配置见 D-047） | 2.6.0 |
+| 虚拟列表 | virtua（V-09 实测取代 react-virtuoso，D-144；0.x，升级必须跑完时间线 E2E 与性能用例） | 0.52.10 |
+| Markdown（流式也安全） | streamdown，加 `@streamdown/cjk`；代码高亮是自己的插件（`code-plugin.ts`：shiki 的 JavaScript 原始正则引擎、`@shikijs/langs-precompiled` 预编译语法、CSS 变量主题，D-168）；配置见 D-047、D-145 | 2.7.0 / 1.0.4（shiki 4.5.0，`@shikijs/langs-precompiled` 4.5.0） |
 | 国际化 | `@inlang/paraglide-js` + `@inlang/plugin-message-format` | 2.25.4 / 4.4.4 |
 | 字体（自托管） | `@fontsource-variable/inter`（拉丁子集，OFL） | 5.3.0 |
 | PWA（M6） | vite-plugin-pwa | 1.3.0 |
@@ -100,7 +100,7 @@ Events: api/worker ──publish──▶ Valkey channel "events:{APP_ENV}" ─�
 | 对象存储 | `dxflrs/garage:v2.4.1` |
 | 本地邮件接收（仅开发） | `axllent/mailpit:v1.31.3` |
 | 应用运行（api、worker 共用） | `oven/bun:1.4-slim`（Debian）。ffmpeg 和 onnxruntime 需要 glibc，所以不用 alpine（D-041） |
-| 生产式网关（M2b 的 CSP 测试、M7 彩排） | `nginx`，与服务器同为 1.28 系列，锁定精确版本（D-045） |
+| 生产式网关（M2b 的 CSP 测试、M7 彩排） | `nginx:1.30.5-alpine@sha256:0985e772…4d94`，1.30 系列，锁定精确版本和索引摘要（D-045，2026-10-04 起 D-169）；服务器上共用的 Nginx 还是 1.28，M8 升到 1.30 |
 
 ## 3. 仓库结构（Bun workspaces 单仓库）
 
@@ -111,15 +111,17 @@ Events: api/worker ──publish──▶ Valkey channel "events:{APP_ENV}" ─�
 │  │  ├─ src/routes/             TanStack Router file routes: _guest (login, register, forgot-password,
 │  │  │                          check-email), _public (verify-email, reset-password), _app (the shell);
 │  │  │                          routeTree.gen.ts is generated and committed
-│  │  ├─ src/features/           M1b: auth, settings, shell, command-palette; later: conversations, timeline,
-│  │  │                          composer, attachments, presence, agent, notifications, admin
+│  │  ├─ src/features/           M1b: auth, settings, shell, command-palette; M2b: conversations (sidebar, dialogs,
+│  │  │                          discovery, archived, join), timeline, composer, message-actions, inspector;
+│  │  │                          later: attachments, agent, notifications, admin
 │  │  ├─ src/design/             tokens.ts (single source, D-114), tokens-css.ts (generator),
 │  │  │                          tokens.generated.css (git-ignored)
 │  │  ├─ src/components/         ui/ (Base UI primitives, styled), layout/ (shell, sidebar, toolbar, inspector),
-│  │  │                          brand/ (app icon)
+│  │  │                          brand/ (app icon), markdown/ (the one SafeMarkdown, lazy, D-145)
 │  │  ├─ src/styles/             app.css and the layered stylesheets (glass, shell, components, overlays, pages)
 │  │  ├─ src/lib/                api client, ws client (realtime.ts), session end (session.ts), tab sync, storage,
-│  │  │                          appearance, shortcuts, URL fragments, queries
+│  │  │                          appearance, shortcuts, URL fragments, queries; M2b: sync/ (engine, merge, window,
+│  │  │                          keys, transport, outbox, presence, typing: D-150)
 │  │  ├─ src/app/                router and the realtime singleton
 │  │  ├─ src/assets/fonts/       Inter (OFL), self-hosted
 │  │  ├─ messages/               Paraglide translations (zh-CN, en), generated from tools/messages-source.ts
@@ -158,7 +160,8 @@ Events: api/worker ──publish──▶ Valkey channel "events:{APP_ENV}" ─�
 │  ├─ compose.edge.yml           (M2b) Nginx container serving a production build with the real site config
 │  ├─ compose.prod.yml           (M7) api, worker, postgres, valkey, garage
 │  ├─ garage/                    garage.toml template + bootstrap script
-│  ├─ nginx/                     (M2b) chatapp.conf + security-header snippet, shared by edge, rehearsal and prod
+│  ├─ nginx/                     (M2b) chatapp.conf + security-header snippets; edge swaps only the two environment
+│  │                             snippets, rehearsal and prod use the same site file (D-045, D-147)
 │  └─ load/                      (M7) k6 scripts
 ├─ docs/                         specs (this folder)
 ├─ CLAUDE.md                     working agreement for coding sessions
@@ -384,11 +387,11 @@ work_items 唯一 dedupe_key 与业务事务关联；payload 只存 id、版本�
 
 ## 11. 前端架构要点
 
-- **服务端数据**：由 TanStack Query 管理。WS 的 id/版本提示合并后重新请求；HTTP 返回按本人权限投影的数据。仅经授权的 Agent 增量可直接拼接，最终以持久快照为准。
-- **消息缓存**：每个会话一份分页缓存，按 `seq` 排序，合并时以消息 id 去重，并以 `change_seq` 大的版本为准。
-- **乐观更新**：发送、编辑、撤回都先更新界面，失败再回滚；未发出的消息用 `clientId` 标识。
+- **服务端数据**：TanStack Query 只当**存储和订阅机制**，不是同步协议（D-150）：协议状态（observed、synced、在途、重试）在 `lib/sync/engine.ts`，与 React 无关；Query 里的数据只经 `lib/sync/merge.ts` 的纯函数按实体版本写入。WS 的 id/版本提示只抬高 observed，由引擎决定补拉什么；HTTP 返回按本人权限投影的数据。仅经授权的 Agent 增量可直接拼接（M4），最终以持久快照为准。
+- **消息缓存**：每个会话（每个 `membershipId`）一个连续的时间线窗口（最多 2,000 条，LRU 保留 8 个会话，D-151），按 `seq` 排序，合并时以消息 id 去重，以 `change_seq` 大的版本为准。
+- **乐观更新**：**只有发送是乐观的**，未发出的消息用 `clientId` 标识，失败可用同一个 `clientId` 重试；编辑和撤回有服务端判定的条件（`expectedChangeSeq`、时限），回答之后才改界面（D-154，M2b 取代原先「编辑、撤回也乐观」的写法）。
 - **一致性**：
-  - 区分 observed/synced，固定上界补发并每 30 秒对账（第 5.2 节）；
+  - 区分 observed/synced，固定上界补发并在前台每 24 到 30 秒对账（第 5.2 节；对账间隔取 `30 s × (0.8 + 0.2 × random)`，加一次补发仍在 35 秒内，D-150）；后台同步有请求预算（令牌桶，遇到 429/503 暂停到 `Retry-After`）；
   - 所有GET/写响应/补发使用05的实体版本合并；请求捕获账号/恢复世代/membership/本地cacheGeneration。reset、退出或重入后旧响应直接丢弃；移除墓碑不能被旧HTTP覆盖；
   - 收到消息更新时，同时更新引用它的回复和会话预览；
   - 收到conversation.removed提示先对账；仅接受较新viewerVersion且匹配关系的移除墓碑后清缓存，迟到提示不能删除重新加入后的关系。
@@ -397,8 +400,8 @@ work_items 唯一 dedupe_key 与业务事务关联；payload 只存 id、版本�
   - 单例；
   - 断线后按指数退避重连（1、2、4、8 秒，最长 30 秒，带随机抖动），每次重连都执行第 5.2 节的补发流程；
   - 用 `hello.serverTime` 校正本地时钟，撤回按钮等时限判断以校正后的时间为准；
-  - 切换会话、页面前后台变化时，上报 `focus`。
-  - M1b 已实现：单例（`app/realtime.ts`）、退避重连（1 秒起、翻倍、上限 30 秒、±20% 抖动）、应用层心跳（`ping` 超过 10 秒没有 `pong` 就重连）、用 `hello` 与 `pong` 里的 `serverTime` 校正时钟（`serverNow()`）、按关闭码处理（4401 不重连并先探测 `/api/me`，4403 停止，4408 立即重连，4409 在后台标签页保持安静、前台退避重试，4429、1012、1013 与网络中断退避重连，D-121）。`focus` 的状态已跟踪，但服务端支持它（M2/M6）之前不发送。
+  - 切换会话、页面前后台变化时，上报 `focus`（M2b 起发送，每次 `hello` 之后补发当前的 `focus`、`presence.watch`、`presence.activity`）。
+  - M1b 已实现：单例（`app/realtime.ts`）、退避重连（1 秒起、翻倍、上限 30 秒、±20% 抖动）、应用层心跳（`ping` 超过 10 秒没有 `pong` 就重连）、用 `hello` 与 `pong` 里的 `serverTime` 校正时钟（`serverNow()`）、按关闭码处理（4401 不重连并先探测 `/api/me`，4403 停止，4408 立即重连，4409 在后台标签页保持安静、前台退避重试，4429、1012、1013 与网络中断退避重连，D-121）。`focus` 的状态已跟踪，M2b 起发送（服务端 M2a 起支持）。
 - **输入法**：组字期间（`isComposing` 为 true，或 `keyCode` 为 229）回车不发送（D-050）。
 - **本地身份隔离（D-070）**：Query key、IndexedDB、草稿和离线队列使用 userId + authEpoch + membershipId 命名空间（M1b：本地存储键为 `chatapp.u.<userId>.<authEpoch>.*`，会话结束时整体清除；外观是设备级的，保留）。退出先设置共享注销墓碑，通过 BroadcastChannel/SW 通知其他标签页停止渲染、发送和重连，再清缓存及订阅；远程失效在联网复核时执行同样流程。SW 只缓存公共外壳。
 - **离线边界**：初次冷启动未联网验证时只显示外壳；已验证且仍打开的标签页可看已缓存内容。消息缓存最多 7 天/每会话 200 条/总 50 MiB，草稿 7 天，待发纯文本 24 小时。重新联网先验证身份与成员世代再发；换账号、重新入群、过期项保留为需人工处理的草稿，不自动发送。不能清除失联设备或用户另存的副本。

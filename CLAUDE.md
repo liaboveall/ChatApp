@@ -21,7 +21,7 @@
   - "重新生成"会替换原回复；
   - 使用站点 key 的 Agent 运行内容，管理员可以查看；鼓励用户自带 key，但鼓励文案只讲好处，不提管理员能看到内容。
 - 技术选型只看"最新、最好"，不考虑熟悉程度。新增依赖时，先到 registry 核对最新稳定版，锁定精确版本，不用 beta 或 RC（例外须记录在 12）。
-- 技术栈：TypeScript 7；后端 Bun + Hono + zod + Drizzle + PostgreSQL 18（pgvector）+ Valkey + BullMQ + Garage + Better Auth；AI 用 AI SDK 7；前端 React 19 + Vite 8 + TanStack Router/Query + Tailwind 4 + Base UI。
+- 技术栈：TypeScript 7；后端 Bun + Hono + zod + Drizzle + PostgreSQL 18（pgvector）+ Valkey + BullMQ + Garage + Better Auth；AI 用 AI SDK 7；前端 React 19 + Vite 8 + TanStack Router/Query + Tailwind 4 + Base UI；M2b 起加时间线 virtua、Markdown 渲染 streamdown + Shiki（D-144、D-145；代码高亮是自己的插件加预编译语法，D-168），页面开着 Trusted Types（D-146）。
 - 设计（D）已在 2026-10-02 由用户在 D4 确认（D-113）：令牌、玻璃材质和字体（拉丁字母用 Inter）以 `docs/02` 的第 2 到 7 节为准。`design/` 里的原型只是参考实现，M1b 已用 React、Tailwind 和 Base UI 重做（不是搬代码）；令牌的数据源是 `apps/web/src/design/tokens.ts`，改令牌要先过 `bun run design:contrast`（D-114）。
 
 ## 硬性规则
@@ -81,10 +81,10 @@
   - 数据库（M1a）：`db:generate` / `db:check` · `db:migrate` / `db:migrate:test` · `db:bootstrap`（生产也可用）/ `db:bootstrap:test` · `db:seed`（仅开发；M2a 起还会建演示会话和 59 条消息，幂等，开发库要先 `db:migrate`）
   - 后端（M1a）：`dev:api` · `dev:worker` · `admin:create`（密码在用户自己的终端输入）· `admin:verify-email`
   - 测试（M1a）：`test:integration`（集成、安全、契约、实时；需要先 `infra:up`、`infra:bootstrap`、`db:migrate:test`；单个文件用 `bun --env-file=.env.local test ./apps/server/test/<目录>/<文件>`，要从仓库根目录运行）· `test` · `test:coverage`（集成类测试加 `domain/` 行覆盖率 ≥ 90% 的检查，D-142；和 `test:integration` 一样用测试库，不能同时跑）/ `coverage:check`（只检查已有的 lcov）· `test:infra:up` / `test:infra:down <runId>` · `test:fault`（只在独立实例里做故障注入，D-085；M2a 起含 AT-01/02 的杀进程、清空队列、总线断开；Docker Desktop 偶发的内部路径误报会自动重建实例，D-141）· `smoke:backend`（对运行中的 api/worker 做真实进程验收走查，M2a 起共 22 步，用法见脚本头部）
-  - 前端（M1b）：`dev`（api、worker、Vite 一起；`-- api web` 选进程）· `dev:web` · `build` · `storybook` · `web:messages`（生成文案，`-- --check` 只核对）· `test:e2e`（Playwright 对生产构建运行，需要先 `infra:up`、`infra:bootstrap`；**不能和集成测试同时跑**，共用测试库；第一次要装浏览器和系统库，见 docs/09 第 2 节；E2E 里模拟断线用 `e2e/support/network.ts` 的 `controlNetwork`，不要单独用 `context.setOffline`，它断不开已建立的 WebSocket，D-134；写 E2E 要先等页面到位再量、再填：点链接后地址栏先变而旧页面还在，量尺寸要等入场动画结束（`e2e/support/ui.ts` 的 `animationsFinished`），都不用加容差，D-143；用 `--repeat-each` 重复跑会撞管理员登录限流，分批、每批不超过 7 次）· `test:visual`（在 Playwright 官方镜像里比较 Storybook 截图，需要 Docker；`-- --update-snapshots` 重新生成基线）
+  - 前端（M1b）：`dev`（api、worker、Vite 一起；`-- api web` 选进程）· `dev:web` · `build` · `storybook` · `web:messages`（生成文案，`-- --check` 只核对）· `test:e2e`（Playwright 对生产构建运行，需要先 `infra:up`、`infra:bootstrap`；**不能和集成测试、edge 套件同时跑**，共用测试库；第一次要装浏览器和系统库，见 docs/09 第 2 节；M2b 起夹具对每个浏览器上下文断言零违规，新建上下文必须用 `support/fixtures.ts` 的 `newContext()`，控制台里确实会出现的错误用 `allowConsole(pattern, reason)` 声明（D-148）；E2E 里模拟断线用 `e2e/support/network.ts` 的 `controlNetwork`，不要单独用 `context.setOffline`，它断不开已建立的 WebSocket，D-134；写 E2E 要先等页面到位再量、再填：点链接后地址栏先变而旧页面还在，量尺寸要等入场动画结束（`e2e/support/ui.ts` 的 `animationsFinished`），都不用加容差，D-143；用 `--repeat-each` 重复跑会撞管理员登录限流，分批、每批不超过 7 次）· `test:visual`（在 Playwright 官方镜像里比较 Storybook 截图，需要 Docker；`-- --update-snapshots` 重新生成基线）
   - 设计原型（D，见 `design/README.md`）：`design:build`（`-- --minify` 是发布版）· `design:contrast`（令牌对比度自查，脚本在 `apps/web/tools`）；用真实 Windows Edge 做的浏览器检查：`design/prototype/tools/browser-checks/run.sh <keyboard|layout|media|flows|audit>`
+  - 本地网关（M2b）：`edge:up` / `edge:down`（Nginx 容器用生产站点配置提供构建产物，`https://chat.localhost:8443`；`down` 只删 `chatapp-edge` 项目）· `test:edge`（一条命令：起网关、跑 `apps/web/edge/` 套件、拆网关；它的 API 是测试环境的 3104，**独占测试库**，CI 不跑，CI 只跑 `bun scripts/edge.ts configtest`）
 - **以下命令到对应的里程碑才会创建，在那之前不要假定它们存在**：
-  - M2b：`edge:up` / `edge:down`
   - M3：`media:up` / `media:down`（worker容器与私有IPC）
   - M4：`eval`
 - lefthook 的 pre-commit 钩子会运行 Biome 和 guard，提交时 PATH 里必须能找到 `bun`。
