@@ -206,9 +206,24 @@ const ghostOf = (f: Fixture): Fixture => ({
   inviteId: crypto.randomUUID(),
 })
 
-/** Everything a refused call could have touched in this conversation. */
-async function digest(f: Fixture): Promise<string> {
-  if (f.kind === 'none') return ''
+const TABLES = [
+  'conversations',
+  'conversation_members',
+  'conversation_bans',
+  'conversation_invites',
+  'messages',
+  'conversation_changes',
+  'user_conversation_states',
+  'message_hidden',
+]
+
+/**
+ * Everything a refused call could have touched in this conversation, table by table. The rows of a table are put in an order
+ * of their own: a query without ORDER BY gives them in the order the planner's plan happens to produce, and a plan can change
+ * between two reads (statistics refreshed in the meantime) without a row having changed.
+ */
+async function snapshot(f: Fixture): Promise<unknown[][]> {
+  if (f.kind === 'none') return []
   const tables = await Promise.all([
     db().select().from(conversations).where(eq(conversations.id, f.id)),
     db().select().from(conversationMembers).where(eq(conversationMembers.conversationId, f.id)),
@@ -222,7 +237,33 @@ async function digest(f: Fixture): Promise<string> {
       .where(eq(userConversationStates.conversationId, f.id)),
     db().select().from(messageHidden).where(eq(messageHidden.messageId, f.messageId)),
   ])
-  return JSON.stringify(tables)
+  return tables.map((rows) =>
+    [...rows].sort((a, b) => JSON.stringify(a).localeCompare(JSON.stringify(b))),
+  )
+}
+
+/** What differs between two snapshots, as text for the failure message: the table, the row and the columns. */
+function describeChange(before: unknown[][], after: unknown[][]): string {
+  const found: string[] = []
+  for (let table = 0; table < Math.max(before.length, after.length); table += 1) {
+    const was = before[table] ?? []
+    const now = after[table] ?? []
+    if (JSON.stringify(was) === JSON.stringify(now)) continue
+    if (was.length !== now.length)
+      found.push(`${TABLES[table]}: ${was.length} rows, then ${now.length}`)
+    for (let row = 0; row < Math.min(was.length, now.length); row += 1) {
+      const a = was[row] as Record<string, unknown>
+      const b = now[row] as Record<string, unknown>
+      for (const column of Object.keys({ ...a, ...b })) {
+        if (JSON.stringify(a[column]) !== JSON.stringify(b[column])) {
+          found.push(
+            `${TABLES[table]}[${row}].${column}: ${JSON.stringify(a[column])}, then ${JSON.stringify(b[column])}`,
+          )
+        }
+      }
+    }
+  }
+  return found.join('; ')
 }
 
 const metadataVersionOf = async (f: Fixture): Promise<number> =>
@@ -682,7 +723,7 @@ describe('every endpoint, as every kind of person, on every kind of conversation
 
         // Everyone who is refused works against one fixture, and must leave it as it was.
         const shared = await buildFixture(kind, testCase.fixture)
-        const before = await digest(shared)
+        const before = await snapshot(shared)
         const protectedText = [
           shared.secret,
           kind === 'channel' ? '' : shared.name,
@@ -710,7 +751,9 @@ describe('every endpoint, as every kind of person, on every kind of conversation
             }
           }
         }
-        if ((await digest(shared)) !== before) wrong.push('a refused call changed the conversation')
+        const after = await snapshot(shared)
+        if (JSON.stringify(after) !== JSON.stringify(before))
+          wrong.push(`a refused call changed the conversation (${describeChange(before, after)})`)
 
         // Everyone who is allowed gets a conversation of their own, because success changes it.
         for (const actor of Object.keys(actors) as Actor[]) {
