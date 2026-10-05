@@ -57,7 +57,10 @@ test.describe('keyboard shortcuts', () => {
     const person = await createVerifiedMember('palette')
     await signIn(page, person.email, person.password)
     await page.keyboard.press('Control+k')
+    // Narrowed to the three settings commands, in the order they are defined: appearance, account, invitations.
+    await page.keyboard.type('settings')
     const options = page.getByRole('option')
+    await expect(options).toHaveCount(3)
     await expect(options.first()).toHaveAttribute('aria-selected', 'true')
     await page.keyboard.press('ArrowDown')
     await expect(options.nth(1)).toHaveAttribute('aria-selected', 'true')
@@ -147,16 +150,7 @@ test.describe('time zone', () => {
   test('follows the browser by default and is not overridden once fixed', async ({ browser }) => {
     const person = await createVerifiedMember('zone')
     // A browser in New York: the account's zone becomes New York without anyone asking.
-    const ny = await (async () => {
-      const context = await newContext(browser)
-      await context.close()
-      return browser.newContext({
-        baseURL: test.info().project.use.baseURL,
-        locale: 'zh-CN',
-        timezoneId: 'America/New_York',
-        extraHTTPHeaders: { 'x-forwarded-for': '10.9.9.9' },
-      })
-    })()
+    const ny = await newContext(browser, { timezoneId: 'America/New_York' })
     const page = await ny.newPage()
     await signIn(page, person.email, person.password)
     await expect
@@ -179,12 +173,7 @@ test.describe('time zone', () => {
       .toBe('Europe/Paris')
 
     // Another browser in Tokyo signs in: a fixed zone is not touched.
-    const tokyo = await browser.newContext({
-      baseURL: test.info().project.use.baseURL,
-      locale: 'zh-CN',
-      timezoneId: 'Asia/Tokyo',
-      extraHTTPHeaders: { 'x-forwarded-for': '10.9.9.10' },
-    })
+    const tokyo = await newContext(browser, { timezoneId: 'Asia/Tokyo' })
     const other = await tokyo.newPage()
     await signIn(other, person.email, person.password)
     await other.waitForTimeout(1500)

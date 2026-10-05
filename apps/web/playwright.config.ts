@@ -1,4 +1,5 @@
 import { defineConfig, devices } from '@playwright/test'
+import { GPU_LAUNCH } from './e2e/support/gpu.ts'
 
 const WEB_PORT = 4173
 const API_PORT = 3102
@@ -26,9 +27,22 @@ export default defineConfig({
     screenshot: 'only-on-failure',
   },
   projects: [
-    { name: 'chromium', use: { ...devices['Desktop Chrome'] } },
-    { name: 'webkit', use: { ...devices['Desktop Safari'] } },
-    { name: 'firefox', use: { ...devices['Desktop Firefox'] }, grep: /@smoke/ },
+    { name: 'chromium', use: { ...devices['Desktop Chrome'] }, grepInvert: /@perf/ },
+    { name: 'webkit', use: { ...devices['Desktop Safari'] }, grepInvert: /@perf/ },
+    {
+      name: 'firefox',
+      use: { ...devices['Desktop Firefox'] },
+      grep: /@smoke/,
+      grepInvert: /@perf/,
+    },
+    // The performance scenarios (T1 to T4, latency; docs/12 D-149, D-161) run in Chromium with the graphics card where there
+    // is one: headless Chromium otherwise composites in software, where the glass of the toolbar and the composer alone
+    // costs three frames in four. On WSL the card is reached through Mesa's d3d12 driver.
+    {
+      name: 'perf',
+      use: { ...devices['Desktop Chrome'], launchOptions: GPU_LAUNCH },
+      grep: /@perf/,
+    },
   ],
   webServer: [
     {

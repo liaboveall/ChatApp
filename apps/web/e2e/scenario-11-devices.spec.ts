@@ -1,5 +1,5 @@
 import { createVerifiedMember } from './support/api.ts'
-import { expect, installProbes, newContext, socketProbe, test } from './support/fixtures.ts'
+import { expect, newContext, socketProbe, test } from './support/fixtures.ts'
 import { openSettings, signIn } from './support/ui.ts'
 
 /**
@@ -15,8 +15,6 @@ test('@smoke signing out another device closes its connection and sends it to th
   const contextB = await newContext(browser)
   const a = await contextA.newPage()
   const b = await contextB.newPage()
-  await installProbes(a)
-  await installProbes(b)
   try {
     await signIn(a, person.email, person.password)
     await signIn(b, person.email, person.password)
@@ -60,7 +58,6 @@ test('signing out here ends the session, closes the connection and clears the ap
   await signIn(page, person.email, person.password)
   // A second tab of the same browser.
   const tab = await page.context().newPage()
-  await installProbes(tab)
   await tab.goto('/')
   await expect(tab.getByRole('navigation', { name: '会话' })).toBeVisible()
 

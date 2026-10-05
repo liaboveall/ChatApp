@@ -3,16 +3,22 @@
  * interface for what is being tested. Registration goes through the real endpoints: invitation, sign-up, the email from
  * Mailpit, verification.
  */
+import { existsSync } from 'node:fs'
+import { mkdir } from 'node:fs/promises'
+import path from 'node:path'
 import { type APIRequestContext, request } from '@playwright/test'
 import { adminCredentials, fakeClientIp, newPerson } from './accounts.ts'
 import { deleteMail, linkIn, waitForMail } from './mailpit.ts'
 
-const ORIGIN = 'http://localhost:4173'
+/** The site under test: the preview server by default; the edge suite points it at the gateway. */
+const ORIGIN = process.env.E2E_ORIGIN ?? 'http://localhost:4173'
 
 /** A request context that looks like the app's own page: same origin header, its own client address. */
-export async function apiContext(): Promise<APIRequestContext> {
+export async function apiContext(storageState?: string): Promise<APIRequestContext> {
   return request.newContext({
     baseURL: ORIGIN,
+    ignoreHTTPSErrors: true,
+    storageState,
     extraHTTPHeaders: {
       origin: ORIGIN,
       'x-forwarded-for': fakeClientIp(),
@@ -23,13 +29,31 @@ export async function apiContext(): Promise<APIRequestContext> {
 
 let cachedAdmin: APIRequestContext | undefined
 
-/** The administrator, signed in once per worker (sign-in attempts per account are limited). */
+/**
+ * Where the administrator's session is kept for the length of one run. Playwright starts a new worker after every test
+ * that fails, and a worker that signed in again each time would soon meet the limit on sign-in attempts per account (429),
+ * which turns one failure into dozens. All the workers of a run share one parent, the runner, so its process number names
+ * the run; the directory is emptied when the next run starts.
+ */
+const SESSION_FILE = path.join('test-results', `.administrator-session-${process.ppid}.json`)
+
+/** The administrator, signed in once per run (sign-in attempts per account are limited). */
 async function admin(): Promise<APIRequestContext> {
   if (cachedAdmin) return cachedAdmin
+  if (existsSync(SESSION_FILE)) {
+    const kept = await apiContext(SESSION_FILE)
+    if ((await kept.get('/api/me')).ok()) {
+      cachedAdmin = kept
+      return kept
+    }
+    await kept.dispose()
+  }
   const context = await apiContext()
   const { email, password } = adminCredentials()
   const response = await context.post('/api/auth/sign-in/email', { data: { email, password } })
   if (!response.ok()) throw new Error(`administrator sign-in failed: ${response.status()}`)
+  await mkdir(path.dirname(SESSION_FILE), { recursive: true })
+  await context.storageState({ path: SESSION_FILE })
   cachedAdmin = context
   return context
 }
