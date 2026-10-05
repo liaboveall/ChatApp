@@ -70,8 +70,8 @@ Conversation { id, kind: 'channel'|'group'|'dm'|'agent', name|null, description|
                dmPeer: UserSummary|null, settings: { whoCanInvite?, agentEnabled? },
                panelForConversationId|null, archivedAt|null,
                previewVersion: { lastChangeSeq, viewerVersion },
-               me: { version, role, membershipId, visibleFromSeq, lastReadSeq, unread, notifyLevel, mute,
-                     silencedUntil|null, pinnedAt|null, hiddenAt|null } }
+               me: { version, role, membershipId, joinedAt, visibleFromSeq, lastReadSeq, unread, notifyLevel, mute,
+                     silencedUntil|null, pinnedAt|null, hiddenAt|null } }        // joinedAt 从 M2b 起（D-155），重新加入时重写
 Member       { user: UserSummary, membershipVersion, role, membershipId, joinedAt, silencedUntil|null }
 Message      { id, conversationId, seq, changeSeq, kind: 'user'|'system'|'agent', status: 'sent'|'streaming'|'failed',
                senderId|null, body|null,
@@ -271,7 +271,7 @@ Page<T>      { items: T[], nextCursor|null }  // message lists instead return { 
 | `typing` | `{conversationId, state: 'start'\|'stop'}` | 每个会话最多每 3 秒发一次；非成员发的会被忽略 |
 | `presence.watch` | `{userIds: string[]}` | **整体替换**关注的用户集合，最多 200 个；服务端立即回一条 `presence.snapshot` |
 | `presence.activity` | `{state: 'active'\|'idle'}` | 页面可见性或用户操作状态变化时发送 |
-| `focus` | `{conversationId: string\|null, foreground: boolean}` | 当前查看的会话和页面是否在前台；切换会话或页面前后台变化时发送。用于"正在看的会话不推送"（D-043） |
+| `focus` | `{conversationId: string\|null, foreground: boolean}` | 当前查看的会话和页面是否在前台；切换会话或页面前后台变化时发送；**M2b 起由客户端发送，每次 `hello` 之后补发**（服务端按连接保存，重连后丢失）。用于"正在看的会话不推送"（D-043） |
 
 所有写操作都**不走** WebSocket，统一用 HTTP。
 
@@ -303,8 +303,8 @@ Page<T>      { items: T[], nextCursor|null }  // message lists instead return { 
 - 读取当前实体投影，允许 Message.changeSeq 高于 through；客户端只合并更新版本，但 synced 只能由 scannedThrough/最后一页 through 推进。下一轮仍从这个 synced 读取日志，不把新实体版本误当成全量水位。
 - user changes 同协议，items为带第2节版本的资源当前授权状态；个人会话墓碑为`{conversationId,membershipId,state:'removed',viewerVersion}`，覆盖hiddenMessageIds/已读/设置/成员变化，不再用hiddenSince。旧移除事件只促使对账，不能凭迟到提示删除新membership；本人持久关系墓碑无正文可经个人同步读取。会话内容接口在成员不存在时返回404，旧membership游标resetRequired。
 - 日志过期（`after` 低于该会话的 `change_log_floor`）、`after` 大于当前头、缺口 >1000、cursor 无效或过期、membership 已换（退出重入）都返回 `resetRequired: true`，不静默跳过。重建响应的 `baseline` 在同一个数据库一致快照内返回当前会话、最新消息页（`messages`、`users`、`hasMoreBefore`）、`baselineChangeSeq`、`baselineUserSeq`；后续从 baseline 补发期间发生的新变化。个人日志（`GET /api/me/changes`）同理：重置时 `baseline` 是 `{me, conversations, baselineUserSeq}`。日志保留 7 天，清理在同一语句里推进下限（D-126）。
-- GET /sync/heads 仅返回 `{userChangeSeq, conversations: [{id, membershipId, lastChangeSeq, metadataVersion, membershipVersion, viewerVersion}]}`，只含当前可访问的会话，不携带正文；`metadataVersion` 落后就重取会话（D-125）。前台 30 秒一次（抖动），重连/回前台立即做；客户端始终区分 observed 和 synced。
-- 普通提示合并后尽快补拉（目标 50ms 批处理），尾事件目标 35 秒内收敛。无内容的事件不直接写消息缓存。
+- GET /sync/heads 仅返回 `{userChangeSeq, conversations: [{id, membershipId, lastChangeSeq, metadataVersion, membershipVersion, viewerVersion}]}`，只含当前可访问的会话，不携带正文；`metadataVersion` 落后就重取会话（D-125）。前台每 24 到 30 秒一次（`30 s × (0.8 + 0.2 × random)`，加一次补发仍在 35 秒内，D-150），重连/回前台/恢复联网立即做；客户端始终区分 observed 和 synced。
+- 普通提示合并后尽快补拉（目标 50ms 批处理），尾事件目标 35 秒内收敛。无内容的事件不直接写消息缓存。会话时间线第一次载入时，`synced` 取**发请求之前**已知的会话 `lastChangeSeq`（先取水位、后取页，水位之后的变化一定会被补发重放，反过来会漏）。引擎发起的后台请求受请求预算约束（令牌桶，429/503 后暂停到 `Retry-After`，D-150）。
 - agent.delta 仅给通过 03 第 6 节批次授权的接收者。index 不连续就停止拼接，通过 GET /messages/:id 获取持久快照；每秒持久快照的 streamRevision 单调递增，最后完成事件同样走 message.changed。最终事件丢失由周期对账恢复。
 - 重新生成使用新的 runId，切换前核对消息当前绑定；旧 run 的迟到增量一律丢弃。审批暂停把当前段标 sent，下一 resumeSeq 创建新段。
 - 引用/预览变化时失效并重取；conversation.removed只是对账提示，确认较新viewerVersion移除墓碑后才清消息/草稿/离线权限，不能让迟到提示删除重入关系。清缓存不替代服务端授权。

@@ -1,6 +1,6 @@
 # 09 本地开发环境
 
-> 基础设施和工具链已在 2026-09-30 的"开发准备"中搭好并验证通过（验证方式：`bun run doctor`）。M1a 的后端脚本（`db:*`、`dev:api`、`dev:worker`、`admin:*`、`test`、`test:integration`、`test:infra:*`、`test:fault`）和 M1b 的前端脚本（`dev`、`dev:web`、`build`、`storybook`、`test:e2e`、`test:visual`、`web:messages`）都已可用，见第 7 节；`edge:*`、`media:*`、`eval` 要到对应里程碑才会创建，**创建之前不要假定它们存在**。
+> 基础设施和工具链已在 2026-09-30 的"开发准备"中搭好并验证通过（验证方式：`bun run doctor`）。M1a 的后端脚本（`db:*`、`dev:api`、`dev:worker`、`admin:*`、`test`、`test:integration`、`test:infra:*`、`test:fault`）和 M1b 的前端脚本（`dev`、`dev:web`、`build`、`storybook`、`test:e2e`、`test:visual`、`web:messages`）都已可用，见第 7 节；M2b 起还有 `edge:up`、`edge:down`、`test:edge`（本地网关，见第 2 节和第 7 节）；`media:*`、`eval` 要到对应里程碑才会创建，**创建之前不要假定它们存在**。
 > 开发环境：自 2026-10-01 起在 **WSL（Ubuntu 26.04）** 中进行（D-093）。仓库在 `/home/mars/projects/ChatApp`，命令都在 WSL 的 bash 里运行；Docker 用 Docker Desktop 的 WSL 集成。Windows 上的 `D:\ChatApp` 已停用。
 
 ## 1. 前置条件
@@ -42,7 +42,11 @@ bun run doctor                 # end-to-end checks; add --ai to also test the De
   node_modules/.bin/playwright install chromium webkit firefox      # 下载到 ~/.cache/ms-playwright，不需要 sudo
   sudo node_modules/.bin/playwright install-deps                    # 浏览器依赖的系统库（libnspr4 等），WSL 里要装一次
   ```
-  之后在仓库根目录运行 `bun run test:e2e`（需要先 `infra:up`、`infra:bootstrap`；它自己构建前端并启动测试环境的 api 与 worker，**不要同时跑集成测试**，两者共用测试库）。单个文件或浏览器：`bun run test:e2e -- e2e/shell.spec.ts --project=chromium`。视觉测试 `bun run test:visual` 在 Playwright 官方镜像里运行，需要 Docker Desktop 在运行，第一次会拉取镜像。
+  之后在仓库根目录运行 `bun run test:e2e`（需要先 `infra:up`、`infra:bootstrap`；它自己构建前端并启动测试环境的 api 与 worker，**不要同时跑集成测试**，两者共用测试库）。单个文件或浏览器：`bun run test:e2e -- e2e/shell.spec.ts --project=chromium`。视觉测试 `bun run test:visual` 在 Playwright 官方镜像里运行，需要 Docker Desktop 在运行，第一次会拉取镜像；M2b 起有 53 个故事 × 浅深两种主题共 106 张基线（新增的是输入栏、会话侧栏的行、时间线、Inspector 的各个面板与对话框，外壳和资料设置的基线随真实内容重做）。
+  - **整套 `test:e2e` 约 16 分钟（M2b 起 182 个用例：Chromium 与 WebKit 全量，Firefox 冒烟，`perf` 项目单独）**，期间不要在同一台机器上做别的重活（编译、`check`、Docker 构建），性能用例对它敏感；管理员的接口会话在一次运行里只登录一次（存在 `apps/web/test-results/.administrator-session-<进程号>.json`，下一次运行开始时随目录清掉），所以一个用例失败不会因为换工作进程而撞上登录限流（D-165）。
+  - 只跑性能：`bun run test:e2e -- --project=perf`；需要显卡合成才断言速度，在 WSL 里用 d3d12 的 Mesa 驱动（`e2e/support/gpu.ts` 的 `GPU_LAUNCH`，D-161）。
+- **性能测试用的一万条消息（M2b，D-149）**：`bun run test:e2e` 启动测试栈时，`scripts/e2e-stack.ts` 在 API 启动之前建好 perf_a、perf_b、perf_c 三个人和群「性能 10k」（生成器在 `apps/server/test/support/perf-fixture.ts`，固定种子，内容逐字可重现；它的 5 个集成测试在 `test/integration/perf-fixture.test.ts`），人员和凭据写进被 git 忽略的 `.test-runs/e2e/perf.json`（权限 600）。`e2e/timeline-perf.spec.ts`（T1 到 T4）和 `e2e/latency.spec.ts` 用它测量；渲染速度相关的断言只在本机断言，CI 里量出来写进附件和作业摘要。
+- **本地网关 edge（M2b，D-147）**：`bun run test:edge` 构建前端、组装 web root、用 openssl 生成 `chat.localhost` 的本地证书（只在 `.test-runs/edge/certs/`，权限 600，不导入任何信任库）、起 Nginx 容器（`infra/compose.edge.yml`，镜像按摘要锁定）并检查配置，再跑 `apps/web/edge/` 里的套件（AT-19 的头、AT-26/27 的网关部分、经网关的应用和 Passkey；25 个用例，第一个失败就停），无论结果如何最后拆掉容器。Playwright 等整条链（`https://chat.localhost:8443/api/readyz`）都通了才开始：容器是经 Docker Desktop 到宿主机再转进 WSL 的，宿主机发现新监听端口要晚一点，只看 127.0.0.1 上的 API 会让第一批请求拿到 502（D-167）。只想看看：`bun run edge:up`，然后自己起 API（`E2E_API_PORT=3104 E2E_APP_ORIGIN=https://chat.localhost:8443 bun --env-file=.env.local scripts/e2e-stack.ts`，它独占测试库）和浏览器打开 https://chat.localhost:8443（证书不被信任，忽略警告即可），用完 `bun run edge:down`（只删 `chatapp-edge` 项目的容器和网络）。CI 不跑这套，只跑 `bun scripts/edge.ts configtest`（compose 文件有效、镜像里 `nginx -t` 通过）。
 - **收发邮件**：Mailpit 的网页界面在 http://localhost:8025 ，所有发出的邮件都会在这里显示。
 
 ## 3. 端口
@@ -52,7 +56,7 @@ bun run doctor                 # end-to-end checks; add --ai to also test the De
 | web（Vite） | 5173 | M1b 起可用。会把 `/api` 和 `/ws` 代理到 3100，让前后端同源，Cookie 才能正常工作。浏览器用 `http://localhost:5173` |
 | api | 3100 | M1a 起可用 |
 | E2E：预览服务器 / API | 4173 / 3102 | 只在 `bun run test:e2e` 期间存在：`vite preview` 提供生产构建（带生产 CSP），API 与 worker 用测试环境（D-122） |
-| edge（Nginx） | 8443 | M2b 起可用。用生产站点配置提供一次构建产物，访问地址 `https://chat.localhost:8443`，用于 CSP 测试和彩排 |
+| edge：Nginx / API | 8443 / 3104 | M2b 起可用，只在 `bun run test:edge`（或 `edge:up` 加手动起栈）期间存在：Nginx 容器用生产站点配置提供构建产物，访问地址 `https://chat.localhost:8443`；它后面是测试环境的 API 与 worker（3104，`scripts/e2e-stack.ts`，D-147）。用于头与网关测试和 M7 彩排 |
 | Postgres | **5434** → 容器内 5432 | 用户名 `chatapp`；开发库 `chatapp`，测试库 `chatapp_test`。两个库都已安装 `vector` 0.8.6 和 `pg_trgm` 1.6 |
 | Valkey | 6379 | 开发用 db 0，测试用 db 1；配置为 `noeviction`，已开启 AOF。pub/sub 不区分 db，所以事件频道名带环境：`events:development`、`events:test`（D-044） |
 | Garage | 3900（S3）、3903（管理接口） | region 为 `garage`；bucket `chatapp` 和 `chatapp-test` |
@@ -132,10 +136,10 @@ bun run doctor                 # end-to-end checks; add --ai to also test the De
 | `smoke:backend` | 对**正在运行**的 api 与 worker 做真实进程验收走查（管理员 → 邀请码 → 注册 → Mailpit 收邮件 → 验证 → 登录 → WebSocket → 退出即断开；M2a 起再加两个成员，走一遍建频道、加入、消息提示、已读、typing、在线状态、编辑撤回、权限和移出，共 22 步）。用法和前置条件见脚本头部注释；建议对测试环境（`APP_ENV=test`）运行，它会在目标库里留下账号；集成测试会清空测试库（连 bootstrap 数据一起），所以先 `bun run db:bootstrap:test` | ✅ 可用 |
 | `test:infra:up` / `test:infra:down` / `test:fault` | 每 run 独立拓扑、限定清理及故障矩阵（AT-34；M2a 起含 AT-01/02 的杀进程、清空队列、总线断开） | ✅ 可用 |
 | `design:build` / `design:contrast` | 构建设计原型（`--minify` 为发布版）/ 令牌对比度自查（脚本在 `apps/web/tools/contrast.ts`，D-114），不需要任何服务 | ✅ 可用（D） |
-| `test:e2e` / `test:visual` | 端到端测试（Playwright，对生产构建运行，需要 `infra:up`）/ 视觉测试（在 Playwright 官方 Linux 镜像里运行，基线也在那里生成；加 `-- --update-snapshots` 重新生成基线，提交前要逐张看过变化的 PNG） | ✅ 可用（M1b） |
+| `test:e2e` / `test:visual` | 端到端测试（Playwright，对生产构建运行，需要 `infra:up`；M2b 起有会话场景、安全、Inspector、资料、一致性、性能与延迟，夹具对每个上下文断言零违规，D-148）/ 视觉测试（在 Playwright 官方 Linux 镜像里运行，基线也在那里生成；加 `-- --update-snapshots` 重新生成基线，提交前要逐张看过变化的 PNG） | ✅ 可用（M1b） |
 | `storybook` / `build` | 组件库（:6006）/ 前端生产构建（`apps/web/dist`） | ✅ 可用（M1b） |
 | `web:messages` | 由 `apps/web/tools/messages-source.ts` 生成 `messages/*.json`；加 `-- --check` 只核对是否过期（`check` 里已包含） | ✅ 可用（M1b） |
-| `edge:up` / `edge:down` | 用 Nginx 容器和生产站点配置提供一次构建产物 | M2b |
+| `edge:up` / `edge:down` / `test:edge` | 用 Nginx 容器和生产站点配置提供一次构建产物（`up` 构建、组装 web root、生成本地证书、`nginx -t`；`down` 只删 `chatapp-edge` 的容器和网络，不 prune）/ 一条命令跑完整个 edge 套件（`up`、套件、`down`）。`bun scripts/edge.ts configtest` 只检查配置能加载（CI 用它）。edge 栈与 `test:e2e`、`test:integration` 一样独占测试库 | ✅ 可用（M2b） |
 | `media:up` / `media:down` | worker容器与无网络media、私有IPC及资源限制；不重置开发依赖 | M3新增 |
 | `eval` | Agent 评测 | M4 |
 

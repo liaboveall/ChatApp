@@ -33,7 +33,7 @@
 | **SEC-03** | WS 绑定 session，Origin 必须匹配；服务端决定 topic，但订阅不构成授权。内容每批查当前 session/成员/来源版本；注销走持久撤销，5 秒复核（测试容差 1 秒），依赖失败停止派发并断连；已授权在途字节不可召回（03 第 6 节）。 |
 | **SEC-04** | 所有对外暴露的 id 都用 UUIDv7，不使用可以枚举的自增 id 或可以拼出来的名字（旧版的 `private_1_2` 就是反例） |
 | **SEC-05** | 前端**禁止**用 `innerHTML` 或 `dangerouslySetInnerHTML` 渲染用户内容。<br>• Markdown 按 D-047 配置：禁止原始 HTML，关闭数学公式和 Mermaid<br>• 链接只允许 `http`、`https`、`mailto` 三种协议，外链加 `rel="noopener noreferrer"`<br>• `guard` 扫描 `innerHTML`、`outerHTML`、`insertAdjacentHTML`、`dangerouslySetInnerHTML`、`document.write`、`setHTMLUnsafe`、`createContextualFragment`、`srcdoc` |
-| **SEC-06** | 页面文档（index.html）的 CSP 由 Nginx 站点配置输出：<br>`default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data: blob:; media-src 'self' blob:; connect-src 'self'; font-src 'self'; worker-src 'self'; manifest-src 'self'; frame-ancestors 'none'; object-src 'none'; base-uri 'none'; form-action 'self'`<br>• 是否开启 Trusted Types（`require-trusted-types-for 'script'`）在 M2b 随 Markdown 渲染一起决定（V-08）<br>• WebKit 的 E2E 要验证 WebSocket 在 `connect-src 'self'` 下能连接；不能的话，显式加上 `wss://<站点域名>`<br>• **M1b 已实现并验证**：策略与上面逐字相同（`apps/web/tools/csp.ts`），`vite preview` 在 E2E 里原样发送；每个 E2E 测试都断言零 `securitypolicyviolation` 和零意外控制台错误；WebSocket 在 Chromium、WebKit、Firefox 的 `connect-src 'self'` 下都能连接并保持，所以不需要显式 `wss://`；页面没有内联脚本和样式，Zod 以 `jitless` 运行（D-116）。生产 Nginx 的同样输出在 M2b 验证 |
+| **SEC-06** | 页面文档（index.html）的 CSP 由 Nginx 站点配置输出：<br>`default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data: blob:; media-src 'self' blob:; connect-src 'self'; font-src 'self'; worker-src 'self'; manifest-src 'self'; frame-ancestors 'none'; object-src 'none'; base-uri 'none'; form-action 'self'`<br>• **Trusted Types 已开启（D-146，V-08）**：策略末尾追加 `; require-trusted-types-for 'script'; trusted-types 'none'`（不允许创建任何策略）。`apps/web/tools/csp.ts` 是唯一来源，`infra/nginx/security-headers.conf` 与它逐字一致（`bun run check` 里的单元测试比对）；构建把 `decode-named-character-reference` 解析到查表版，因为它的浏览器版用 `innerHTML` 解码实体。以后需要写入点的功能（M6 的 Service Worker 注册、`new Worker(url)`、M7 的 Sentry）另立决定、建只做一件事的命名策略<br>• WebKit 的 E2E 要验证 WebSocket 在 `connect-src 'self'` 下能连接；不能的话，显式加上 `wss://<站点域名>`<br>• **M1b 已实现并验证**：策略与上面逐字相同（`apps/web/tools/csp.ts`），`vite preview` 在 E2E 里原样发送；每个 E2E 测试都断言零 `securitypolicyviolation` 和零意外控制台错误；WebSocket 在 Chromium、WebKit、Firefox 的 `connect-src 'self'` 下都能连接并保持，所以不需要显式 `wss://`；页面没有内联脚本和样式，Zod 以 `jitless` 运行（D-116）。生产站点配置的同样输出在 M2b 的 edge（本地 Nginx 容器，D-147）上验证 |
 | **SEC-07** | 上传先持久预占与对象意图，再接收流；每阶段可幂等恢复。魔数/长度/像素/帧数/时长/解码内存/超时均有限制；媒体子进程无网络、非 root。随机不可覆盖对象 key；svg/html/xml 只能下载；EXIF 清理失败不能宣称已清理（03 第 5.4 节）。 |
 | **SEC-08** | 附件按 purpose、当前有效绑定和消息可见性授权；deleting 一律不可读。应用设置安全 Content-Type、Content-Disposition、nosniff、CSP sandbox、Cache-Control: private, no-store；Range 每次重新鉴权，SW 不缓存敏感文件。 |
 | **SEC-09** | 注册仅受控入口执行D-059；首次INSERT关联registration_id。D-076验证/重置凭证绑定user、registration、purpose、邮箱摘要、auth/restore世代，一次性事务消费；GET不消费，原生JWT回调默认关闭。同邮箱重建不可复用旧链接，验证/撤销/清理串行化。邀请码只存哈希，按IP限流。 |
@@ -92,12 +92,12 @@
 | L-02 一个中文名房间让全站所有页面 500 | 同上，页面渲染不再依赖名称拼出的 slug | 创建之后，首页和登录页依然返回 200 | M2a |
 | L-03 第二个中文名房间撞上唯一约束 | 频道名唯一性按规范化后的名称判断 | 两个不同的中文名都能创建；名称完全相同时返回 409 | M2a |
 | L-04 私密房间的密码可以被绕过 | SEC-02：群组没有"密码"，只能被拉入或凭群邀请链接加入 | 非成员读取群组消息返回 404 | M2a |
-| L-05、L-06 聊天记录被渲染成页面顶部的横幅 | 前端重写（React），没有模板变量重名的问题 | E2E：私信页（M2b）和 Agent 页（M4）都不出现错误横幅 | M2b / M4 |
-| L-07 超过时限的消息仍显示撤回按钮 | 服务端和客户端都按时间戳计算时限（客户端用 `hello.serverTime` 校正时钟） | 3 分钟前的消息返回 `WINDOW_EXPIRED`（M2a）；界面上也没有撤回按钮（M2b） | M2a / M2b |
+| L-05、L-06 聊天记录被渲染成页面顶部的横幅 | 前端重写（React），没有模板变量重名的问题 | E2E：私信页（M2b ✅，`scenario-5-isolation.spec.ts`：「错误：…」这样的文字只在时间线里，页面上没有横幅和告警）和 Agent 页（M4）都不出现错误横幅 | M2b / M4 |
+| L-07 超过时限的消息仍显示撤回按钮 | 服务端和客户端都按时间戳计算时限（客户端用 `hello.serverTime` 校正时钟） | 3 分钟前的消息返回 `WINDOW_EXPIRED`（M2a）；界面上也没有撤回按钮（M2b ✅，`scenario-4-recall.spec.ts`：撤回者的浏览器时钟拨慢 10 分钟，消息用测试接口变老，D-155；缓存里还是旧时间时界面仍会给出撤回，点了由服务端拒绝并说明） | M2a / M2b |
 | L-08 页面样式没有生效 | 改用 Tailwind 和组件库；关键组件做截图对比测试 | Storybook 截图对比通过 | M1b ✅（2026-10-03：64 张基线，Playwright 官方镜像内逐像素比较，D-123；本地与远端 CI 的 `visual` 作业都是 64 通过） |
 | L-09 可以冒充他人发言 | SEC-01 | 请求体里带 `senderId` 或 `username` 会被拒绝（422，请求体是 strict 的），消息的发送者永远是会话本人 | M2a |
 | L-10 可以把消息写进别的房间 | SEC-01、SEC-02：会话 id 取自 URL，并检查成员关系 | 对非成员的会话发消息返回 404 | M2a |
-| L-11 实时消息存在 XSS | SEC-05、SEC-06 | E2E：发送 `<img src=x onerror=…>` 后，页面显示为文本，脚本没有执行，也没有 CSP 违规报告 | M2b |
+| L-11 实时消息存在 XSS | SEC-05、SEC-06 | E2E：发送 `<img src=x onerror=…>` 后，页面显示为文本，脚本没有执行，也没有 CSP 违规报告（M2b ✅，`security.spec.ts`：七种恶意样本，两个人的页面上都只是文本；另有 Trusted Types 金丝雀，D-146、D-148） | M2b |
 | L-12 上传 html 文件后被当作网页在同源打开 | SEC-07、SEC-08 | 上传 `pwn.html` 后，`kind` 为 `file`，下载时的响应头是 `attachment` 加 `nosniff` 加 `sandbox` | M3 |
 | L-13 私聊 WebSocket 匿名也能连接 | SEC-03 | 不带 Cookie 连接，被以 4401 关闭 | M1a |
 | L-14 AI 的 WebSocket 匿名也能连接 | SEC-03：只有一个 `/ws`，必须登录 | 同上（M1a）；匿名调用 `POST /api/agent/runs` 返回 401（M4） | M1a / M4 |

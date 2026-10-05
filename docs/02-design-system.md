@@ -105,7 +105,7 @@
 
 **宽度适配**
 - 1024–1279px：Inspector 从右侧以浮层形式弹出，不挤占时间线。
-- 768–1023 CSS px：侧栏折叠，Inspector 弹层；低于 768 至 320 CSS px：单栏时间线，导航抽屉，输入栏自动换行。桌面 400% 缩放不能产生整页横向滚动；代码块/表格可独立横滚。手机专用交互仍在 v1.1。
+- 768–1023 CSS px：侧栏折叠，Inspector 弹层；低于 768 至 320 CSS px：单栏时间线，导航抽屉（在抽屉里点任何链接，包括已经打开的会话，或路径变了，抽屉就关上，D-166），输入栏自动换行。桌面 400% 缩放不能产生整页横向滚动（`accessibility.spec.ts` 用 320 px 宽的页面走完主流程）；代码块/表格可独立横滚。手机专用交互仍在 v1.1。
 
 **空状态**：没有选中会话时，显示欢迎页和常用快捷键。
 
@@ -322,11 +322,13 @@ D4 确认（2026-10-02，D-113）：**拉丁字母和数字用 Inter，中文用
 
 每个组件都要展示以下状态：默认、悬停、按下、聚焦、禁用、加载、空、错误、长内容、深色模式。
 
+**M2b 已实现（2026-10-04）**：聊天——Timeline（virtua）、消息行（成组的气泡、系统行、撤回与删除行、引用条、已编辑标记、发送中与失败重试）、日期与未读分隔、历史边界行、回到最新、Composer（回复条、编辑条、自动长高、字数提示、被禁言与已归档状态）、正在输入、消息菜单与悬停工具条、新消息朗读区、读屏分页模式；侧栏——会话行（未读、置顶、静音、在线点）、分组折叠、右键菜单；Inspector 的详情页（成员、添加成员、邀请链接、我的设置、会话设置、封禁名单、退出与归档，各角色可见的内容不同）；对话框与页面——新建频道/群/私信、频道发现、已归档、群邀请链接页、资料编辑；基础组件新增 SelectField（浏览器自带下拉）、SearchField、TextArea、ConfirmDialog。Markdown 渲染见 D-145，时间线的行为见 D-151 到 D-153、D-158。Storybook 里这些组件有 story 与基线（`Conversations/Sidebar rows`、`Timeline/Rows`、`Composer/States`、`Inspector/Details`）。**仍未实现**：附件相关组件、Agent 组件、通知组件、AdminConsole。
+
 M1b 只实现 M1b 页面用到的组件，主要是"基础"和"布局"两组中的一部分。其余组件在用到它们的里程碑再实现（D-053）。
 
 - **基础**：Button（filled、tinted、plain、glass 四种样式）、IconButton、TextField、SearchField、TextArea、Switch、Checkbox、SegmentedControl、Slider、Badge、Avatar（带在线状态点）、Tooltip、Menu、ContextMenu、Popover、Dialog、Sheet、Toast、Skeleton、EmptyState、ErrorState
 - **布局**：AppShell、Sidebar、SidebarSection、SidebarItem、Toolbar、Inspector、SplitView（可拖动分栏）
-- **聊天**：Timeline（基于 react-virtuoso）、MessageGroup、MessageBubble、SystemMessage、RecalledMessage、DateSeparator、UnreadDivider、HistoryBoundary、TypingIndicator、ReplyPreview、MentionPill、BotBadge、AttachmentImageGrid、AttachmentVideo、AttachmentAudio、AttachmentFile、UploadProgress、Composer、MentionPopover、EmojiPicker、JumpToLatest
+- **聊天**：Timeline（基于 virtua，D-144）、MessageGroup、MessageBubble、SystemMessage、RecalledMessage、DateSeparator、UnreadDivider、HistoryBoundary、TypingIndicator、ReplyPreview、MentionPill、BotBadge、AttachmentImageGrid、AttachmentVideo、AttachmentAudio、AttachmentFile、UploadProgress、Composer、MentionPopover、EmojiPicker、JumpToLatest
 - **Agent**：AgentMessage（带流光描边和"等待批准"状态）、ToolCallCard、ApprovalCard、AssistantPanel、ScopeToggle、QuickActions、MemoryChip、UsageMeter、ApiKeyField、CommandPalette
 - **通知**（M6）：NotificationBell、NotificationList
 - **页面**：LoginPage、RegisterPage（邀请码）、VerifyEmailPage、ResetPasswordPage、SettingsWindow（外观、通知、账号、邀请、助手）、AdminConsole（M7）
