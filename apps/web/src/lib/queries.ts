@@ -8,9 +8,10 @@ import {
   type Me,
   meSchema,
 } from '@chatapp/contracts'
-import { queryOptions } from '@tanstack/react-query'
+import { type QueryClient, queryOptions } from '@tanstack/react-query'
 import { z } from 'zod'
 import { ApiError, api } from './api.ts'
+import { mergeMe } from './sync/merge.ts'
 
 export const queryKeys = {
   me: ['me'] as const,
@@ -29,9 +30,19 @@ async function fetchMe(signal?: AbortSignal): Promise<Me | null> {
   }
 }
 
+/**
+ * Every write of the identity goes through the version merge (D-150): a read that was slow, or a write answer that
+ * overtook it, can never put an older profile back. `null` (nobody signed in) and a different identity (another
+ * account, or the same one after a password change, which has a new login generation) always replace.
+ */
+export function writeMe(client: QueryClient, incoming: Me | null): void {
+  client.setQueryData<Me | null>(queryKeys.me, (current) => mergeMe(current, incoming))
+}
+
 export const meQuery = queryOptions({
   queryKey: queryKeys.me,
-  queryFn: ({ signal }) => fetchMe(signal),
+  queryFn: async ({ client, signal }) =>
+    mergeMe(client.getQueryData<Me | null>(queryKeys.me), await fetchMe(signal)),
   staleTime: 60_000,
 })
 

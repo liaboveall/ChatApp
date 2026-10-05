@@ -7,7 +7,15 @@
 import { useEffect } from 'react'
 import { isApplePlatform } from './platform.ts'
 
-export type ShortcutId = 'palette' | 'assistant' | 'settings' | 'help'
+export type ShortcutId =
+  | 'palette'
+  | 'assistant'
+  | 'settings'
+  | 'help'
+  | 'previous'
+  | 'next'
+  | 'previousUnread'
+  | 'nextUnread'
 
 export type ShortcutDef = {
   id: ShortcutId
@@ -17,11 +25,20 @@ export type ShortcutDef = {
   code: string
 }
 
+/** ⌘ (Ctrl) plus a letter or a sign. */
 export const SHORTCUTS: readonly ShortcutDef[] = [
   { id: 'palette', keys: ['mod', 'K'], key: 'k', code: 'KeyK' },
   { id: 'assistant', keys: ['mod', 'J'], key: 'j', code: 'KeyJ' },
   { id: 'settings', keys: ['mod', ','], key: ',', code: 'Comma' },
   { id: 'help', keys: ['mod', '/'], key: '/', code: 'Slash' },
+]
+
+/** ⌥ (Alt) with the up and down arrows moves through the conversations in the order of the sidebar; with ⇧ only the unread ones. */
+export const NAVIGATION_SHORTCUTS: readonly Pick<ShortcutDef, 'id' | 'keys'>[] = [
+  { id: 'previous', keys: ['alt', 'up'] },
+  { id: 'next', keys: ['alt', 'down'] },
+  { id: 'previousUnread', keys: ['alt', 'shift', 'up'] },
+  { id: 'nextUnread', keys: ['alt', 'shift', 'down'] },
 ]
 
 type KeyEventLike = Pick<
@@ -41,8 +58,15 @@ const isLatinKey = (key: string): boolean => /^[\x20-\x7e]$/.test(key)
 /** Which shortcut (if any) a key event is. Never matches while an IME is composing or when something already handled it. */
 export function matchShortcut(event: KeyEventLike, apple = isApplePlatform()): ShortcutId | null {
   if (event.isComposing || event.defaultPrevented) return null
+  if (event.altKey) {
+    // ⌥ and ⌥⇧ with the arrows. ⌘/Ctrl with ⌥ is something else (AltGr on some layouts is Ctrl+Alt).
+    if (event.ctrlKey || event.metaKey) return null
+    if (event.key === 'ArrowUp') return event.shiftKey ? 'previousUnread' : 'previous'
+    if (event.key === 'ArrowDown') return event.shiftKey ? 'nextUnread' : 'next'
+    return null
+  }
   const mod = apple ? event.metaKey && !event.ctrlKey : event.ctrlKey && !event.metaKey
-  if (!mod || event.altKey || event.shiftKey) return null
+  if (!mod || event.shiftKey) return null
   const key = event.key.toLowerCase()
   for (const shortcut of SHORTCUTS) {
     if (isLatinKey(key) ? key === shortcut.key : event.code === shortcut.code) return shortcut.id

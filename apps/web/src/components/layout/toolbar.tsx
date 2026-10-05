@@ -1,5 +1,13 @@
-import { Command, Ellipsis, Keyboard, Menu as MenuIcon, Settings, Sparkles } from 'lucide-react'
-import { AppIcon } from '@/components/brand/app-icon.tsx'
+import {
+  Command,
+  Ellipsis,
+  Keyboard,
+  Menu as MenuIcon,
+  Settings,
+  Sparkles,
+  Users,
+} from 'lucide-react'
+import type { ReactNode } from 'react'
 import { IconButton } from '@/components/ui/button.tsx'
 import { Menu, MenuItem } from '@/components/ui/menu.tsx'
 import { keyLabel } from '@/lib/platform.ts'
@@ -7,7 +15,12 @@ import { m } from '@/paraglide/messages.js'
 
 type ToolbarProps = {
   title: string
-  subtitle?: string
+  subtitle?: string | null
+  /** What stands before the title: the app icon, or the avatar of the open conversation. */
+  avatar: ReactNode
+  /** Opens the conversation's details; undefined when there is no conversation open. */
+  onToggleDetails?: () => void
+  detailsOpen?: boolean
   assistantOpen: boolean
   onToggleAssistant: () => void
   onOpenDrawer: () => void
@@ -20,6 +33,9 @@ type ToolbarProps = {
 export function Toolbar({
   title,
   subtitle,
+  avatar,
+  onToggleDetails,
+  detailsOpen,
   assistantOpen,
   onToggleAssistant,
   onOpenDrawer,
@@ -37,7 +53,7 @@ export function Toolbar({
         onClick={onOpenDrawer}
       />
       <div className="toolbar__who">
-        <AppIcon size={34} />
+        {avatar}
         <span className="grid min-w-0">
           <span className="toolbar__title">
             <span className="truncate">{title}</span>
@@ -46,6 +62,14 @@ export function Toolbar({
         </span>
       </div>
       <div className="toolbar__actions">
+        {onToggleDetails ? (
+          <IconButton
+            label={m.toolbar_members()}
+            icon={Users}
+            aria-pressed={detailsOpen === true}
+            onClick={onToggleDetails}
+          />
+        ) : null}
         <IconButton
           label={m.shell_assistant_panel()}
           icon={Sparkles}

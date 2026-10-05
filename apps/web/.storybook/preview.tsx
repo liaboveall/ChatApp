@@ -19,7 +19,13 @@ import '../src/styles/app.css'
 
 type StoryContext = {
   globals: { theme?: string; accent?: string; glass?: string }
-  parameters: { api?: MockApi; route?: string; surface?: 'plain' | 'wallpaper' | 'none' }
+  parameters: {
+    api?: MockApi
+    route?: string
+    surface?: 'plain' | 'wallpaper' | 'none'
+    /** The wallpaper surface is a box with a fixed height (it cannot grow with its content): a tall story asks for more. */
+    surfaceHeight?: number
+  }
 }
 
 /** Puts the toolbar's choices on <html>, where the stylesheet reads them; freezes animation so screenshots are stable. */
@@ -114,7 +120,12 @@ const preview: Preview = {
           {surface === 'wallpaper' ? (
             <div
               className="window"
-              style={{ minHeight: 360, minWidth: 360, width: '100%', height: '100%' }}
+              style={{
+                minHeight: (context as unknown as StoryContext).parameters.surfaceHeight ?? 360,
+                minWidth: 360,
+                width: '100%',
+                height: '100%',
+              }}
             >
               <Wallpaper />
               <div style={{ position: 'relative', zIndex: 1, padding: 24 }}>{content}</div>

@@ -16,6 +16,10 @@ const size = (id: string) => {
   if (id.startsWith('layout-app-shell')) return { width: 1440, height: 760 }
   // The registration page is the tallest page; give the authentication pages room to be photographed whole.
   if (id.startsWith('pages-authentication')) return { width: 1000, height: 1000 }
+  // The panels of the Inspector are tall (members, links, bans, settings, the danger zone): photographed whole.
+  if (/^inspector-details--(owner|plain-member|site-administrator|direct-message)/.test(id)) {
+    return { width: 1000, height: 1528 }
+  }
   return { width: 1000, height: 720 }
 }
 

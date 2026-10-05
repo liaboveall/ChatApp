@@ -4,7 +4,7 @@ import babel from '@rolldown/plugin-babel'
 import tailwindcss from '@tailwindcss/vite'
 import { tanstackRouter } from '@tanstack/router-plugin/vite'
 import react, { reactCompilerPreset } from '@vitejs/plugin-react'
-import { defineConfig, type ProxyOptions } from 'vite'
+import { defineConfig, type Plugin, type ProxyOptions } from 'vite'
 import { SECURITY_HEADERS } from './tools/csp.ts'
 import { designTokens } from './tools/design-tokens-plugin.ts'
 
@@ -17,11 +17,29 @@ const proxy: Record<string, ProxyOptions> = {
   '/ws': { target: API_TARGET.replace(/^http/, 'ws'), ws: true, xfwd: true },
 }
 
+/**
+ * Trusted Types (D-146): micromark decodes `&name;` entities with `decode-named-character-reference`, whose "browser" build
+ * writes the entity through an element's HTML-string setter, a sink the page policy refuses. Its default build looks the name up in a
+ * table instead and writes nothing to the DOM. Resolve the package normally (so the install layout does not matter) and
+ * take the default build next to it. Without this, the first message with an entity in it breaks the whole renderer.
+ */
+const entitiesTable = (): Plugin => ({
+  name: 'chatapp-entities-table',
+  enforce: 'pre',
+  async resolveId(source, importer, options) {
+    if (source !== 'decode-named-character-reference') return null
+    const resolved = await this.resolve(source, importer, { ...options, skipSelf: true })
+    if (!resolved) return null
+    return { ...resolved, id: resolved.id.replace(/index\.dom\.js$/, 'index.js') }
+  },
+})
+
 export default defineConfig({
   envDir: fileURLToPath(new URL('../..', import.meta.url)),
   envPrefix: 'VITE_PUBLIC_',
   resolve: { tsconfigPaths: true },
   plugins: [
+    entitiesTable(),
     designTokens(),
     // The router plugin must come before the React plugin.
     tanstackRouter({ target: 'react', autoCodeSplitting: true }),

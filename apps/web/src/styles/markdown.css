@@ -1,0 +1,168 @@
+/* Message text rendered by the one safe Markdown renderer (docs/01 section 4.5, D-145). The renderer's own utility classes
+   are not part of this stylesheet's build: everything is styled here, by element and by its `data-streamdown` attribute.
+   Colours need no new tokens: links, inline code and quotes use the tints the contrast check already covers for both
+   bubbles (`on-accent` and `quote inset`, bubble-in and `accent-text`), code blocks use the code tokens. */
+
+.md {
+  min-width: 0;
+}
+.md > div > * + * {
+  margin-top: 6px;
+}
+.md p {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+.md a {
+  color: var(--accent-text);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+.bubble--out .md a {
+  color: var(--on-accent);
+}
+.md [data-streamdown="strong"],
+.md strong {
+  font-weight: 650;
+}
+.md ul,
+.md ol {
+  margin: 0;
+  padding-left: 1.3em;
+  list-style: revert;
+}
+.md ul [data-streamdown="list-item"],
+.md ol [data-streamdown="list-item"],
+.md li {
+  display: list-item;
+  padding: 0;
+}
+.md li + li {
+  margin-top: 2px;
+}
+.md [data-streamdown="list-item"] > p {
+  display: inline;
+}
+.md [data-streamdown="blockquote"],
+.md blockquote {
+  margin: 0;
+  padding: 2px 0 2px 10px;
+  border: 0;
+  border-left: 3px solid color-mix(in srgb, currentColor 45%, transparent);
+  color: inherit;
+  font-style: normal;
+}
+.md [data-streamdown="inline-code"],
+.md :not(pre) > code {
+  padding: 1px 5px;
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--shade) 10%, transparent);
+  font-family: var(--font-mono);
+  font-size: 0.9em;
+}
+.bubble--out .md [data-streamdown="inline-code"],
+.bubble--out .md :not(pre) > code {
+  background: var(--inset);
+}
+.md del {
+  text-decoration: line-through;
+}
+
+/* ---- Code blocks: Shiki with a CSS-variable theme, the tokens of docs/02 section 4.1 ---- */
+
+.md {
+  --shiki-foreground: var(--code-fg);
+  --shiki-background: var(--code-bg);
+  --shiki-token-keyword: var(--code-keyword);
+  --shiki-token-string: var(--code-string);
+  --shiki-token-string-expression: var(--code-string);
+  --shiki-token-comment: var(--code-comment);
+  --shiki-token-function: var(--code-function);
+  --shiki-token-link: var(--code-function);
+  --shiki-token-constant: var(--code-number);
+  --shiki-token-parameter: var(--code-fg);
+  --shiki-token-punctuation: var(--code-fg);
+}
+.md [data-streamdown="code-block"] {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  width: 100%;
+  margin: 6px 0 2px;
+  padding: 0;
+  border: 0;
+  border-radius: 12px;
+  background: var(--code-bg);
+  color: var(--code-fg);
+  text-align: left;
+  overflow: hidden;
+}
+.md [data-streamdown="code-block-header"] {
+  display: flex;
+  align-items: center;
+  height: auto;
+  min-height: 28px;
+  padding: 4px 40px 0 12px;
+  font-size: var(--fs-footnote);
+  line-height: var(--lh-footnote);
+  color: var(--label-secondary);
+}
+.md [data-streamdown="code-block-header"] span {
+  margin: 0;
+  font-family: var(--font-mono);
+  text-transform: lowercase;
+}
+.md [data-streamdown="code-block-actions"] {
+  position: absolute;
+  top: 2px;
+  right: 4px;
+  display: flex;
+  align-items: center;
+  border: 0;
+  background: transparent;
+  padding: 0;
+  pointer-events: auto;
+}
+.md [data-streamdown="code-block-copy-button"] {
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  border-radius: 8px;
+  padding: 0;
+  color: var(--label-secondary);
+  cursor: pointer;
+}
+.md [data-streamdown="code-block-copy-button"]:hover {
+  background: var(--fill-hover);
+  color: var(--label);
+}
+.md [data-streamdown="code-block-body"],
+.md [data-streamdown="code-block"] pre {
+  margin: 0;
+  padding: 4px 12px 10px;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  overflow-x: auto;
+  font-family: var(--font-mono);
+  font-size: 12.5px;
+  line-height: 18px;
+  white-space: pre;
+  tab-size: 2;
+}
+.md [data-streamdown="code-block"] code {
+  padding: 0;
+  background: transparent;
+  font-family: inherit;
+  font-size: inherit;
+}
+/* Highlighted tokens carry their colour as a custom property set from script, never as a style attribute in markup. */
+.md [data-streamdown="code-block"] span {
+  color: var(--sdm-c, inherit);
+}
+.md [data-md="link-dropped"],
+.md [data-md="image-dropped"] {
+  overflow-wrap: anywhere;
+}

@@ -1,7 +1,12 @@
 import type { Me } from '@chatapp/contracts'
+import { useMatches, useNavigate, useParams, useRouter } from '@tanstack/react-router'
 import {
+  Archive,
+  Compass,
+  Hash,
   Keyboard,
   LogOut,
+  MessageCircle,
   Monitor,
   Moon,
   Palette,
@@ -9,18 +14,30 @@ import {
   Sun,
   Ticket,
   User,
+  Users,
 } from 'lucide-react'
 import { type ReactNode, useCallback, useEffect, useMemo, useState } from 'react'
+import { AppIcon } from '@/components/brand/app-icon.tsx'
 import { AppShell } from '@/components/layout/app-shell.tsx'
 import { Inspector } from '@/components/layout/inspector.tsx'
 import { Sidebar } from '@/components/layout/sidebar.tsx'
 import { Toolbar } from '@/components/layout/toolbar.tsx'
+import { Avatar } from '@/components/ui/avatar.tsx'
 import { CommandPalette, type PaletteCommand } from '@/features/command-palette/command-palette.tsx'
+import { neighbourOf } from '@/features/conversations/navigation.ts'
+import {
+  NewConversationDialog,
+  type NewKind,
+} from '@/features/conversations/new-conversation-dialog.tsx'
+import { presenceLabel } from '@/features/conversations/presence-text.ts'
 import { type SettingsSection, SettingsSheet } from '@/features/settings/settings-sheet.tsx'
 import { useAppearance } from '@/lib/appearance.ts'
 import { PRODUCT_NAME } from '@/lib/product.ts'
+import { useChrome } from '@/lib/shell-chrome.ts'
 import { useShell } from '@/lib/shell-state.ts'
 import { useGlobalShortcuts } from '@/lib/shortcuts.ts'
+import { useSidebarGroups } from '@/lib/sync/hooks.ts'
+import { displayName, sidebarOrder } from '@/lib/sync/selectors.ts'
 import { m } from '@/paraglide/messages.js'
 import { ShortcutsDialog } from './shortcuts-dialog.tsx'
 
@@ -40,14 +57,50 @@ type AppFrameProps = {
 export function AppFrame({ me, settings, onSettingsChange, onSignOut, children }: AppFrameProps) {
   const [paletteOpen, setPaletteOpen] = useState(false)
   const [helpOpen, setHelpOpen] = useState(false)
+  const [creating, setCreating] = useState<NewKind | null>(null)
+  const navigate = useNavigate()
+  const router = useRouter()
+  const conversations = useSidebarGroups()
   const inspector = useShell((state) => state.inspector)
   const toggleAssistant = useShell((state) => state.toggleAssistant)
   const setDrawer = useShell((state) => state.setDrawer)
   const setTheme = useAppearance((state) => state.set)
+  const setInspector = useShell((state) => state.setInspector)
+  const chrome = useChrome((state) => state.content)
+  // A screen may fill the panel and scroll inside itself (the conversation does).
+  const fill = useMatches({
+    select: (matches) => matches.some((match) => match.staticData.layout === 'fill'),
+  })
+
+  // In a narrow window the list is a drawer over the page, and wherever it led (a conversation, the directory, the palette's
+  // choice) it is in the way once the route has changed. Settings and dialogs change the address search only, not the path.
+  useEffect(
+    () =>
+      router.subscribe('onResolved', ({ pathChanged }) => {
+        if (pathChanged) setDrawer(false)
+      }),
+    [router, setDrawer],
+  )
 
   const openSettings = useCallback(
     (section: SettingsSection = 'appearance') => onSettingsChange(section),
     [onSettingsChange],
+  )
+
+  // ⌥↑ / ⌥↓ (and with ⇧ only the unread ones): the order is the sidebar's.
+  const currentId = useParams({ strict: false }).conversationId
+  const goTo = useCallback(
+    (step: 1 | -1, unreadOnly: boolean) => {
+      const items = sidebarOrder(conversations).map(({ conversation, unread }) => ({
+        id: conversation.id,
+        unread: unread > 0,
+      }))
+      const target = neighbourOf(items, currentId, step, unreadOnly)
+      if (target !== undefined) {
+        void navigate({ to: '/c/$conversationId', params: { conversationId: target } })
+      }
+    },
+    [conversations, currentId, navigate],
   )
 
   const handlers = useMemo(
@@ -56,8 +109,12 @@ export function AppFrame({ me, settings, onSettingsChange, onSignOut, children }
       assistant: toggleAssistant,
       settings: () => openSettings(),
       help: () => setHelpOpen((open) => !open),
+      previous: () => goTo(-1, false),
+      next: () => goTo(1, false),
+      previousUnread: () => goTo(-1, true),
+      nextUnread: () => goTo(1, true),
     }),
-    [toggleAssistant, openSettings],
+    [toggleAssistant, openSettings, goTo],
   )
   useGlobalShortcuts(handlers)
 
@@ -65,7 +122,66 @@ export function AppFrame({ me, settings, onSettingsChange, onSignOut, children }
     const go = m.palette_group_go()
     const look = m.palette_group_appearance()
     const account = m.palette_group_account()
+    const chat = m.palette_group_conversations()
+    const openConversation = sidebarOrder(conversations).map(({ conversation }): PaletteCommand => {
+      const name = displayName(conversation, m.conversation_unnamed())
+      return {
+        id: `conversation-${conversation.id}`,
+        group: chat,
+        icon:
+          conversation.kind === 'channel'
+            ? Hash
+            : conversation.kind === 'dm'
+              ? MessageCircle
+              : Users,
+        label: m.palette_open_conversation({ name }),
+        keywords: `${name} ${conversation.dmPeer?.username ?? ''}`,
+        run: () =>
+          void navigate({ to: '/c/$conversationId', params: { conversationId: conversation.id } }),
+      }
+    })
     return [
+      ...openConversation,
+      {
+        id: 'new-channel',
+        group: chat,
+        icon: Hash,
+        label: m.sidebar_new_channel(),
+        keywords: 'new channel create',
+        run: () => setCreating('channel'),
+      },
+      {
+        id: 'new-group',
+        group: chat,
+        icon: Users,
+        label: m.sidebar_new_group(),
+        keywords: 'new group create',
+        run: () => setCreating('group'),
+      },
+      {
+        id: 'new-dm',
+        group: chat,
+        icon: MessageCircle,
+        label: m.sidebar_new_dm(),
+        keywords: 'new direct message dm chat',
+        run: () => setCreating('dm'),
+      },
+      {
+        id: 'browse-channels',
+        group: chat,
+        icon: Compass,
+        label: m.sidebar_browse(),
+        keywords: 'browse channels discover join',
+        run: () => void navigate({ to: '/channels' }),
+      },
+      {
+        id: 'archived',
+        group: chat,
+        icon: Archive,
+        label: m.sidebar_archived(),
+        keywords: 'archived restore',
+        run: () => void navigate({ to: '/archived' }),
+      },
       {
         id: 'settings-appearance',
         group: go,
@@ -139,21 +255,48 @@ export function AppFrame({ me, settings, onSettingsChange, onSignOut, children }
         run: onSignOut,
       },
     ]
-  }, [openSettings, toggleAssistant, setTheme, onSignOut])
+  }, [openSettings, toggleAssistant, setTheme, onSignOut, conversations, navigate])
 
   return (
     <>
       <AppShell
+        fill={fill}
         sidebar={
           <Sidebar
             me={me}
             onOpenPalette={() => setPaletteOpen(true)}
             onOpenSettings={(section) => openSettings(section)}
+            onCreate={setCreating}
           />
         }
         toolbar={
           <Toolbar
-            title={PRODUCT_NAME}
+            title={chrome?.title ?? PRODUCT_NAME}
+            subtitle={chrome?.subtitle ?? null}
+            avatar={
+              chrome?.avatar ? (
+                <Avatar
+                  name={chrome.avatar.name}
+                  seed={chrome.avatar.seed}
+                  size={34}
+                  glyph={chrome.avatar.glyph}
+                  status={chrome.avatar.status}
+                  statusLabel={
+                    chrome.avatar.status === undefined
+                      ? undefined
+                      : presenceLabel(chrome.avatar.status)
+                  }
+                />
+              ) : (
+                <AppIcon size={34} />
+              )
+            }
+            onToggleDetails={
+              chrome?.members
+                ? () => setInspector(inspector === 'details' ? null : 'details')
+                : undefined
+            }
+            detailsOpen={inspector === 'details'}
             assistantOpen={inspector === 'assistant'}
             onToggleAssistant={toggleAssistant}
             onOpenDrawer={() => setDrawer(true)}
@@ -168,6 +311,7 @@ export function AppFrame({ me, settings, onSettingsChange, onSignOut, children }
       </AppShell>
       <CommandPalette open={paletteOpen} onOpenChange={setPaletteOpen} commands={commands} />
       <ShortcutsDialog open={helpOpen} onOpenChange={setHelpOpen} />
+      <NewConversationDialog kind={creating} onOpenChange={(open) => !open && setCreating(null)} />
       <SettingsSheet
         section={settings}
         me={me}

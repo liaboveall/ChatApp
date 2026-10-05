@@ -81,6 +81,7 @@ describe('applyToRoot', () => {
       typeSize: -1,
       reduceMotion: true,
       compactSidebar: true,
+      timelineMode: 'paged',
     })
     expect(attributes()).toEqual({
       'data-theme': 'dark',

@@ -21,6 +21,7 @@ beforeEach(() => {
   deps = {
     queryClient,
     stopRealtime: vi.fn(),
+    resetClientState: vi.fn(),
     toSignIn: vi.fn(),
     onSignedInElsewhere: vi.fn(),
   }
@@ -45,6 +46,7 @@ describe('ending a session', () => {
     // Device-level settings are not account data.
     expect(localStorage.getItem('chatapp.appearance')).toBe('{"theme":"dark"}')
     expect(deps.stopRealtime).toHaveBeenCalledTimes(1)
+    expect(deps.resetClientState).toHaveBeenCalledTimes(1)
     expect(deps.toSignIn).toHaveBeenCalledWith('expired')
     expect(currentGeneration()).toBe(before + 1)
   })

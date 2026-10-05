@@ -29,6 +29,8 @@ export const appearanceSchema = z.object({
   typeSize: z.number().int().min(-1).max(3).catch(0),
   reduceMotion: z.boolean().catch(false),
   compactSidebar: z.boolean().catch(false),
+  /** `paged`: every loaded message is in the page and older ones come by a button (for screen readers, docs/02 section 7). */
+  timelineMode: z.enum(['virtual', 'paged']).catch('virtual'),
 })
 export type Appearance = z.infer<typeof appearanceSchema>
 
@@ -39,6 +41,7 @@ export const DEFAULT_APPEARANCE: Appearance = {
   typeSize: 0,
   reduceMotion: false,
   compactSidebar: false,
+  timelineMode: 'virtual',
 }
 
 export function loadAppearance(): Appearance {
@@ -86,6 +89,7 @@ function snapshot(state: AppearanceStore): Appearance {
     typeSize: state.typeSize,
     reduceMotion: state.reduceMotion,
     compactSidebar: state.compactSidebar,
+    timelineMode: state.timelineMode,
   }
 }
 

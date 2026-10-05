@@ -10,6 +10,8 @@ type AppShellProps = {
   /** Rendered at the top of the main panel; omit for screens without a toolbar. */
   toolbar?: ReactNode
   inspector: ReactNode
+  /** The screen fills the panel and scrolls inside itself (the conversation): no padding, no scrolling of its own. */
+  fill?: boolean
   children: ReactNode
 }
 
@@ -17,7 +19,7 @@ type AppShellProps = {
  * Wallpaper plus three floating panels: sidebar (glass), main (solid), inspector (solid, or glass when it floats).
  * Layout tiers are container queries on `.window` (shell.css). The window is the viewport.
  */
-export function AppShell({ sidebar, toolbar, inspector, children }: AppShellProps) {
+export function AppShell({ sidebar, toolbar, inspector, fill, children }: AppShellProps) {
   const inspectorTab = useShell((state) => state.inspector)
   const drawerOpen = useShell((state) => state.drawerOpen)
   const setDrawer = useShell((state) => state.setDrawer)
@@ -58,13 +60,24 @@ export function AppShell({ sidebar, toolbar, inspector, children }: AppShellProp
           onKeyDown={(event) => {
             if (event.key === 'Escape' && drawerOpen) setDrawer(false)
           }}
+          // Choosing a place from the drawer closes it, the place that is already open included (the route does not change).
+          onClick={(event) => {
+            if (drawerOpen && event.target instanceof Element && event.target.closest('a[href]')) {
+              setDrawer(false)
+            }
+          }}
         >
           {sidebar}
           <Splitter />
         </nav>
         <main className="main squircle" id="main" tabIndex={-1} inert={drawerOpen || undefined}>
           {toolbar}
-          <div className="content scroll">{children}</div>
+          <div
+            className={fill ? 'content' : 'content scroll'}
+            data-layout={fill ? 'fill' : undefined}
+          >
+            {children}
+          </div>
         </main>
         <aside
           className="inspector squircle"

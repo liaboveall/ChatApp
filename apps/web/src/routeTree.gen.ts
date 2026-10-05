@@ -13,12 +13,16 @@ import { Route as AppRouteImport } from './routes/_app'
 import { Route as GuestRouteImport } from './routes/_guest'
 import { Route as PublicRouteImport } from './routes/_public'
 import { Route as AppIndexRouteImport } from './routes/_app/index'
+import { Route as AppArchivedRouteImport } from './routes/_app/archived'
+import { Route as AppChannelsRouteImport } from './routes/_app/channels'
 import { Route as GuestCheckEmailRouteImport } from './routes/_guest/check-email'
 import { Route as GuestForgotPasswordRouteImport } from './routes/_guest/forgot-password'
 import { Route as GuestLoginRouteImport } from './routes/_guest/login'
 import { Route as GuestRegisterRouteImport } from './routes/_guest/register'
+import { Route as PublicJoinRouteImport } from './routes/_public/join'
 import { Route as PublicResetPasswordRouteImport } from './routes/_public/reset-password'
 import { Route as PublicVerifyEmailRouteImport } from './routes/_public/verify-email'
+import { Route as AppCConversationIdRouteImport } from './routes/_app/c/$conversationId'
 
 const AppRoute = AppRouteImport.update({
   id: '/_app',
@@ -35,6 +39,16 @@ const PublicRoute = PublicRouteImport.update({
 const AppIndexRoute = AppIndexRouteImport.update({
   id: '/',
   path: '/',
+  getParentRoute: () => AppRoute,
+} as any)
+const AppArchivedRoute = AppArchivedRouteImport.update({
+  id: '/archived',
+  path: '/archived',
+  getParentRoute: () => AppRoute,
+} as any)
+const AppChannelsRoute = AppChannelsRouteImport.update({
+  id: '/channels',
+  path: '/channels',
   getParentRoute: () => AppRoute,
 } as any)
 const GuestCheckEmailRoute = GuestCheckEmailRouteImport.update({
@@ -57,6 +71,11 @@ const GuestRegisterRoute = GuestRegisterRouteImport.update({
   path: '/register',
   getParentRoute: () => GuestRoute,
 } as any)
+const PublicJoinRoute = PublicJoinRouteImport.update({
+  id: '/join',
+  path: '/join',
+  getParentRoute: () => PublicRoute,
+} as any)
 const PublicResetPasswordRoute = PublicResetPasswordRouteImport.update({
   id: '/reset-password',
   path: '/reset-password',
@@ -67,69 +86,98 @@ const PublicVerifyEmailRoute = PublicVerifyEmailRouteImport.update({
   path: '/verify-email',
   getParentRoute: () => PublicRoute,
 } as any)
+const AppCConversationIdRoute = AppCConversationIdRouteImport.update({
+  id: '/c/$conversationId',
+  path: '/c/$conversationId',
+  getParentRoute: () => AppRoute,
+} as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof AppIndexRoute
+  '/archived': typeof AppArchivedRoute
+  '/channels': typeof AppChannelsRoute
   '/check-email': typeof GuestCheckEmailRoute
   '/forgot-password': typeof GuestForgotPasswordRoute
   '/login': typeof GuestLoginRoute
   '/register': typeof GuestRegisterRoute
+  '/join': typeof PublicJoinRoute
   '/reset-password': typeof PublicResetPasswordRoute
   '/verify-email': typeof PublicVerifyEmailRoute
+  '/c/$conversationId': typeof AppCConversationIdRoute
 }
 export interface FileRoutesByTo {
   '/': typeof AppIndexRoute
+  '/archived': typeof AppArchivedRoute
+  '/channels': typeof AppChannelsRoute
   '/check-email': typeof GuestCheckEmailRoute
   '/forgot-password': typeof GuestForgotPasswordRoute
   '/login': typeof GuestLoginRoute
   '/register': typeof GuestRegisterRoute
+  '/join': typeof PublicJoinRoute
   '/reset-password': typeof PublicResetPasswordRoute
   '/verify-email': typeof PublicVerifyEmailRoute
+  '/c/$conversationId': typeof AppCConversationIdRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/_app': typeof AppRouteWithChildren
   '/_guest': typeof GuestRouteWithChildren
   '/_public': typeof PublicRouteWithChildren
+  '/_app/archived': typeof AppArchivedRoute
+  '/_app/channels': typeof AppChannelsRoute
   '/_guest/check-email': typeof GuestCheckEmailRoute
   '/_guest/forgot-password': typeof GuestForgotPasswordRoute
   '/_guest/login': typeof GuestLoginRoute
   '/_guest/register': typeof GuestRegisterRoute
+  '/_public/join': typeof PublicJoinRoute
   '/_public/reset-password': typeof PublicResetPasswordRoute
   '/_public/verify-email': typeof PublicVerifyEmailRoute
   '/_app/': typeof AppIndexRoute
+  '/_app/c/$conversationId': typeof AppCConversationIdRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
   fullPaths:
     | '/'
+    | '/archived'
+    | '/channels'
     | '/check-email'
     | '/forgot-password'
     | '/login'
     | '/register'
+    | '/join'
     | '/reset-password'
     | '/verify-email'
+    | '/c/$conversationId'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
+    | '/archived'
+    | '/channels'
     | '/check-email'
     | '/forgot-password'
     | '/login'
     | '/register'
+    | '/join'
     | '/reset-password'
     | '/verify-email'
+    | '/c/$conversationId'
   id:
     | '__root__'
     | '/_app'
     | '/_guest'
     | '/_public'
+    | '/_app/archived'
+    | '/_app/channels'
     | '/_guest/check-email'
     | '/_guest/forgot-password'
     | '/_guest/login'
     | '/_guest/register'
+    | '/_public/join'
     | '/_public/reset-password'
     | '/_public/verify-email'
     | '/_app/'
+    | '/_app/c/$conversationId'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
@@ -168,6 +216,20 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AppIndexRouteImport
       parentRoute: typeof AppRoute
     }
+    '/_app/archived': {
+      id: '/_app/archived'
+      path: '/archived'
+      fullPath: '/archived'
+      preLoaderRoute: typeof AppArchivedRouteImport
+      parentRoute: typeof AppRoute
+    }
+    '/_app/channels': {
+      id: '/_app/channels'
+      path: '/channels'
+      fullPath: '/channels'
+      preLoaderRoute: typeof AppChannelsRouteImport
+      parentRoute: typeof AppRoute
+    }
     '/_guest/check-email': {
       id: '/_guest/check-email'
       path: '/check-email'
@@ -196,6 +258,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof GuestRegisterRouteImport
       parentRoute: typeof GuestRoute
     }
+    '/_public/join': {
+      id: '/_public/join'
+      path: '/join'
+      fullPath: '/join'
+      preLoaderRoute: typeof PublicJoinRouteImport
+      parentRoute: typeof PublicRoute
+    }
     '/_public/reset-password': {
       id: '/_public/reset-password'
       path: '/reset-password'
@@ -210,15 +279,28 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof PublicVerifyEmailRouteImport
       parentRoute: typeof PublicRoute
     }
+    '/_app/c/$conversationId': {
+      id: '/_app/c/$conversationId'
+      path: '/c/$conversationId'
+      fullPath: '/c/$conversationId'
+      preLoaderRoute: typeof AppCConversationIdRouteImport
+      parentRoute: typeof AppRoute
+    }
   }
 }
 
 interface AppRouteChildren {
+  AppArchivedRoute: typeof AppArchivedRoute
+  AppChannelsRoute: typeof AppChannelsRoute
   AppIndexRoute: typeof AppIndexRoute
+  AppCConversationIdRoute: typeof AppCConversationIdRoute
 }
 
 const AppRouteChildren: AppRouteChildren = {
+  AppArchivedRoute: AppArchivedRoute,
+  AppChannelsRoute: AppChannelsRoute,
   AppIndexRoute: AppIndexRoute,
+  AppCConversationIdRoute: AppCConversationIdRoute,
 }
 
 const AppRouteWithChildren = AppRoute._addFileChildren(AppRouteChildren)
@@ -240,11 +322,13 @@ const GuestRouteChildren: GuestRouteChildren = {
 const GuestRouteWithChildren = GuestRoute._addFileChildren(GuestRouteChildren)
 
 interface PublicRouteChildren {
+  PublicJoinRoute: typeof PublicJoinRoute
   PublicResetPasswordRoute: typeof PublicResetPasswordRoute
   PublicVerifyEmailRoute: typeof PublicVerifyEmailRoute
 }
 
 const PublicRouteChildren: PublicRouteChildren = {
+  PublicJoinRoute: PublicJoinRoute,
   PublicResetPasswordRoute: PublicResetPasswordRoute,
   PublicVerifyEmailRoute: PublicVerifyEmailRoute,
 }

@@ -1,0 +1,180 @@
+/* ---- Inspector: the details of a conversation (docs/01 section 5) ---- */
+
+.details {
+  display: grid;
+  gap: 22px;
+}
+.details__head {
+  display: grid;
+  justify-items: center;
+  gap: 4px;
+  text-align: center;
+}
+.details__name {
+  max-width: 100%;
+  margin-top: 6px;
+  overflow-wrap: anywhere;
+  font-size: var(--fs-title-3);
+  line-height: var(--lh-title-3);
+  font-weight: 700;
+  color: var(--label);
+}
+.details__meta {
+  color: var(--label-secondary);
+  font-size: var(--fs-subheadline);
+  line-height: var(--lh-subheadline);
+}
+.details__text {
+  max-width: 100%;
+  margin-top: 6px;
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+  color: var(--label);
+  font-size: var(--fs-callout);
+  line-height: var(--lh-callout);
+}
+
+/* A section: a heading, then what belongs under it. */
+.dsec {
+  display: grid;
+  gap: 10px;
+}
+.dsec__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+.dsec__title {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  font-size: var(--fs-headline);
+  line-height: var(--lh-headline);
+  font-weight: 600;
+  color: var(--label);
+}
+.dsec__count {
+  color: var(--label-secondary);
+  font-size: var(--fs-subheadline);
+  font-weight: 500;
+}
+.dsec__note {
+  color: var(--label-secondary);
+  font-size: var(--fs-subheadline);
+  line-height: var(--lh-subheadline);
+}
+.dsec__row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  min-height: 36px;
+}
+.dsec__row--stack {
+  display: grid;
+  justify-items: start;
+  gap: 4px;
+}
+.dsec--danger {
+  padding-top: 16px;
+  border-top: 1px solid var(--separator);
+}
+
+/* People: members, bans. */
+.members {
+  display: grid;
+  gap: 2px;
+}
+.member {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 44px;
+  padding: 4px 4px 4px 2px;
+  border-radius: var(--radius-control);
+}
+.member:hover {
+  background: var(--fill-hover);
+}
+.member__body {
+  flex: 1;
+  min-width: 0;
+  display: grid;
+}
+.member__name {
+  display: flex;
+  align-items: baseline;
+  gap: 4px;
+  min-width: 0;
+  font-size: var(--fs-callout);
+  line-height: var(--lh-callout);
+  font-weight: 600;
+  color: var(--label);
+}
+.member__name-text {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.member__you {
+  flex: none;
+  color: var(--label-secondary);
+  font-weight: 500;
+}
+.member__sub {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--label-secondary);
+  font-size: var(--fs-subheadline);
+  line-height: var(--lh-subheadline);
+}
+.member__skeleton {
+  display: block;
+  width: 100%;
+  border-radius: var(--radius-control);
+}
+
+/* Invitation links. */
+.invites {
+  display: grid;
+  gap: 2px;
+}
+.invite {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 44px;
+  padding: 4px 4px 4px 8px;
+  border-radius: var(--radius-control);
+  background: var(--fill);
+}
+.invite__body {
+  flex: 1;
+  min-width: 0;
+  display: grid;
+}
+.invite__title {
+  font-size: var(--fs-callout);
+  line-height: var(--lh-callout);
+  font-weight: 600;
+  color: var(--label);
+}
+.invite__sub {
+  color: var(--label-secondary);
+  font-size: var(--fs-subheadline);
+  line-height: var(--lh-subheadline);
+}
+
+/* Who was skipped when adding people. */
+.skipped {
+  display: grid;
+  gap: 6px;
+  padding-left: 18px;
+  list-style: disc;
+  color: var(--label);
+  font-size: var(--fs-callout);
+  line-height: var(--lh-callout);
+}

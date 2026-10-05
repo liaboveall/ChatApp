@@ -1,9 +1,16 @@
 /**
  * The WebSocket client (docs/05 section 4, docs/03 section 11): one connection per tab, reconnecting with exponential
  * backoff and jitter, a server-time offset from `hello`, an application-level heartbeat, and the close-code policy
- * of the protocol table. M1 speaks hello / ping / pong / error only; messages with content arrive with M2.
+ * of the protocol table. Hints (a message changed, typing, presence) go to `onEvent`: this class neither interprets
+ * nor stores them, and nothing here carries message content (docs/05 section 4.4).
  */
-import { WS_CLOSE, WS_PROTOCOL_VERSION, wsServerMessageSchema } from '@chatapp/contracts'
+import {
+  WS_CLOSE,
+  WS_PROTOCOL_VERSION,
+  type WsClientMessage,
+  type WsServerMessage,
+  wsServerMessageSchema,
+} from '@chatapp/contracts'
 import { create } from 'zustand'
 
 export type RealtimeStatus = 'idle' | 'connecting' | 'open' | 'reconnecting' | 'stopped'
@@ -44,8 +51,12 @@ export type RealtimeOptions = {
   random?: () => number
   now?: () => number
   isHidden?: () => boolean
-  /** The server understands the `focus` message (M2/M6). Until then the state is tracked but never sent. */
+  /** The server understands the `focus` message (since M2a). Turn it off and the state is tracked but never sent. */
   focusSupported?: boolean
+  /** Every frame that is not hello, pong or error (a hint, typing, presence), already validated against the contract. */
+  onEvent?: (message: WsServerMessage) => void
+  /** The connection opened (the first time or after a drop). What the server keeps per connection is gone: send it again. */
+  onHello?: () => void
 }
 
 const BACKOFF_BASE_MS = 1000
@@ -123,11 +134,24 @@ export class RealtimeClient {
   /** Records which conversation is open and whether the page is in front (docs/05 section 4.3, `focus`). */
   setFocus(next: Partial<FocusState>): void {
     this.#focus = { ...this.#focus, ...next }
-    if (this.#options.focusSupported && this.#socket?.readyState === 1) {
-      this.#socket.send(
-        JSON.stringify({ v: WS_PROTOCOL_VERSION, type: 'focus', data: this.#focus }),
-      )
-    }
+    this.#sendFocus()
+  }
+
+  #sendFocus(): void {
+    if (this.#options.focusSupported === false) return
+    this.send({ v: WS_PROTOCOL_VERSION, type: 'focus', data: this.#focus })
+  }
+
+  /**
+   * Sends a client message when the connection is open. Transient signals (typing, presence, focus) are never queued: a
+   * signal that could not be sent now would be stale by the time a connection exists, and the state that matters is sent
+   * again after every `hello`. Returns whether the frame went out.
+   */
+  send(message: WsClientMessage): boolean {
+    const socket = this.#socket
+    if (socket?.readyState !== 1) return false
+    socket.send(JSON.stringify(message))
+    return true
   }
 
   get focus(): FocusState {
@@ -173,6 +197,8 @@ export class RealtimeClient {
           clockOffsetMs: Date.parse(serverTime) - this.#now(),
         })
         this.#scheduleHeartbeat(heartbeatMs || HEARTBEAT_FALLBACK_MS)
+        this.#sendFocus()
+        this.#options.onHello?.()
         break
       }
       case 'pong': {
@@ -184,6 +210,8 @@ export class RealtimeClient {
       }
       case 'error':
         break
+      default:
+        this.#options.onEvent?.(message.data)
     }
   }
 

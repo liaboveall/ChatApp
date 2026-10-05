@@ -7,3 +7,6 @@
 @import "./shell.css" layer(components);
 @import "./overlays.css" layer(components);
 @import "./pages.css" layer(components);
+@import "./chat.css" layer(components);
+@import "./inspector.css" layer(components);
+@import "./markdown.css" layer(components);
