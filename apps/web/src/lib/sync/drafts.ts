@@ -3,7 +3,7 @@
  * not a reload (M6 adds offline storage) and is emptied with the account.
  */
 import { create } from 'zustand'
-import { registerStoreReset } from './stores.ts'
+import { registerConversationReset, registerStoreReset } from './stores.ts'
 
 type DraftState = { byConversation: Record<string, string> }
 
@@ -24,3 +24,4 @@ export function setDraft(conversationId: string, text: string): void {
 }
 
 registerStoreReset(() => useDrafts.setState({ byConversation: {} }))
+registerConversationReset((conversationId) => setDraft(conversationId, ''))

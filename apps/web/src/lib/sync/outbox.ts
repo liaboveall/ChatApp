@@ -2,12 +2,15 @@
  * Messages the person has sent that the server has not answered yet (docs/01 section 4.5, D-154). A message shows up at
  * once as "sending"; those of one conversation go out one at a time, in the order they were typed; a failure marks that one
  * as failed (retry sends it again with the *same* `clientId`, which the server answers idempotently, so a retry can never
- * make a duplicate) and the ones behind it go on. Kept in memory only (M6 adds offline storage) and cleared with the account.
+ * make a duplicate) and the ones behind it go on. Kept in memory only (M6 adds offline storage), cleared with the account and
+ * with a conversation's line when the membership the messages were written under ends (D-171); what a request that was
+ * still out brings back after that is dropped.
  */
 import type { MessageEnvelope, ReplyTo, SendMessageRequest } from '@chatapp/contracts'
 import { create } from 'zustand'
 import { ApiError } from '../api.ts'
-import { registerStoreReset } from './stores.ts'
+import { registerConversationReset, registerStoreReset } from './stores.ts'
+import type { RequestTicket } from './types.ts'
 
 export type PendingState = 'queued' | 'sending' | 'failed'
 
@@ -39,10 +42,12 @@ export const pendingOf = (state: OutboxState, conversationId: string): PendingMe
 
 export type OutboxDeps = {
   send: (conversationId: string, request: SendMessageRequest) => Promise<MessageEnvelope>
-  /** The server accepted a message: it goes into the cache like every other answer. */
-  onSent: (envelope: MessageEnvelope) => void
+  /** Taken when a message goes out: what its answer, or its failure, is checked against when it comes back (D-171). */
+  ticket: (conversationId: string) => RequestTicket
+  /** The server accepted a message: it goes into the cache like every other answer (unless the ticket is out of date). */
+  onSent: (envelope: MessageEnvelope, ticket: RequestTicket) => void
   /** An error that may mean the conversation is gone for me; true when it was handled as that (then nothing is shown). */
-  onAccessError: (conversationId: string, error: unknown) => boolean
+  onAccessError: (conversationId: string, error: unknown, ticket: RequestTicket) => boolean
   /** The membership I hold in the conversation now. */
   membershipOf: (conversationId: string) => string | undefined
   now: () => number
@@ -120,6 +125,17 @@ export class Outbox {
     useOutbox.setState({ byConversation: {} })
   }
 
+  /**
+   * Whether the message is still the one in flight. Clearing a line (the conversation was forgotten, the account ended)
+   * takes it away while its request is out, and what that request brings back belongs to what was cleared: it must not
+   * reach the cache, the read position or the line of whoever uses this screen next (D-171, SEC-34).
+   */
+  #inFlight(conversationId: string, clientId: string): boolean {
+    return pendingOf(useOutbox.getState(), conversationId).some(
+      (entry) => entry.clientId === clientId && entry.state === 'sending',
+    )
+  }
+
   /** One at a time per conversation: the next queued message goes when none is in flight. */
   async #pump(conversationId: string): Promise<void> {
     const list = pendingOf(useOutbox.getState(), conversationId)
@@ -135,19 +151,22 @@ export class Outbox {
     }
 
     this.#patch(next.clientId, conversationId, { state: 'sending' })
+    const ticket = this.#deps.ticket(conversationId)
     try {
       const envelope = await this.#deps.send(conversationId, {
         clientId: next.clientId,
         body: next.body,
         ...(next.replyToId === null ? {} : { replyToId: next.replyToId }),
       })
+      if (!this.#inFlight(conversationId, next.clientId)) return
       // The answer goes into the cache first, then the pending copy goes: both land in the same render.
-      this.#deps.onSent(envelope)
+      this.#deps.onSent(envelope, ticket)
       this.#update(conversationId, (rows) =>
         rows.filter((entry) => entry.clientId !== next.clientId),
       )
     } catch (error) {
-      if (this.#deps.onAccessError(conversationId, error)) {
+      if (!this.#inFlight(conversationId, next.clientId)) return
+      if (this.#deps.onAccessError(conversationId, error, ticket)) {
         this.clearConversation(conversationId)
         return
       }
@@ -163,5 +182,13 @@ export class Outbox {
   }
 }
 
-// Nothing of a conversation survives the account: the engine empties the registered stores when it stops.
+// Nothing of a conversation survives the account: the engine empties the registered stores when it stops, and the
+// conversation's own line when its membership ends.
 registerStoreReset(() => useOutbox.setState({ byConversation: {} }))
+registerConversationReset((conversationId) =>
+  useOutbox.setState((state) => {
+    if (!(conversationId in state.byConversation)) return state
+    const { [conversationId]: _line, ...rest } = state.byConversation
+    return { byConversation: rest }
+  }),
+)

@@ -1,5 +1,6 @@
+import type { Message } from '@chatapp/contracts'
 import { describe, expect, test } from 'vitest'
-import { edited, makeMessage, recalled, run, uuid } from './fixtures.ts'
+import { edited, ISO, makeMessage, recalled, run, uuid } from './fixtures.ts'
 import {
   appendPage,
   emptyWindow,
@@ -299,5 +300,238 @@ describe('trimming', () => {
     expect(windowRange(next)).toEqual({ min: 11, max: 30 })
     expect(next.hasMoreBefore).toBe(true)
     expect(trimOldest(window, 30)).toBe(window)
+  })
+})
+
+/**
+ * R1 (M2b review 2026-10-05, D-171): a quote follows the newest version of the message it quotes, and an older answer that
+ * arrives late (a write answer, a slow page) cannot put an older quote back, whether the quoted message is in the window or
+ * not, and whether it was recalled, edited, deleted or hidden since.
+ */
+describe('quotes follow the newest version of what they quote', () => {
+  const source = makeMessage(3, { body: 'original text' })
+  const quoteOfSource = (
+    state: 'ok' | 'recalled' | 'deleted' = 'ok',
+    excerpt = 'original text',
+  ) => ({
+    id: source.id,
+    seq: 3,
+    senderId: source.senderId,
+    excerpt: state === 'ok' ? excerpt : null,
+    state,
+  })
+  const reply = makeMessage(7, { replyTo: quoteOfSource() })
+  const removed = (message: Message, changeSeq: number): Message => ({
+    ...message,
+    changeSeq,
+    body: null,
+    deletedAt: ISO,
+  })
+  const quoteIn = (window: { messages: Message[] }) =>
+    window.messages.find((message) => message.id === reply.id)?.replyTo
+
+  const places = {
+    'in the window': () =>
+      windowFromPage(C, M, {
+        messages: [source, reply],
+        hasMoreBefore: false,
+        hasMoreAfter: false,
+      }),
+    'above the window': () =>
+      windowFromPage(C, M, { messages: [reply], hasMoreBefore: true, hasMoreAfter: false }),
+  }
+
+  describe.each(Object.entries(places))('the quoted message is %s', (_place, make) => {
+    test('a late older version cannot bring back the quote of a recalled message', () => {
+      const recalledNow = mergeChanges(make(), [recalled(source, 90)])
+      expect(quoteIn(recalledNow)).toMatchObject({ state: 'recalled', excerpt: null })
+      const late = mergeChanges(recalledNow, [source])
+      expect(quoteIn(late)).toMatchObject({ state: 'recalled', excerpt: null })
+      expect(late.messages.find((message) => message.id === source.id)?.body ?? null).toBeNull()
+    })
+
+    test('a late older version cannot bring back the old text of an edited message', () => {
+      const editedNow = mergeChanges(make(), [edited(source, 50, 'edited text')])
+      expect(quoteIn(editedNow)).toMatchObject({ state: 'ok', excerpt: 'edited text' })
+      const late = mergeChanges(editedNow, [source])
+      expect(quoteIn(late)).toMatchObject({ state: 'ok', excerpt: 'edited text' })
+    })
+
+    test('a late older version cannot bring back the quote of a message an administrator deleted', () => {
+      const deletedNow = mergeChanges(make(), [removed(source, 60)])
+      expect(quoteIn(deletedNow)).toMatchObject({ state: 'deleted', excerpt: null })
+      const late = mergeChanges(deletedNow, [edited(source, 55, 'edited before'), source])
+      expect(quoteIn(late)).toMatchObject({ state: 'deleted', excerpt: null })
+    })
+
+    test('the newest of several versions in one delivery wins, whatever their order', () => {
+      const versions = [source, recalled(source, 90), edited(source, 50, 'edited text')]
+      for (const order of [
+        versions,
+        [...versions].reverse(),
+        [versions[1], versions[0], versions[2]],
+      ]) {
+        const next = mergeChanges(make(), order as Message[])
+        expect(quoteIn(next)).toMatchObject({ state: 'recalled', excerpt: null })
+      }
+    })
+
+    test('a newer version still moves the quote, again and again', () => {
+      const first = mergeChanges(make(), [edited(source, 50, 'first edit')])
+      const second = mergeChanges(first, [edited(source, 70, 'second edit')])
+      expect(quoteIn(second)).toMatchObject({ state: 'ok', excerpt: 'second edit' })
+      const third = mergeChanges(second, [recalled(source, 90)])
+      expect(quoteIn(third)).toMatchObject({ state: 'recalled', excerpt: null })
+    })
+
+    test('delivering the same version again changes nothing', () => {
+      const once = mergeChanges(make(), [edited(source, 50, 'edited text')])
+      expect(mergeChanges(once, [edited(source, 50, 'edited text')])).toBe(once)
+    })
+  })
+
+  test('the memory of what a quote was brought up to date from survives the quoted message leaving the window', () => {
+    const recalledNow = mergeChanges(
+      windowFromPage(C, M, {
+        messages: [source, reply],
+        hasMoreBefore: false,
+        hasMoreAfter: false,
+      }),
+      [recalled(source, 90)],
+    )
+    const trimmed = trimOldest(recalledNow, 1)
+    expect(seqs(trimmed)).toEqual([7])
+    expect(trimmed.quoted[source.id]).toBe(90)
+    expect(quoteIn(mergeChanges(trimmed, [source]))).toMatchObject({ state: 'recalled' })
+  })
+
+  test('the memory is dropped once no message in the window quotes that message any more', () => {
+    const recalledNow = mergeChanges(
+      windowFromPage(C, M, {
+        messages: [source, reply],
+        hasMoreBefore: false,
+        hasMoreAfter: false,
+      }),
+      [recalled(source, 90)],
+    )
+    expect(recalledNow.quoted[source.id]).toBe(90)
+    expect(trimNewest(recalledNow, 1).quoted).toEqual({})
+  })
+
+  test('a message I hid cannot move any quote again', () => {
+    const window = hideInWindow(
+      windowFromPage(C, M, {
+        messages: [source, reply],
+        hasMoreBefore: false,
+        hasMoreAfter: false,
+      }),
+      source.id,
+    )
+    expect(quoteIn(window)).toEqual({ state: 'unavailable' })
+    const late = mergeChanges(window, [edited(source, 99, 'a newer version of what I hid')])
+    expect(late).toBe(window)
+    expect(quoteIn(late)).toEqual({ state: 'unavailable' })
+  })
+
+  test('a version older than the tombstone of the quoted message cannot move any quote', () => {
+    const recalledNow = mergeChanges(
+      windowFromPage(C, M, {
+        messages: [source, reply],
+        hasMoreBefore: false,
+        hasMoreAfter: false,
+      }),
+      [recalled(source, 90)],
+    )
+    const left = mergeChanges(recalledNow, [], [{ id: source.id, changeSeq: 95 }])
+    expect(seqs(left)).toEqual([7])
+    const late = mergeChanges(left, [source, recalled(source, 90)])
+    expect(late).toBe(left)
+    expect(quoteIn(late)).toMatchObject({ state: 'recalled', excerpt: null })
+  })
+
+  describe('a reply that comes in with an older quote than the window already knows', () => {
+    const recalledSource = recalled(source, 90)
+    const lateReply = makeMessage(8, { id: uuid(8008), replyTo: quoteOfSource() })
+
+    test('is corrected when the quoted message is recalled or deleted', () => {
+      for (const taken of [recalledSource, removed(source, 91)]) {
+        const window = windowFromPage(C, M, {
+          messages: [taken, reply],
+          hasMoreBefore: false,
+          hasMoreAfter: false,
+        })
+        const next = mergeChanges(window, [lateReply])
+        const quote = next.messages.find((message) => message.id === lateReply.id)?.replyTo
+        expect(quote).toMatchObject({
+          state: taken.deletedAt === null ? 'recalled' : 'deleted',
+          excerpt: null,
+        })
+      }
+    })
+
+    test('is corrected when I hid the quoted message', () => {
+      const window = hideInWindow(
+        windowFromPage(C, M, {
+          messages: [source, reply],
+          hasMoreBefore: false,
+          hasMoreAfter: false,
+        }),
+        source.id,
+      )
+      const next = mergeChanges(window, [lateReply])
+      expect(next.messages.find((message) => message.id === lateReply.id)?.replyTo).toEqual({
+        state: 'unavailable',
+      })
+    })
+
+    test('is corrected on the way in through a page as well', () => {
+      const window = windowFromPage(C, M, {
+        messages: [recalledSource],
+        hasMoreBefore: false,
+        hasMoreAfter: true,
+      })
+      const next = appendPage(window, {
+        messages: [reply],
+        hasMoreBefore: false,
+        hasMoreAfter: false,
+      })
+      expect(next.messages[1]?.replyTo).toMatchObject({ state: 'recalled', excerpt: null })
+    })
+  })
+
+  describe('a page that replaces the window', () => {
+    test('keeps the newer version of a message the replaced window already held, and its quotes', () => {
+      const before = mergeChanges(
+        windowFromPage(C, M, {
+          messages: [source, reply],
+          hasMoreBefore: false,
+          hasMoreAfter: false,
+        }),
+        [recalled(source, 90)],
+      )
+      // The page was read before the recall.
+      const page = { messages: [source, reply], hasMoreBefore: false, hasMoreAfter: false }
+      const next = windowFromPage(C, M, page, before)
+      expect(next.messages[0]?.body).toBeNull()
+      expect(next.messages[0]?.recalledAt).not.toBeNull()
+      expect(next.messages[1]?.replyTo).toMatchObject({ state: 'recalled', excerpt: null })
+      expect(next.quoted[source.id]).toBe(90)
+    })
+
+    test('takes the page’s version when it is the newer one, and holds nothing else over', () => {
+      const before = windowFromPage(C, M, {
+        messages: [source, makeMessage(4)],
+        hasMoreBefore: false,
+        hasMoreAfter: false,
+      })
+      const page = {
+        messages: [edited(source, 50, 'page text'), reply],
+        hasMoreBefore: false,
+        hasMoreAfter: false,
+      }
+      const next = windowFromPage(C, M, page, before)
+      expect(next.messages.map((message) => message.id)).toEqual([source.id, reply.id])
+      expect(next.messages[0]?.body).toBe('page text')
+    })
   })
 })

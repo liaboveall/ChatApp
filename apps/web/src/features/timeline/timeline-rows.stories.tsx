@@ -95,6 +95,7 @@ function Rows({
     hasMoreAfter: false,
     hidden: {},
     gone: {},
+    quoted: {},
     revision: 1,
   }
   const built = buildItems({

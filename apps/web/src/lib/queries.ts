@@ -39,6 +39,24 @@ export function writeMe(client: QueryClient, incoming: Me | null): void {
   client.setQueryData<Me | null>(queryKeys.me, (current) => mergeMe(current, incoming))
 }
 
+/**
+ * The answer to a write on my own account (a profile edit, the time zone): it can only update the identity it was made for
+ * (D-171). Unlike a fresh read it never replaces one identity with another and never writes into an empty cache, so an
+ * answer that comes back after the account changed (a sign-out, another sign-in) is dropped instead of showing the first
+ * account's profile to the second.
+ */
+export function writeMeAnswer(client: QueryClient, answer: Me): void {
+  client.setQueryData<Me | null>(queryKeys.me, (current) =>
+    current !== null &&
+    current !== undefined &&
+    current.id === answer.id &&
+    current.authEpoch === answer.authEpoch &&
+    current.restoreEpoch === answer.restoreEpoch
+      ? mergeMe(current, answer)
+      : current,
+  )
+}
+
 export const meQuery = queryOptions({
   queryKey: queryKeys.me,
   queryFn: async ({ client, signal }) =>

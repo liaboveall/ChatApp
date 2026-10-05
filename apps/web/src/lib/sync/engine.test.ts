@@ -1,13 +1,24 @@
-import type { Conversation, Me, WsServerMessage } from '@chatapp/contracts'
+import type {
+  Conversation,
+  Me,
+  MessageEnvelope,
+  MessagesQuery,
+  SendMessageRequest,
+  WsServerMessage,
+} from '@chatapp/contracts'
 import { QueryClient } from '@tanstack/react-query'
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest'
 import { ApiError } from '../api.ts'
 import { queryKeys } from '../queries.ts'
+import { endCompose, liveTarget, modeOf, startEdit, startReply, useCompose } from './compose.ts'
+import { draftOf, setDraft, useDrafts } from './drafts.ts'
 import { type ForgetReason, SyncEngine } from './engine.ts'
 import { FakeServer } from './fake-server.ts'
 import { makeAccount, makeConversation, makeMe, makeMessage, makeUser, uuid } from './fixtures.ts'
 import { syncKeys } from './keys.ts'
+import { Outbox, pendingOf, useOutbox } from './outbox.ts'
 import { syncUi, useSyncUi } from './state.ts'
+import { clearClientStores, clearConversationStores } from './stores.ts'
 import type { ConversationIndex, SyncScope, TimelineWindow } from './types.ts'
 import { WINDOW_MAX } from './window.ts'
 
@@ -37,6 +48,7 @@ function setup(options: { conversation?: Conversation; seed?: number; me?: Me } 
   const server = new FakeServer(conversation)
   for (let i = 1; i <= (options.seed ?? 0); i += 1) server.add(`m${i}`)
   const forgotten: Array<[string, ForgetReason]> = []
+  const resets: string[] = []
   const stopped = vi.fn()
   const state = { online: true }
   const engine = new SyncEngine({
@@ -46,7 +58,15 @@ function setup(options: { conversation?: Conversation; seed?: number; me?: Me } 
     isOnline: () => state.online,
     random: () => 0.5,
     onForgotten: (id, reason) => forgotten.push([id, reason]),
-    onStop: stopped,
+    // Wired like the application: the real stores of the sync layer are emptied, and the test can see that it happened.
+    onConversationReset: (id) => {
+      resets.push(id)
+      clearConversationStores(id)
+    },
+    onStop: () => {
+      stopped()
+      clearClientStores()
+    },
   })
   const me = options.me ?? makeAccount()
   const scope = () => {
@@ -61,6 +81,7 @@ function setup(options: { conversation?: Conversation; seed?: number; me?: Me } 
     me,
     scope,
     forgotten,
+    resets,
     stopped,
     state,
     index: () => qc.getQueryData<ConversationIndex>(syncKeys.conversations(scope())),
@@ -80,9 +101,11 @@ beforeEach(() => {
   vi.useFakeTimers()
   vi.setSystemTime(T0)
   syncUi.reset()
+  clearClientStores()
 })
 afterEach(() => {
   vi.useRealTimers()
+  clearClientStores()
 })
 
 describe('starting', () => {
@@ -154,7 +177,7 @@ describe('the dictionary of people', () => {
     expect(t.engine.knowsUser(uuid(900))).toBe(false)
     await open(t)
     expect(t.engine.knowsUser(uuid(900))).toBe(false)
-    t.engine.ingestUsers([makeUser(900)])
+    t.engine.ingestUsers([makeUser(900)], t.engine.ticket())
     expect(t.engine.knowsUser(uuid(900))).toBe(true)
     expect(t.engine.knowsUser(uuid(901))).toBe(false)
     t.engine.stop()
@@ -417,8 +440,8 @@ describe('write answers and late answers (AT-31)', () => {
     await t.engine.start(t.me)
     const renamed = { ...t.server.conversation, name: 'Renamed', metadataVersion: 5 }
     const stale = { ...t.server.conversation, name: 'Old name', metadataVersion: 3 }
-    t.engine.ingestConversation(renamed)
-    t.engine.ingestConversation(stale)
+    t.engine.ingestConversation(renamed, t.engine.ticket())
+    t.engine.ingestConversation(stale, t.engine.ticket())
     expect(t.index()?.byId[CONV]?.name).toBe('Renamed')
     t.engine.stop()
   })
@@ -427,7 +450,10 @@ describe('write answers and late answers (AT-31)', () => {
     const t = setup({ seed: 3 })
     await open(t)
     const sent = t.server.add('sent by me', { senderId: t.me.id })
-    t.engine.ingestMessage({ message: sent, users: { [t.me.id]: makeUser(1) } })
+    t.engine.ingestMessage(
+      { message: sent, users: { [t.me.id]: makeUser(1) } },
+      t.engine.ticket(CONV),
+    )
     expect(t.seqs()).toEqual([1, 2, 3, 4])
     await tick(10)
     expect(t.seqs()).toEqual([1, 2, 3, 4])
@@ -595,7 +621,7 @@ describe('losing access', () => {
     t.qc.setQueryData(syncKeys.members(t.scope(), CONV), {
       cached: 'members of the old membership',
     })
-    t.engine.ingestConversation(rejoined)
+    t.engine.ingestConversation(rejoined, t.engine.ticket())
     expect(t.window(M1)).toBeUndefined()
     expect(t.qc.getQueryData(syncKeys.members(t.scope(), CONV))).toBeUndefined()
     expect(t.index()?.byId[CONV]?.me?.membershipId).toBe(M2)
@@ -688,11 +714,14 @@ describe('reading position', () => {
     expect(useSyncUi.getState().pendingRead[CONV]).toBe(4)
     expect(t.server.count('markRead')).toBe(0)
     const conversation = t.server.conversation
-    t.engine.ingestConversation({
-      ...conversation,
-      viewerVersion: 5,
-      me: { ...(conversation.me ?? makeMe()), version: 5, lastReadSeq: 4 },
-    })
+    t.engine.ingestConversation(
+      {
+        ...conversation,
+        viewerVersion: 5,
+        me: { ...(conversation.me ?? makeMe()), version: 5, lastReadSeq: 4 },
+      },
+      t.engine.ticket(),
+    )
     expect(useSyncUi.getState().pendingRead[CONV]).toBeUndefined()
     t.engine.stop()
   })
@@ -821,6 +850,7 @@ describe('the small set of kept windows', () => {
         makeConversation(900 + ids.indexOf(id), {
           me: makeMe({ membershipId: uuid(2000 + ids.indexOf(id)) }),
         }),
+        t.engine.ticket(),
       )
     }
     const transport = vi.spyOn(t.server, 'listMessages').mockImplementation(async () => ({
@@ -834,6 +864,822 @@ describe('the small set of kept windows', () => {
     expect(t.engine.windowOf(ids[0] ?? '')).toBeUndefined()
     for (const id of ids.slice(1)) expect(t.engine.windowOf(id)).toBeDefined()
     expect(useSyncUi.getState().timelines[ids[0] ?? '']).toBeUndefined()
+    t.engine.stop()
+  })
+})
+
+// ───────── M2b review 2026-10-05 (R2, R3, R4), D-171 ─────────
+
+const defer = <T>() => {
+  let resolve: (value: T) => void = () => undefined
+  const promise = new Promise<T>((done) => {
+    resolve = done
+  })
+  return { promise, resolve }
+}
+
+/**
+ * Holds back the answer to the first `listMessages` that `when` accepts until it is released. The page is read as the
+ * server has it *when it is asked*, and delivered later: that is what a slow answer is.
+ */
+function holdPage(t: Setup, when: (query: MessagesQuery) => boolean): { release: () => void } {
+  const original = t.server.listMessages.bind(t.server)
+  const gate = defer<void>()
+  let held = false
+  t.server.listMessages = async (id, query) => {
+    if (held || !when(query)) return original(id, query)
+    held = true
+    const page = await original(id, query)
+    await gate.promise
+    return page
+  }
+  return { release: () => gate.resolve() }
+}
+
+const bodyOf = (t: Setup, seq: number) =>
+  t.engine.windowOf(CONV)?.messages.find((message) => message.seq === seq)?.body
+
+describe('a page that replaces the window, and the log applied while it was on its way (R2, AT-12, AT-31)', () => {
+  const changes = [
+    {
+      name: 'an edit',
+      change: (t: Setup, seq: number) => t.server.edit(seq, 'edited while the page was on its way'),
+      applied: (t: Setup, seq: number) =>
+        expect(bodyOf(t, seq)).toBe('edited while the page was on its way'),
+    },
+    {
+      name: 'a recall',
+      change: (t: Setup, seq: number) => t.server.recall(seq),
+      applied: (t: Setup, seq: number) => {
+        expect(bodyOf(t, seq)).toBeNull()
+        expect(
+          t.engine.windowOf(CONV)?.messages.find((m) => m.seq === seq)?.recalledAt,
+        ).not.toBeNull()
+      },
+    },
+    {
+      name: 'a deletion by a moderator',
+      change: (t: Setup, seq: number) => t.server.deleteAsModerator(seq),
+      applied: (t: Setup, seq: number) => {
+        expect(bodyOf(t, seq)).toBeNull()
+        expect(
+          t.engine.windowOf(CONV)?.messages.find((m) => m.seq === seq)?.deletedAt,
+        ).not.toBeNull()
+      },
+    },
+  ]
+  const places = [
+    ['a message the replaced window held too', 55],
+    ['a message only the page brings', 20],
+  ] as const
+
+  describe.each(changes)('$name', ({ change, applied }) => {
+    test.each(places)(
+      'a jump page read before it does not bring back %s, and the change is applied to it',
+      async (_name, seq) => {
+        const t = setup({ seed: 100 })
+        await open(t)
+        expect(t.seqs()[0]).toBe(51)
+        const page = holdPage(t, (query) => query.aroundSeq === 40)
+        const jumping = t.engine.jumpTo(CONV, 40)
+        await tick(1)
+        const changed = change(t, seq)
+        t.engine.onEvent(hint(changed.changeSeq))
+        await tick(100)
+        expect(t.engine.progress(CONV)).toEqual({ observed: 101, synced: 101 })
+        const rounds = t.server.count('conversationChanges')
+
+        page.release()
+        expect(await jumping).toBe('loaded')
+        expect(t.seqs()[0]).toBeLessThan(51)
+        await tick(100)
+        // The page was read before the change: the log is applied to it again from where it was asked, once, by itself.
+        expect(t.server.count('conversationChanges')).toBe(rounds + 1)
+        applied(t, seq)
+        expect(t.engine.progress(CONV)).toEqual({ observed: 101, synced: 101 })
+        await t.engine.reconcile()
+        await tick(35_000)
+        applied(t, seq)
+        t.engine.stop()
+      },
+    )
+  })
+
+  test('a message that the replaced window knew as recalled never shows its text again, not even until the log is replayed', async () => {
+    const t = setup({ seed: 100 })
+    await open(t)
+    const page = holdPage(t, (query) => query.aroundSeq === 40)
+    const jumping = t.engine.jumpTo(CONV, 40)
+    await tick(1)
+    const recall = t.server.recall(55)
+    t.engine.onEvent(hint(recall.changeSeq))
+    await tick(100)
+    expect(bodyOf(t, 55)).toBeNull()
+    page.release()
+    await jumping
+    expect(bodyOf(t, 55)).toBeNull()
+    t.engine.stop()
+  })
+
+  test('the first page of a conversation, read before a change, is brought up to date from where it was asked', async () => {
+    const t = setup({ seed: 100 })
+    await t.engine.start(t.me)
+    const page = holdPage(
+      t,
+      (query) => query.beforeSeq === undefined && query.aroundSeq === undefined,
+    )
+    const opening = t.engine.openConversation(CONV)
+    await tick(1)
+    const recall = t.server.recall(90)
+    t.engine.onEvent(hint(recall.changeSeq))
+    await tick(100)
+    page.release()
+    await opening
+    await tick(200)
+    expect(bodyOf(t, 90)).toBeNull()
+    expect(t.engine.progress(CONV)).toEqual({ observed: 101, synced: 101 })
+    t.engine.stop()
+  })
+
+  test('an older page read before a change to a message in it is brought up to date from where it was asked', async () => {
+    const t = setup({ seed: 100 })
+    await open(t)
+    const page = holdPage(t, (query) => query.beforeSeq === 51)
+    const loading = t.engine.loadOlder(CONV)
+    await tick(1)
+    const recall = t.server.recall(30)
+    t.engine.onEvent(hint(recall.changeSeq))
+    await tick(100)
+    // Message 30 lies above the window and the window has more above: nothing of it was applied.
+    expect(t.engine.progress(CONV)).toEqual({ observed: 101, synced: 101 })
+    page.release()
+    expect(await loading).toBe(true)
+    await tick(100)
+    expect(t.seqs()[0]).toBe(1)
+    expect(bodyOf(t, 30)).toBeNull()
+    expect(t.engine.progress(CONV)).toEqual({ observed: 101, synced: 101 })
+    t.engine.stop()
+  })
+
+  test('a newer page read before a change to a message in it is brought up to date from where it was asked', async () => {
+    const t = setup({ seed: 100 })
+    await open(t)
+    await t.engine.jumpTo(CONV, 10)
+    await tick(100)
+    expect(t.engine.windowOf(CONV)?.hasMoreAfter).toBe(true)
+    const page = holdPage(t, (query) => query.afterSeq !== undefined)
+    const loading = t.engine.loadNewer(CONV)
+    await tick(1)
+    const edit = t.server.edit(70, 'edited while the page was on its way')
+    t.engine.onEvent(hint(edit.changeSeq))
+    await tick(100)
+    page.release()
+    expect(await loading).toBe(true)
+    await tick(100)
+    expect(bodyOf(t, 70)).toBe('edited while the page was on its way')
+    t.engine.stop()
+  })
+
+  test('a page that nothing happened to while it was on its way costs no extra round of catch-up', async () => {
+    const t = setup({ seed: 100 })
+    await open(t)
+    const rounds = t.server.count('conversationChanges')
+    expect(await t.engine.jumpTo(CONV, 40)).toBe('loaded')
+    await tick(5000)
+    expect(t.server.count('conversationChanges')).toBe(rounds)
+    expect(t.engine.progress(CONV)).toEqual({ observed: 0, synced: 100 })
+    t.engine.stop()
+  })
+
+  test('of two requests that replace the window the one asked later counts, whichever answer comes first', async () => {
+    const t = setup({ seed: 100 })
+    await open(t)
+    const older = holdPage(t, (query) => query.aroundSeq === 40)
+    const jumpingOlder = t.engine.jumpTo(CONV, 40)
+    await tick(1)
+    const newer = holdPage(t, (query) => query.aroundSeq === 10)
+    const jumpingNewer = t.engine.jumpTo(CONV, 10)
+    await tick(1)
+    older.release()
+    expect(await jumpingOlder).toBe('superseded')
+    expect(t.seqs()[0]).toBe(51)
+    newer.release()
+    expect(await jumpingNewer).toBe('loaded')
+    expect(t.seqs()[0]).toBe(1)
+    t.engine.stop()
+  })
+
+  test('the newer request counts also when its answer comes first', async () => {
+    const t = setup({ seed: 100 })
+    await open(t)
+    const older = holdPage(t, (query) => query.aroundSeq === 40)
+    const jumpingOlder = t.engine.jumpTo(CONV, 40)
+    await tick(1)
+    expect(await t.engine.jumpTo(CONV, 10)).toBe('loaded')
+    older.release()
+    expect(await jumpingOlder).toBe('superseded')
+    expect(t.seqs()[0]).toBe(1)
+    t.engine.stop()
+  })
+
+  test('a jump still on its way when the person goes back to the newest does not take them away again', async () => {
+    const t = setup({ seed: 100 })
+    await open(t)
+    await t.engine.jumpTo(CONV, 10)
+    const jump = holdPage(t, (query) => query.aroundSeq === 70)
+    const jumping = t.engine.jumpTo(CONV, 70)
+    await tick(1)
+    await t.engine.backToLatest(CONV)
+    expect(t.seqs()[0]).toBe(51)
+    expect(t.engine.windowOf(CONV)?.hasMoreAfter).toBe(false)
+    jump.release()
+    expect(await jumping).toBe('superseded')
+    expect(t.seqs()[0]).toBe(51)
+    expect(t.engine.windowOf(CONV)?.hasMoreAfter).toBe(false)
+    t.engine.stop()
+  })
+
+  test('opening a conversation twice at once installs the page asked last, and the one asked first is dropped', async () => {
+    const t = setup({ seed: 100 })
+    await t.engine.start(t.me)
+    const first = holdPage(
+      t,
+      (query) => query.beforeSeq === undefined && query.aroundSeq === undefined,
+    )
+    const openingFirst = t.engine.openConversation(CONV)
+    await tick(1)
+    const recall = t.server.recall(90)
+    const openingSecond = t.engine.openConversation(CONV)
+    await openingSecond
+    expect(bodyOf(t, 90)).toBeNull()
+    first.release()
+    await openingFirst
+    await tick(100)
+    expect(bodyOf(t, 90)).toBeNull()
+    expect(t.engine.windowOf(CONV)?.messages.find((m) => m.seq === 90)?.changeSeq).toBe(
+      recall.changeSeq,
+    )
+    t.engine.stop()
+  })
+
+  test('a page that was on its way when the log said to start over is dropped, and so is its effect on the position', async () => {
+    const t = setup({ seed: 100 })
+    await open(t)
+    const page = holdPage(t, (query) => query.aroundSeq === 40)
+    const jumping = t.engine.jumpTo(CONV, 40)
+    await tick(1)
+    t.server.resetNext = true
+    t.server.add('after the snapshot')
+    t.engine.onEvent(hint(t.server.head))
+    await tick(100)
+    expect(t.seqs()[0]).toBe(52)
+    page.release()
+    expect(await jumping).toBe('unavailable')
+    expect(t.seqs()[0]).toBe(52)
+    expect(t.engine.progress(CONV)).toEqual({ observed: 101, synced: 101 })
+    t.engine.stop()
+  })
+
+  test('a page that lands after the window was cut for its size does not mix with the next trim', async () => {
+    const t = setup({ seed: 100 })
+    await open(t)
+    // An older page is on its way when the person jumps: the page would join a window that is gone.
+    const older = holdPage(t, (query) => query.beforeSeq === 51)
+    const loading = t.engine.loadOlder(CONV)
+    await tick(1)
+    expect(await t.engine.jumpTo(CONV, 70)).toBe('in-window')
+    await t.engine.jumpTo(CONV, 10)
+    older.release()
+    expect(await loading).toBe(false)
+    expect(t.seqs()[0]).toBe(1)
+    expect(t.seqs()).toEqual(Array.from({ length: t.seqs().length }, (_, i) => i + 1))
+    t.engine.stop()
+  })
+})
+
+describe('an answer to a reply, and what happened to the message it quotes while it was on its way (R1)', () => {
+  const quote = (source: {
+    id: string
+    seq: number
+    senderId: string | null
+    body: string | null
+  }) => ({
+    id: source.id,
+    seq: source.seq,
+    senderId: source.senderId,
+    excerpt: source.body,
+    state: 'ok' as const,
+  })
+  const quoteIn = (t: Setup, id: string) =>
+    t.engine.windowOf(CONV)?.messages.find((message) => message.id === id)?.replyTo
+
+  test('the quote of a reply that the server answered before a recall is brought up to date on the way in', async () => {
+    const t = setup({ seed: 3 })
+    await open(t)
+    const source = t.server.messages[0]
+    expect(source).toBeDefined()
+    if (source === undefined) return
+    const ticket = t.engine.ticket(CONV)
+    const recall = t.server.recall(1)
+    t.engine.onEvent(hint(recall.changeSeq))
+    await tick(100)
+    const reply = makeMessage(4, { id: uuid(9100), changeSeq: 3, replyTo: quote(source) })
+    expect(t.engine.ingestMessage({ message: reply, users: {} }, ticket)).toBe(true)
+    expect(quoteIn(t, reply.id)).toMatchObject({ state: 'recalled', excerpt: null })
+    await tick(200)
+    expect(quoteIn(t, reply.id)).toMatchObject({ state: 'recalled', excerpt: null })
+    t.engine.stop()
+  })
+
+  test('so is the text of a quote of a message that was edited, once the log has been applied again', async () => {
+    const t = setup({ seed: 3 })
+    await open(t)
+    const source = t.server.messages[0]
+    if (source === undefined) throw new Error('no message')
+    const ticket = t.engine.ticket(CONV)
+    const edit = t.server.edit(1, 'edited text')
+    t.engine.onEvent(hint(edit.changeSeq))
+    await tick(100)
+    const reply = makeMessage(4, { id: uuid(9100), changeSeq: 3, replyTo: quote(source) })
+    t.engine.ingestMessage({ message: reply, users: {} }, ticket)
+    await tick(200)
+    expect(quoteIn(t, reply.id)).toMatchObject({ state: 'ok', excerpt: 'edited text' })
+    t.engine.stop()
+  })
+
+  test('also when the quoted message is not in the window', async () => {
+    const t = setup({ seed: 100 })
+    await open(t)
+    const source = t.server.messages[9]
+    if (source === undefined) throw new Error('no message')
+    expect(t.seqs()[0]).toBe(51)
+    const ticket = t.engine.ticket(CONV)
+    const recall = t.server.recall(10)
+    t.engine.onEvent(hint(recall.changeSeq))
+    await tick(100)
+    const reply = makeMessage(101, { id: uuid(9100), changeSeq: 100, replyTo: quote(source) })
+    t.engine.ingestMessage({ message: reply, users: {} }, ticket)
+    await tick(200)
+    expect(quoteIn(t, reply.id)).toMatchObject({ state: 'recalled', excerpt: null })
+    t.engine.stop()
+  })
+
+  test('an answer for a message that was written to be sent stays one catch-up round, not two, when nothing else happened', async () => {
+    const t = setup({ seed: 3 })
+    await open(t)
+    const rounds = t.server.count('conversationChanges')
+    const ticket = t.engine.ticket(CONV)
+    const sent = t.server.add('sent by me', { senderId: t.me.id })
+    t.engine.ingestMessage({ message: sent, users: {} }, ticket)
+    await tick(500)
+    expect(t.server.count('conversationChanges')).toBe(rounds + 1)
+    t.engine.stop()
+  })
+})
+
+describe('answers and failures of requests made for something that is gone (R3, SEC-34)', () => {
+  const secret = 'ACCOUNT_A_PRE_JOIN_SECRET'
+  const accountB = () =>
+    makeAccount({ id: uuid(2), email: 'user2@example.test', username: 'user2' })
+
+  /** The same outbox the application builds in `app/sync.ts`, over the real engine and the real stores. */
+  function wiredOutbox(
+    t: Setup,
+    send: (conversationId: string, request: SendMessageRequest) => Promise<MessageEnvelope>,
+  ): Outbox {
+    let counter = 0
+    return new Outbox({
+      send,
+      ticket: (conversationId) => t.engine.ticket(conversationId),
+      onSent: (envelope, ticket) => t.engine.messageSent(envelope, ticket),
+      onAccessError: (conversationId, error, ticket) =>
+        t.engine.handleAccessError(conversationId, error, ticket),
+      membershipOf: (conversationId) => t.engine.membershipOf(conversationId),
+      now: Date.now,
+      newId: () => uuid(9000 + ++counter),
+    })
+  }
+
+  /** B joined after A's message: B's membership starts after it, and the server shows B none of it. */
+  async function signInAsB(t: Setup): Promise<void> {
+    t.engine.stop()
+    t.server.messages = []
+    t.server.conversation = {
+      ...t.server.conversation,
+      me: makeMe({ membershipId: M2, visibleFromSeq: 2, lastReadSeq: 2 }),
+    }
+    await t.engine.start(accountB())
+    await t.engine.openConversation(CONV)
+  }
+
+  test('a send answer of the account that signed out never enters the timeline of the next one', async () => {
+    const t = setup({ seed: 1 })
+    await open(t)
+    const answer = defer<MessageEnvelope>()
+    const outbox = wiredOutbox(t, () => answer.promise)
+    outbox.enqueue({
+      conversationId: CONV,
+      membershipId: M1,
+      body: secret,
+      replyToId: null,
+      quote: null,
+    })
+    const accepted = t.server.add(secret, { senderId: t.me.id })
+    await signInAsB(t)
+    expect(t.seqs()).toEqual([])
+    answer.resolve({ message: accepted, users: {} })
+    await tick(100)
+    expect(t.seqs()).toEqual([])
+    expect(JSON.stringify(t.engine.windowOf(CONV))).not.toContain(secret)
+    expect(useSyncUi.getState().pendingRead[CONV]).toBeUndefined()
+    expect(pendingOf(useOutbox.getState(), CONV)).toEqual([])
+    t.engine.stop()
+  })
+
+  test('the engine itself refuses a ticket of a scope that is gone, whatever the screen did with its own state', async () => {
+    const t = setup({ seed: 1 })
+    await open(t)
+    const ticket = t.engine.ticket(CONV)
+    const accepted = t.server.add(secret, { senderId: t.me.id })
+    await signInAsB(t)
+    expect(t.engine.ingestMessage({ message: accepted, users: {} }, ticket)).toBe(false)
+    expect(t.seqs()).toEqual([])
+    t.engine.stop()
+  })
+
+  test('a new login generation closes the old tickets too, but not the ones taken under the new one', async () => {
+    const t = setup({ seed: 3 })
+    await open(t)
+    const old = t.engine.ticket(CONV)
+    await t.engine.switchScope(makeAccount({ authEpoch: 2 }))
+    await t.engine.openConversation(CONV)
+    const message = t.server.add('written after', { senderId: t.me.id })
+    expect(t.engine.ingestMessage({ message, users: {} }, old)).toBe(false)
+    expect(t.seqs()).toEqual([1, 2, 3])
+    expect(t.engine.ingestMessage({ message, users: {} }, t.engine.ticket(CONV))).toBe(true)
+    expect(t.seqs()).toEqual([1, 2, 3, 4])
+    t.engine.stop()
+  })
+
+  test('an answer to a request made before the person left and joined again does not enter the timeline of the new membership', async () => {
+    const t = setup({ seed: 3 })
+    await open(t)
+    const ticket = t.engine.ticket(CONV)
+    const old = t.server.messages[2]
+    if (old === undefined) throw new Error('no message')
+    t.engine.leftConversation(CONV, ticket)
+    t.server.messages = t.server.messages.filter((message) => message.seq > 3)
+    t.server.conversation = {
+      ...t.server.conversation,
+      me: makeMe({ membershipId: M2, version: 9, visibleFromSeq: 3 }),
+    }
+    t.engine.ingestConversation(t.server.conversation, t.engine.ticket())
+    await t.engine.openConversation(CONV)
+    expect(t.seqs()).toEqual([])
+    expect(t.engine.ingestMessage({ message: old, users: {} }, ticket)).toBe(false)
+    expect(t.seqs()).toEqual([])
+    t.engine.stop()
+  })
+
+  test('every way an answer enters is closed to a ticket of a scope that is gone', async () => {
+    const t = setup({ seed: 3 })
+    await open(t)
+    const old = t.engine.ticket(CONV)
+    const oldAccount = t.engine.ticket()
+    await signInAsB(t)
+    const index = t.index()
+    const window = t.window(M2)
+    const users = t.qc.getQueryData(syncKeys.users(t.scope()))
+    const strangers = makeUser(900, { displayName: 'A’s contact' })
+
+    t.engine.ingestConversation(
+      { ...t.server.conversation, name: 'A’s name for it', metadataVersion: 99 },
+      oldAccount,
+    )
+    t.engine.ingestUsers([strangers], oldAccount)
+    t.engine.ingestMe(makeAccount({ meVersion: 50, displayName: 'Account A' }), oldAccount)
+    t.engine.applyHidden(CONV, uuid(1), old)
+    t.engine.leftConversation(CONV, old)
+    expect(t.engine.handleAccessError(CONV, new ApiError(404, 'NOT_FOUND'), old)).toBe(true)
+    t.engine.messageSent(
+      { message: makeMessage(9, { conversationId: CONV, changeSeq: 99 }), users: {} },
+      old,
+    )
+
+    expect(t.index()).toBe(index)
+    expect(t.window(M2)).toBe(window)
+    expect(t.qc.getQueryData(syncKeys.users(t.scope()))).toBe(users)
+    expect(t.engine.knowsUser(strangers.id)).toBe(false)
+    expect(t.forgotten).toEqual([])
+    expect(useSyncUi.getState().pendingRead[CONV]).toBeUndefined()
+    t.engine.stop()
+  })
+
+  test('a failure of a request made for something that is gone does not take the conversation of the new account away', async () => {
+    const t = setup({ seed: 3 })
+    await open(t)
+    const old = t.engine.ticket(CONV)
+    await signInAsB(t)
+    t.forgotten.length = 0
+    expect(t.engine.handleAccessError(CONV, new ApiError(404, 'NOT_FOUND'), old)).toBe(true)
+    expect(t.forgotten).toEqual([])
+    expect(t.index()?.byId[CONV]).toBeDefined()
+    // The same failure of a request made under what is held now is the real thing.
+    expect(
+      t.engine.handleAccessError(CONV, new ApiError(404, 'NOT_FOUND'), t.engine.ticket(CONV)),
+    ).toBe(true)
+    expect(t.forgotten).toEqual([[CONV, 'no-access']])
+    t.engine.stop()
+  })
+
+  test('the late answer to leaving does not make the next account forget the conversation it is in', async () => {
+    const t = setup({ seed: 3 })
+    await open(t)
+    const old = t.engine.ticket(CONV)
+    await signInAsB(t)
+    t.engine.leftConversation(CONV, old)
+    expect(t.index()?.byId[CONV]).toBeDefined()
+    expect(t.forgotten).toEqual([])
+    t.engine.leftConversation(CONV, t.engine.ticket(CONV))
+    expect(t.forgotten).toEqual([[CONV, 'left']])
+    t.engine.stop()
+  })
+
+  test('a failed read made under a membership that has ended says nothing about the one held now', async () => {
+    const t = setup({ seed: 3 })
+    await open(t)
+    const wait = defer<void>()
+    t.server.hook = (name) => (name === 'getConversation' ? wait.promise : undefined)
+    t.server.failNext('getConversation', new ApiError(404, 'NOT_FOUND'))
+    const refreshing = t.engine.refreshConversation(CONV)
+    await tick(1)
+    t.engine.ingestConversation(
+      makeConversation(500, { me: makeMe({ membershipId: M2, version: 9, visibleFromSeq: 3 }) }),
+      t.engine.ticket(),
+    )
+    expect(t.index()?.byId[CONV]?.me?.membershipId).toBe(M2)
+    t.server.hook = undefined
+    wait.resolve()
+    await refreshing
+    expect(t.forgotten).toEqual([])
+    expect(t.index()?.byId[CONV]?.me?.membershipId).toBe(M2)
+    t.engine.stop()
+  })
+
+  test('so does a failed read-position request', async () => {
+    const t = setup({ seed: 3 })
+    await open(t)
+    const wait = defer<void>()
+    t.server.hook = (name) => (name === 'markRead' ? wait.promise : undefined)
+    t.server.failNext('markRead', new ApiError(404, 'NOT_FOUND'))
+    t.engine.markRead(CONV, 3)
+    await tick(1)
+    t.engine.ingestConversation(
+      makeConversation(500, { me: makeMe({ membershipId: M2, version: 9, visibleFromSeq: 3 }) }),
+      t.engine.ticket(),
+    )
+    t.server.hook = undefined
+    wait.resolve()
+    await tick(50)
+    expect(t.forgotten).toEqual([])
+    expect(t.index()?.byId[CONV]?.me?.membershipId).toBe(M2)
+    t.engine.stop()
+  })
+
+  test('another account in the same page empties every store outside the engine; the same account after a password change keeps its drafts', async () => {
+    const t = setup({ seed: 3 })
+    await open(t)
+    setDraft(CONV, 'a draft of A')
+    await t.engine.switchScope(makeAccount({ authEpoch: 2 }))
+    expect(draftOf(useDrafts.getState(), CONV)).toBe('a draft of A')
+    expect(t.stopped).not.toHaveBeenCalled()
+    await t.engine.start(accountB())
+    expect(t.stopped).toHaveBeenCalledTimes(1)
+    expect(draftOf(useDrafts.getState(), CONV)).toBe('')
+    t.engine.stop()
+  })
+
+  test('a normal send still goes in once, and a retry with the same client id too', async () => {
+    const t = setup({ seed: 3 })
+    await open(t)
+    const requests: SendMessageRequest[] = []
+    let fail = true
+    const outbox = wiredOutbox(t, async (conversationId, request) => {
+      requests.push(request)
+      if (fail) {
+        fail = false
+        throw new ApiError(0, 'NETWORK')
+      }
+      const message = t.server.add(request.body ?? '', { senderId: t.me.id })
+      return { message: { ...message, conversationId }, users: {} }
+    })
+    const pending = outbox.enqueue({
+      conversationId: CONV,
+      membershipId: M1,
+      body: 'hello',
+      replyToId: null,
+      quote: null,
+    })
+    await tick(1)
+    expect(pendingOf(useOutbox.getState(), CONV)[0]).toMatchObject({
+      state: 'failed',
+      error: 'NETWORK',
+    })
+    outbox.retry(pending.clientId, CONV)
+    await tick(1)
+    expect(requests.map((request) => request.clientId)).toEqual([
+      pending.clientId,
+      pending.clientId,
+    ])
+    expect(pendingOf(useOutbox.getState(), CONV)).toEqual([])
+    expect(t.seqs()).toEqual([1, 2, 3, 4])
+    expect(useSyncUi.getState().pendingRead[CONV]).toBe(4)
+    t.engine.stop()
+  })
+})
+
+describe('what the person wrote under a membership that ended does not outlive it (R4, SEC-34, D-035)', () => {
+  const joinedAs = (membershipId: string) =>
+    makeConversation(500, {
+      me: makeMe({ membershipId, version: 9, visibleFromSeq: 3 }),
+      lastSeq: 3,
+    })
+
+  function startWriting(t: Setup, mode: 'reply' | 'edit'): void {
+    const source = t.server.messages[0]
+    if (source === undefined) throw new Error('no message')
+    if (mode === 'reply') {
+      startReply(CONV, M1, source)
+      setDraft(CONV, 'my answer, not sent')
+    } else {
+      startEdit(CONV, M1, source, 'what I had typed before the edit')
+      setDraft(CONV, source.body ?? '')
+    }
+    // A message that was written and has not gone out yet, quoting an old one.
+    const outbox = new Outbox({
+      send: () => new Promise<MessageEnvelope>(() => undefined),
+      ticket: (id) => t.engine.ticket(id),
+      onSent: () => undefined,
+      onAccessError: () => false,
+      membershipOf: (id) => t.engine.membershipOf(id),
+      now: Date.now,
+      newId: () => uuid(9001),
+    })
+    outbox.enqueue({
+      conversationId: CONV,
+      membershipId: M1,
+      body: 'written, not sent',
+      replyToId: source.id,
+      quote: {
+        id: source.id,
+        seq: 1,
+        senderId: source.senderId,
+        excerpt: source.body,
+        state: 'ok',
+      },
+    })
+  }
+
+  function expectNothingLeft(membershipId: string): void {
+    expect(modeOf(useCompose.getState(), CONV, membershipId)).toBeUndefined()
+    expect(useCompose.getState().byConversation[CONV]).toBeUndefined()
+    expect(endCompose(CONV, membershipId)).toBeUndefined()
+    expect(draftOf(useDrafts.getState(), CONV)).toBe('')
+    expect(pendingOf(useOutbox.getState(), CONV)).toEqual([])
+  }
+
+  const routes: Array<[string, (t: Setup) => void | Promise<void>, 'gone' | 'new membership']> = [
+    ['leaving it', (t) => t.engine.leftConversation(CONV, t.engine.ticket(CONV)), 'gone'],
+    [
+      'being removed from it (my own log)',
+      async (t) => {
+        const version = t.index()?.byId[CONV]?.me?.version ?? 0
+        t.server.personal = [
+          {
+            type: 'conversation.removed',
+            conversationId: CONV,
+            membershipId: M1,
+            state: 'removed',
+            viewerVersion: version + 1,
+          },
+        ]
+        t.server.userSeq = 3
+        t.engine.onEvent({
+          v: 1,
+          type: 'user.changed',
+          topic: 'user:x',
+          data: { userChangeSeq: 3 },
+        })
+        await tick(600)
+      },
+      'gone',
+    ],
+    [
+      'a different membership read from the server (it changed while I was away)',
+      (t) => t.engine.ingestConversation(joinedAs(M2), t.engine.ticket()),
+      'new membership',
+    ],
+    [
+      'the change log starting over under a different membership',
+      async (t) => {
+        t.server.conversation = joinedAs(M2)
+        t.server.resetNext = true
+        t.server.add('after the snapshot')
+        t.engine.onEvent(hint(t.server.head))
+        await tick(100)
+      },
+      'new membership',
+    ],
+  ]
+
+  describe.each(['reply', 'edit'] as const)('a %s in progress', (mode) => {
+    test.each(routes)(
+      'is gone after %s, and does not come back when I join again',
+      async (_name, route, after) => {
+        const t = setup({ seed: 3 })
+        await open(t)
+        startWriting(t, mode)
+        expect(modeOf(useCompose.getState(), CONV, M1)?.type).toBe(mode)
+        t.resets.length = 0
+        await route(t)
+        expect(t.resets).toContain(CONV)
+        expectNothingLeft(M1)
+        expectNothingLeft(M2)
+        if (after === 'gone') {
+          t.engine.ingestConversation(joinedAs(M2), t.engine.ticket())
+          expect(t.index()?.byId[CONV]?.me?.membershipId).toBe(M2)
+          await t.engine.openConversation(CONV)
+          expectNothingLeft(M2)
+        }
+        t.engine.stop()
+      },
+    )
+  })
+
+  test('a membership that changed under a conversation the screen has open is cleaned in the same step as its window', async () => {
+    const t = setup({ seed: 3 })
+    await open(t)
+    startWriting(t, 'reply')
+    t.engine.ingestConversation(joinedAs(M2), t.engine.ticket())
+    expect(t.window(M1)).toBeUndefined()
+    expectNothingLeft(M2)
+    t.engine.stop()
+  })
+
+  test('a read position claimed under the old membership is not carried into the new one', async () => {
+    const t = setup({
+      conversation: makeConversation(500, { me: makeMe({ membershipId: M1, lastReadSeq: 1 }) }),
+      seed: 5,
+    })
+    await open(t)
+    const wait = defer<void>()
+    t.server.hook = (name) => (name === 'markRead' ? wait.promise : undefined)
+    t.engine.markRead(CONV, 5)
+    await tick(1)
+    expect(useSyncUi.getState().pendingRead[CONV]).toBe(5)
+    t.engine.ingestConversation(joinedAs(M2), t.engine.ticket())
+    expect(useSyncUi.getState().pendingRead[CONV]).toBeUndefined()
+    // The request is still out when the pause between two position requests has passed: its end must not send again.
+    await tick(2000)
+    t.server.hook = undefined
+    wait.resolve()
+    await tick(2000)
+    expect(useSyncUi.getState().pendingRead[CONV]).toBeUndefined()
+    // …and no further position of the old membership goes out for the new one.
+    expect(t.server.count('markRead')).toBe(1)
+    t.engine.stop()
+  })
+
+  test('typing signals of the old membership go too', async () => {
+    const t = setup({ seed: 3 })
+    await open(t)
+    const { applyTyping, useTyping } = await import('./typing.ts')
+    applyTyping(
+      { conversationId: CONV, userId: uuid(2), state: 'start', expiresInMs: 5000 },
+      uuid(1),
+      Date.now(),
+    )
+    expect(useTyping.getState().byConversation[CONV]).toBeDefined()
+    t.engine.ingestConversation(joinedAs(M2), t.engine.ticket())
+    expect(useTyping.getState().byConversation[CONV]).toBeUndefined()
+    t.engine.stop()
+  })
+
+  test('the reply bar stands on the message as the window holds it now, and ends when that message is no target any more', async () => {
+    const t = setup({ seed: 3 })
+    await open(t)
+    startWriting(t, 'reply')
+    const mode = modeOf(useCompose.getState(), CONV, M1)
+    if (mode === undefined) throw new Error('no reply')
+    expect(liveTarget(mode, t.engine.windowOf(CONV))?.body).toBe('m1')
+    t.server.edit(1, 'edited text')
+    t.engine.onEvent(hint(t.server.head))
+    await tick(100)
+    expect(liveTarget(mode, t.engine.windowOf(CONV))?.body).toBe('edited text')
+    t.server.recall(1)
+    t.engine.onEvent(hint(t.server.head))
+    await tick(100)
+    expect(liveTarget(mode, t.engine.windowOf(CONV))).toBeNull()
     t.engine.stop()
   })
 })

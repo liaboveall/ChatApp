@@ -39,6 +39,7 @@ function Form({ me, onClose }: { me: Me; onClose: () => void }) {
     if (!canSave) return
     setBusy(true)
     setProblems({})
+    const ticket = engine.ticket()
     try {
       const updated = await api('/api/me', {
         method: 'PATCH',
@@ -50,8 +51,7 @@ function Form({ me, onClose }: { me: Me; onClose: () => void }) {
         },
         schema: meSchema,
       })
-      engine.writeMe(updated)
-      engine.ingestUsers([updated])
+      engine.ingestMe(updated, ticket)
       showToast(m.settings_profile_saved())
       onClose()
       return

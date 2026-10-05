@@ -18,6 +18,25 @@ export type SyncScope = {
   readonly generation: number
 }
 
+/**
+ * What a request that a screen made (a send, an edit, a conversation write) was made *for*: the account and login
+ * generation it went out under and, when it concerns one conversation, the membership held at that moment (D-171). The
+ * answer, or the error, is checked against this before it touches the cache or the screen state: if the scope has been
+ * replaced or the membership is another one, it belongs to something that is gone and is dropped without a trace
+ * (docs/05 section 2: a request keeps what it was asked under).
+ */
+export type RequestTicket = {
+  readonly scope: SyncScope | null
+  readonly conversationId: string | null
+  /** The membership held when the request went out; null when the request is not about a conversation, or I held none. */
+  readonly membershipId: string | null
+  /**
+   * The newest change of the conversation that the client knew of when the request went out. The answer is at least as new
+   * as that and nothing more can be taken for granted: what the log says after it is applied to the answer again.
+   */
+  readonly watermark: number
+}
+
 /** What the client knows of a membership that ended: a stale answer must not bring the conversation back (D-150). */
 export type RemovedMarker = { viewerVersion: number; membershipId: string | null }
 
@@ -45,6 +64,12 @@ export type TimelineWindow = {
   hidden: Record<string, true>
   /** Messages that left the window by tombstone, with the change that took them: only a newer version may bring one back. */
   gone: Record<string, number>
+  /**
+   * The newest version of each quoted message that the quotes in this window were brought up to date from, by message id
+   * (D-171). A quote carries no version of its own, so this is what keeps a late answer about an older version of the
+   * quoted message (a slow write answer, a slow page) from putting an older quote back, in the window or not.
+   */
+  quoted: Record<string, number>
   /** Counts structural changes, so a view can tell "same list" from "list changed at the top" cheaply. */
   revision: number
 }

@@ -16,6 +16,7 @@ import {
   type ChangeEvent,
   type KeyboardEvent,
   type RefObject,
+  useEffect,
   useLayoutEffect,
   useRef,
 } from 'react'
@@ -23,9 +24,9 @@ import { engine, outbox } from '@/app/sync.ts'
 import { IconButton } from '@/components/ui/button.tsx'
 import { meQuery } from '@/lib/queries.ts'
 import { serverNow } from '@/lib/realtime.ts'
-import { endCompose, modeOf, useCompose } from '@/lib/sync/compose.ts'
+import { endCompose, liveTarget, modeOf, useCompose } from '@/lib/sync/compose.ts'
 import { draftOf, setDraft, useDrafts } from '@/lib/sync/drafts.ts'
-import { useUsers } from '@/lib/sync/hooks.ts'
+import { useTimelineWindow, useUsers } from '@/lib/sync/hooks.ts'
 import { displayName } from '@/lib/sync/selectors.ts'
 import { m } from '@/paraglide/messages.js'
 import { editMessage } from '../message-actions/actions.ts'
@@ -49,8 +50,10 @@ export function Composer({
 }) {
   const id = conversation.id
   const me = conversation.me
+  const membershipId = me?.membershipId
   const draft = useDrafts((state) => draftOf(state, id))
-  const mode = useCompose((state) => modeOf(state, id))
+  const stored = useCompose((state) => modeOf(state, id, membershipId))
+  const win = useTimelineWindow(id)
   const { data: account } = useQuery(meQuery)
   const commands = useMessageCommands(id)
   const users = useUsers()
@@ -67,6 +70,10 @@ export function Composer({
     element.style.height = `${element.scrollHeight}px`
   }, [draft])
 
+  // The message a reply or an edit stands on is read from the timeline as it is now: the quoted text follows an edit, and
+  // one that was recalled, deleted or hidden since is no target any more, so the mode ends (D-171).
+  const target = stored === undefined ? undefined : liveTarget(stored, win)
+  const mode = target === null ? undefined : stored
   const parsed = messageBodySchema.safeParse(draft)
   const length = codePoints(draft)
   const tooLong = length > LIMITS.messageMaxCodePoints
@@ -74,10 +81,16 @@ export function Composer({
 
   /** Ends a reply or an edit and puts back what was in the field before it (nothing, after a reply). */
   const leaveMode = (): void => {
-    const wasEdit = mode?.type === 'edit'
-    const stash = endCompose(id)
+    if (membershipId === undefined) return
+    const wasEdit = stored?.type === 'edit'
+    const stash = endCompose(id, membershipId)
     if (wasEdit) setDraft(id, stash ?? '')
   }
+
+  // biome-ignore lint/correctness/useExhaustiveDependencies: ends the mode once, when its target is gone
+  useEffect(() => {
+    if (stored !== undefined && target === null) leaveMode()
+  }, [stored, target])
 
   const send = async (): Promise<void> => {
     if (!canSend || me === null) return
@@ -88,12 +101,12 @@ export function Composer({
       return
     }
     const quote =
-      mode?.type === 'reply'
+      mode?.type === 'reply' && target !== undefined && target !== null
         ? {
-            id: mode.message.id,
-            seq: mode.message.seq,
-            senderId: mode.message.senderId,
-            excerpt: truncateCodePoints(mode.message.body ?? '', LIMITS.excerptMaxCodePoints),
+            id: target.id,
+            seq: target.seq,
+            senderId: target.senderId,
+            excerpt: truncateCodePoints(target.body ?? '', LIMITS.excerptMaxCodePoints),
             state: 'ok' as const,
           }
         : null
@@ -101,11 +114,11 @@ export function Composer({
       conversationId: id,
       membershipId: me.membershipId,
       body: draft,
-      replyToId: mode?.type === 'reply' ? mode.message.id : null,
+      replyToId: quote?.id ?? null,
       quote,
     })
     setDraft(id, '')
-    if (mode?.type === 'reply') endCompose(id)
+    if (mode?.type === 'reply') endCompose(id, me.membershipId)
     field.current?.focus()
     void timeline.current?.toLatest()
   }
@@ -178,11 +191,12 @@ export function Composer({
   }
 
   const name = displayName(conversation, m.conversation_unnamed())
+  const shown = target ?? undefined
   const contextName =
-    mode?.type === 'reply'
-      ? mode.message.senderId === account?.id
+    mode?.type === 'reply' && shown !== undefined
+      ? shown.senderId === account?.id
         ? m.preview_you()
-        : (users[mode.message.senderId ?? '']?.displayName ?? m.user_member())
+        : (users[shown.senderId ?? '']?.displayName ?? m.user_member())
       : ''
   return (
     <div className="composer glass-text squircle">
@@ -197,7 +211,7 @@ export function Composer({
                 <b>{m.composer_replying()}</b>
                 <span>
                   {contextName === '' ? '' : `${contextName}: `}
-                  {mode.message.body ?? ''}
+                  {shown?.body ?? ''}
                 </span>
               </>
             )}
