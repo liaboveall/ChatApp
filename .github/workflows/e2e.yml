@@ -47,7 +47,7 @@ jobs:
         env:
           CI: "true"
       - name: Report and traces
-        if: failure()
+        if: ${{ !cancelled() }}
         uses: actions/upload-artifact@v7
         with:
           name: e2e-report
