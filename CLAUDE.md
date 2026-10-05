@@ -51,6 +51,7 @@
 - 所有外部输入都用 `packages/contracts` 里的 zod schema 校验。
 - 业务逻辑只写在 `apps/server/src/domain/`，其他层只调用它（分层规则见 docs/03 第 3 节）。
 - 集成测试使用真实的 Postgres、Valkey、Garage；只模拟外部服务（DeepSeek、推送服务、生产环境的邮件服务商）。
+- 前端同步层（D-171，SEC-34）：屏幕和发送队列自己发的请求，发之前取 `engine.ticket()`，回答与失败带着它进 `engine.ingest*` 等入口，账号或成员关系变了的会被丢弃（必填参数，漏了编译不过）；任何按会话存状态的前端 store（草稿、待发、回复/编辑、输入提示……）必须向 `lib/sync/stores.ts` 的 `registerConversationReset` 登记，成员关系结束时才会一起清除；用一页替换窗口或把页面并入窗口时，日志位置要退回到请求发起时的水位（见 `engine.ts` 的 `#installWindow`、`#rewind`）。
 
 **流程**
 - 没跑过的检查不能说"通过"。收工前在 `docs/PROGRESS.md` 记录执行过的命令、结果和下一步。
