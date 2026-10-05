@@ -1,6 +1,7 @@
 import { OpenAPIHono } from '@hono/zod-openapi'
 import { Scalar } from '@scalar/hono-api-reference'
 import { cookieNames } from '../auth/better-auth.ts'
+import { ageMessage } from '../domain/test-tools.ts'
 import { ManualClock } from '../lib/clock.ts'
 import type { HttpEnv, Services } from './context.ts'
 import { accessLog } from './middleware/access-log.ts'
@@ -71,6 +72,7 @@ export function createApp(services: Services, options: AppOptions = {}): OpenAPI
   if (services.config.env === 'test') {
     testRoutes(app, {
       clock: clock instanceof ManualClock ? clock : undefined,
+      ageMessage: (messageId, ms) => ageMessage(services.deps, messageId, ms),
       realtime: () => services.realtime,
     })
   }

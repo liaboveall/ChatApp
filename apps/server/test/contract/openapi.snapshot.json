@@ -3899,6 +3899,10 @@
                                 "type": "string",
                                 "format": "uuid"
                               },
+                              "joinedAt": {
+                                "type": "string",
+                                "format": "date-time"
+                              },
                               "visibleFromSeq": {
                                 "type": "integer",
                                 "minimum": 0
@@ -3973,6 +3977,7 @@
                               "version",
                               "role",
                               "membershipId",
+                              "joinedAt",
                               "visibleFromSeq",
                               "lastReadSeq",
                               "unread",
@@ -4337,6 +4342,10 @@
                           "type": "string",
                           "format": "uuid"
                         },
+                        "joinedAt": {
+                          "type": "string",
+                          "format": "date-time"
+                        },
                         "visibleFromSeq": {
                           "type": "integer",
                           "minimum": 0
@@ -4411,6 +4420,7 @@
                         "version",
                         "role",
                         "membershipId",
+                        "joinedAt",
                         "visibleFromSeq",
                         "lastReadSeq",
                         "unread",
@@ -4605,6 +4615,10 @@
                           "type": "string",
                           "format": "uuid"
                         },
+                        "joinedAt": {
+                          "type": "string",
+                          "format": "date-time"
+                        },
                         "visibleFromSeq": {
                           "type": "integer",
                           "minimum": 0
@@ -4679,6 +4693,7 @@
                         "version",
                         "role",
                         "membershipId",
+                        "joinedAt",
                         "visibleFromSeq",
                         "lastReadSeq",
                         "unread",
@@ -5310,6 +5325,10 @@
                           "type": "string",
                           "format": "uuid"
                         },
+                        "joinedAt": {
+                          "type": "string",
+                          "format": "date-time"
+                        },
                         "visibleFromSeq": {
                           "type": "integer",
                           "minimum": 0
@@ -5384,6 +5403,7 @@
                         "version",
                         "role",
                         "membershipId",
+                        "joinedAt",
                         "visibleFromSeq",
                         "lastReadSeq",
                         "unread",
@@ -5578,6 +5598,10 @@
                           "type": "string",
                           "format": "uuid"
                         },
+                        "joinedAt": {
+                          "type": "string",
+                          "format": "date-time"
+                        },
                         "visibleFromSeq": {
                           "type": "integer",
                           "minimum": 0
@@ -5652,6 +5676,7 @@
                         "version",
                         "role",
                         "membershipId",
+                        "joinedAt",
                         "visibleFromSeq",
                         "lastReadSeq",
                         "unread",
@@ -6186,6 +6211,10 @@
                                 "type": "string",
                                 "format": "uuid"
                               },
+                              "joinedAt": {
+                                "type": "string",
+                                "format": "date-time"
+                              },
                               "visibleFromSeq": {
                                 "type": "integer",
                                 "minimum": 0
@@ -6260,6 +6289,7 @@
                               "version",
                               "role",
                               "membershipId",
+                              "joinedAt",
                               "visibleFromSeq",
                               "lastReadSeq",
                               "unread",
@@ -6659,6 +6689,10 @@
                           "type": "string",
                           "format": "uuid"
                         },
+                        "joinedAt": {
+                          "type": "string",
+                          "format": "date-time"
+                        },
                         "visibleFromSeq": {
                           "type": "integer",
                           "minimum": 0
@@ -6733,6 +6767,7 @@
                         "version",
                         "role",
                         "membershipId",
+                        "joinedAt",
                         "visibleFromSeq",
                         "lastReadSeq",
                         "unread",
@@ -7221,6 +7256,10 @@
                           "type": "string",
                           "format": "uuid"
                         },
+                        "joinedAt": {
+                          "type": "string",
+                          "format": "date-time"
+                        },
                         "visibleFromSeq": {
                           "type": "integer",
                           "minimum": 0
@@ -7295,6 +7334,7 @@
                         "version",
                         "role",
                         "membershipId",
+                        "joinedAt",
                         "visibleFromSeq",
                         "lastReadSeq",
                         "unread",
@@ -7861,6 +7901,10 @@
                           "type": "string",
                           "format": "uuid"
                         },
+                        "joinedAt": {
+                          "type": "string",
+                          "format": "date-time"
+                        },
                         "visibleFromSeq": {
                           "type": "integer",
                           "minimum": 0
@@ -7935,6 +7979,7 @@
                         "version",
                         "role",
                         "membershipId",
+                        "joinedAt",
                         "visibleFromSeq",
                         "lastReadSeq",
                         "unread",
@@ -8407,6 +8452,10 @@
                           "type": "string",
                           "format": "uuid"
                         },
+                        "joinedAt": {
+                          "type": "string",
+                          "format": "date-time"
+                        },
                         "visibleFromSeq": {
                           "type": "integer",
                           "minimum": 0
@@ -8481,6 +8530,7 @@
                         "version",
                         "role",
                         "membershipId",
+                        "joinedAt",
                         "visibleFromSeq",
                         "lastReadSeq",
                         "unread",
@@ -9047,6 +9097,10 @@
                           "type": "string",
                           "format": "uuid"
                         },
+                        "joinedAt": {
+                          "type": "string",
+                          "format": "date-time"
+                        },
                         "visibleFromSeq": {
                           "type": "integer",
                           "minimum": 0
@@ -9121,6 +9175,7 @@
                         "version",
                         "role",
                         "membershipId",
+                        "joinedAt",
                         "visibleFromSeq",
                         "lastReadSeq",
                         "unread",
@@ -9982,6 +10037,10 @@
                           "type": "string",
                           "format": "uuid"
                         },
+                        "joinedAt": {
+                          "type": "string",
+                          "format": "date-time"
+                        },
                         "visibleFromSeq": {
                           "type": "integer",
                           "minimum": 0
@@ -10056,6 +10115,7 @@
                         "version",
                         "role",
                         "membershipId",
+                        "joinedAt",
                         "visibleFromSeq",
                         "lastReadSeq",
                         "unread",
@@ -10691,6 +10751,10 @@
                           "type": "string",
                           "format": "uuid"
                         },
+                        "joinedAt": {
+                          "type": "string",
+                          "format": "date-time"
+                        },
                         "visibleFromSeq": {
                           "type": "integer",
                           "minimum": 0
@@ -10765,6 +10829,7 @@
                         "version",
                         "role",
                         "membershipId",
+                        "joinedAt",
                         "visibleFromSeq",
                         "lastReadSeq",
                         "unread",
@@ -11349,6 +11414,10 @@
                           "type": "string",
                           "format": "uuid"
                         },
+                        "joinedAt": {
+                          "type": "string",
+                          "format": "date-time"
+                        },
                         "visibleFromSeq": {
                           "type": "integer",
                           "minimum": 0
@@ -11423,6 +11492,7 @@
                         "version",
                         "role",
                         "membershipId",
+                        "joinedAt",
                         "visibleFromSeq",
                         "lastReadSeq",
                         "unread",
@@ -16001,6 +16071,10 @@
                           "type": "string",
                           "format": "uuid"
                         },
+                        "joinedAt": {
+                          "type": "string",
+                          "format": "date-time"
+                        },
                         "visibleFromSeq": {
                           "type": "integer",
                           "minimum": 0
@@ -16075,6 +16149,7 @@
                         "version",
                         "role",
                         "membershipId",
+                        "joinedAt",
                         "visibleFromSeq",
                         "lastReadSeq",
                         "unread",
@@ -18909,6 +18984,10 @@
                                   "type": "string",
                                   "format": "uuid"
                                 },
+                                "joinedAt": {
+                                  "type": "string",
+                                  "format": "date-time"
+                                },
                                 "visibleFromSeq": {
                                   "type": "integer",
                                   "minimum": 0
@@ -18983,6 +19062,7 @@
                                 "version",
                                 "role",
                                 "membershipId",
+                                "joinedAt",
                                 "visibleFromSeq",
                                 "lastReadSeq",
                                 "unread",
@@ -22743,6 +22823,10 @@
                                         "type": "string",
                                         "format": "uuid"
                                       },
+                                      "joinedAt": {
+                                        "type": "string",
+                                        "format": "date-time"
+                                      },
                                       "visibleFromSeq": {
                                         "type": "integer",
                                         "minimum": 0
@@ -22817,6 +22901,7 @@
                                       "version",
                                       "role",
                                       "membershipId",
+                                      "joinedAt",
                                       "visibleFromSeq",
                                       "lastReadSeq",
                                       "unread",
@@ -23277,6 +23362,10 @@
                                     "type": "string",
                                     "format": "uuid"
                                   },
+                                  "joinedAt": {
+                                    "type": "string",
+                                    "format": "date-time"
+                                  },
                                   "visibleFromSeq": {
                                     "type": "integer",
                                     "minimum": 0
@@ -23351,6 +23440,7 @@
                                   "version",
                                   "role",
                                   "membershipId",
+                                  "joinedAt",
                                   "visibleFromSeq",
                                   "lastReadSeq",
                                   "unread",

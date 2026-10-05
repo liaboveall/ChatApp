@@ -14,7 +14,9 @@ import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { createValkey } from '../apps/server/src/lib/valkey.ts'
 import { openTestDatabases, truncateAll } from '../apps/server/test/support/db.ts'
+import { makeDeps } from '../apps/server/test/support/deps.ts'
 import { testConfig } from '../apps/server/test/support/env.ts'
+import { buildPerfFixture, PERF } from '../apps/server/test/support/perf-fixture.ts'
 
 /** Repository root: Playwright starts this file from apps/web, so every path is anchored here. */
 const ROOT = fileURLToPath(new URL('..', import.meta.url))
@@ -85,13 +87,44 @@ writeFileSync(
 )
 chmodSync(file, 0o600)
 
-// 4. The processes under test.
+// 3b. The conversation of ten thousand messages for the performance tests (docs/12 D-149), made before the API starts.
+//     Its three people and their credentials go to `.test-runs/e2e/perf.json`, mode 600, like the administrator's.
+{
+  const perfDbs = openTestDatabases()
+  const started = performance.now()
+  const fixture = await buildPerfFixture(makeDeps(perfDbs.owner.db))
+  await perfDbs.close()
+  const perfFile = join(dir, 'perf.json')
+  writeFileSync(
+    perfFile,
+    JSON.stringify({
+      conversationId: fixture.conversationId,
+      groupName: PERF.groupName,
+      firstSeq: fixture.firstSeq,
+      people: fixture.people,
+    }),
+  )
+  chmodSync(perfFile, 0o600)
+  console.log(`perf fixture ready in ${Math.round(performance.now() - started)} ms`)
+}
+
+// 4. The processes under test. With E2E_LOG_FILE the API's output goes to that file (path relative to this repository's
+//    apps/web, where Playwright starts it) so that a suite can read what was logged; otherwise it goes to the console.
+const logFile =
+  process.env.E2E_LOG_FILE === undefined
+    ? undefined
+    : join(ROOT, 'apps', 'web', process.env.E2E_LOG_FILE)
+if (logFile !== undefined) {
+  mkdirSync(join(logFile, '..'), { recursive: true, mode: 0o700 })
+  writeFileSync(logFile, '', { mode: 0o600 })
+}
+const apiOutput = logFile === undefined ? 'inherit' : Bun.file(logFile)
 const children = [
   Bun.spawn(['bun', 'apps/server/src/api.ts'], {
     cwd: ROOT,
     env,
-    stdout: 'inherit',
-    stderr: 'inherit',
+    stdout: apiOutput,
+    stderr: apiOutput,
   }),
   Bun.spawn(['bun', 'apps/server/src/worker.ts'], {
     cwd: ROOT,
