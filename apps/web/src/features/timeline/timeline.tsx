@@ -428,7 +428,8 @@ export function Timeline({ conversation, window: win, users, meId, handleRef }: 
 
   const jumpTo = async (seq: number, messageId: string): Promise<void> => {
     const outcome = await engine.jumpTo(id, seq)
-    if (outcome === 'unavailable') return
+    // 'superseded': the person asked for something else after this one, and that is the one that counts.
+    if (outcome === 'unavailable' || outcome === 'superseded') return
     if (outcome === 'in-window') {
       const index = latest.current.rows.findIndex(
         (row) =>

@@ -44,9 +44,14 @@ import {
 import { engine } from '@/app/sync.ts'
 import { api } from '@/lib/api.ts'
 
-async function conversationAnswer(promise: Promise<Conversation>): Promise<Conversation> {
-  const conversation = await promise
-  engine.ingestConversation(conversation)
+/**
+ * The answer goes into the cache, unless the account changed while the request was out: `ticket` is taken before the
+ * request is made and checked when the answer comes (D-171).
+ */
+async function conversationAnswer(request: () => Promise<Conversation>): Promise<Conversation> {
+  const ticket = engine.ticket()
+  const conversation = await request()
+  engine.ingestConversation(conversation, ticket)
   return conversation
 }
 
@@ -57,7 +62,7 @@ export const createConversation = (
   request: CreateConversationRequest,
   key: string,
 ): Promise<Conversation> =>
-  conversationAnswer(
+  conversationAnswer(() =>
     api('/api/conversations', {
       method: 'POST',
       json: request,
@@ -67,23 +72,24 @@ export const createConversation = (
   )
 
 export const openDm = (userId: string): Promise<Conversation> =>
-  conversationAnswer(
+  conversationAnswer(() =>
     api('/api/conversations/dm', { method: 'POST', json: { userId }, schema: conversationSchema }),
   )
 
 export const joinConversation = (id: string): Promise<Conversation> =>
-  conversationAnswer(
+  conversationAnswer(() =>
     api(`/api/conversations/${id}/join`, { method: 'POST', json: {}, schema: conversationSchema }),
   )
 
 /** Leaving is accepted by the server: the conversation leaves the cache at once (the tombstone follows through my log). */
 export async function leaveConversation(id: string): Promise<void> {
+  const ticket = engine.ticket(id)
   await api(`/api/conversations/${id}/leave`, {
     method: 'POST',
     json: {},
     schema: okResponseSchema,
   })
-  engine.forgetConversation(id, 'left')
+  engine.leftConversation(id, ticket)
 }
 
 // ───────── Changing one ─────────
@@ -92,7 +98,7 @@ export const patchConversation = (
   id: string,
   request: PatchConversationRequest,
 ): Promise<Conversation> =>
-  conversationAnswer(
+  conversationAnswer(() =>
     api(`/api/conversations/${id}`, { method: 'PATCH', json: request, schema: conversationSchema }),
   )
 
@@ -101,7 +107,7 @@ export const patchMyState = (
   id: string,
   request: PatchConversationMeRequest,
 ): Promise<Conversation> =>
-  conversationAnswer(
+  conversationAnswer(() =>
     api(`/api/conversations/${id}/me`, {
       method: 'PATCH',
       json: request,
@@ -110,7 +116,7 @@ export const patchMyState = (
   )
 
 export const archiveConversation = (id: string): Promise<Conversation> =>
-  conversationAnswer(
+  conversationAnswer(() =>
     api(`/api/conversations/${id}/archive`, {
       method: 'POST',
       json: {},
@@ -122,7 +128,7 @@ export const restoreConversation = (
   id: string,
   request: RestoreConversationRequest,
 ): Promise<Conversation> =>
-  conversationAnswer(
+  conversationAnswer(() =>
     api(`/api/conversations/${id}/restore`, {
       method: 'POST',
       json: request,
@@ -131,7 +137,7 @@ export const restoreConversation = (
   )
 
 export const transferOwnership = (id: string, request: TransferRequest): Promise<Conversation> =>
-  conversationAnswer(
+  conversationAnswer(() =>
     api(`/api/conversations/${id}/transfer`, {
       method: 'POST',
       json: request,
@@ -148,8 +154,9 @@ export async function listChannels(query: {
   const params = new URLSearchParams({ limit: '20' })
   if (query.query) params.set('query', query.query)
   if (query.cursor) params.set('cursor', query.cursor)
+  const ticket = engine.ticket()
   const page = await api(`/api/channels?${params}`, { schema: channelsPageSchema })
-  for (const conversation of page.items) engine.ingestConversation(conversation)
+  for (const conversation of page.items) engine.ingestConversation(conversation, ticket)
   return page
 }
 
@@ -161,17 +168,19 @@ export async function listArchived(): Promise<Conversation[]> {
 }
 
 export async function searchUsers(query: string, signal?: AbortSignal): Promise<UserSummary[]> {
+  const ticket = engine.ticket()
   const response = await api(`/api/users?${new URLSearchParams({ query })}`, {
     schema: userSearchResponseSchema,
     signal,
   })
-  engine.ingestUsers(response.users)
+  engine.ingestUsers(response.users, ticket)
   return response.users
 }
 
 export async function getProfile(userId: string): Promise<UserProfile> {
+  const ticket = engine.ticket()
   const profile = await api(`/api/users/${userId}`, { schema: userProfileSchema })
-  engine.ingestUsers([profile])
+  engine.ingestUsers([profile], ticket)
   return profile
 }
 
@@ -180,10 +189,14 @@ export async function getProfile(userId: string): Promise<UserProfile> {
 export async function listMembers(id: string, cursor?: string): Promise<MembersPage> {
   const params = new URLSearchParams({ limit: '50' })
   if (cursor) params.set('cursor', cursor)
+  const ticket = engine.ticket()
   const page = await api(`/api/conversations/${id}/members?${params}`, {
     schema: membersPageSchema,
   })
-  engine.ingestUsers(page.members.map((member) => member.user))
+  engine.ingestUsers(
+    page.members.map((member) => member.user),
+    ticket,
+  )
   return page
 }
 
@@ -191,12 +204,13 @@ export async function addMembers(
   id: string,
   request: AddMembersRequest,
 ): Promise<AddMembersResponse> {
+  const ticket = engine.ticket()
   const response = await api(`/api/conversations/${id}/members`, {
     method: 'POST',
     json: request,
     schema: addMembersResponseSchema,
   })
-  engine.ingestUsers(response.added)
+  engine.ingestUsers(response.added, ticket)
   return response
 }
 
@@ -219,10 +233,14 @@ export async function removeMember(id: string, userId: string): Promise<void> {
 }
 
 export async function listBans(id: string): Promise<Ban[]> {
+  const ticket = engine.ticket()
   const response: BansResponse = await api(`/api/conversations/${id}/bans`, {
     schema: bansResponseSchema,
   })
-  engine.ingestUsers(response.bans.map((ban) => ban.user))
+  engine.ingestUsers(
+    response.bans.map((ban) => ban.user),
+    ticket,
+  )
   return response.bans
 }
 
@@ -270,7 +288,7 @@ export const previewInvite = (code: string): Promise<ConversationInvitePreview> 
   })
 
 export const acceptInvite = (code: string): Promise<Conversation> =>
-  conversationAnswer(
+  conversationAnswer(() =>
     api('/api/conversation-invites/accept', {
       method: 'POST',
       json: { code },

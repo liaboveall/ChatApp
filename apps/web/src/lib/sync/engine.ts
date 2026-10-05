@@ -20,7 +20,7 @@ import {
 } from '@chatapp/contracts'
 import type { QueryClient } from '@tanstack/react-query'
 import { ApiError } from '../api.ts'
-import { writeMe } from '../queries.ts'
+import { writeMe, writeMeAnswer } from '../queries.ts'
 import { RequestBudget } from './budget.ts'
 import { isScopeKey, syncKeys } from './keys.ts'
 import {
@@ -37,6 +37,7 @@ import type { SyncTransport } from './transport.ts'
 import type {
   ConversationEffect,
   ConversationIndex,
+  RequestTicket,
   SyncScope,
   TimelineWindow,
   UsersByid,
@@ -66,6 +67,12 @@ export type EngineDeps = {
   isOnline?: () => boolean
   /** A conversation left the cache for good: the screen navigates away and says why; other stores drop their copies. */
   onForgotten?: (conversationId: string, reason: ForgetReason) => void
+  /**
+   * Whatever the person wrote or chose for a conversation under a membership that has ended (an unsent message, a draft, a
+   * reply or an edit in progress) must go: called when the conversation is forgotten and whenever its membership turns into
+   * another one by any route (D-171, SEC-34). Not called for the end of the scope: `onStop` empties everything then.
+   */
+  onConversationReset?: (conversationId: string) => void
   /** The engine stopped (session end, scope switch): stores outside it (drafts, outbox, typing, presence) clear too. */
   onStop?: () => void
 }
@@ -110,6 +117,10 @@ type ConvSync = {
   controller: AbortController
   olderLoading: boolean
   newerLoading: boolean
+  /** Counts the requests that will *replace* the window: only the newest one may install its page (D-171). */
+  turn: number
+  /** Counts the times `synced` was moved back (D-171): a round of catch-up that started before is discarded. */
+  epoch: number
 }
 
 type UserSync = {
@@ -167,6 +178,7 @@ export class SyncEngine {
   readonly #visible: () => boolean
   readonly #online: () => boolean
   readonly #onForgotten: NonNullable<EngineDeps['onForgotten']>
+  readonly #onConversationReset: NonNullable<EngineDeps['onConversationReset']>
   readonly #onStop: NonNullable<EngineDeps['onStop']>
 
   #scope: SyncScope | null = null
@@ -202,6 +214,7 @@ export class SyncEngine {
     this.#visible = deps.isVisible ?? (() => document.visibilityState === 'visible')
     this.#online = deps.isOnline ?? (() => navigator.onLine)
     this.#onForgotten = deps.onForgotten ?? (() => undefined)
+    this.#onConversationReset = deps.onConversationReset ?? (() => undefined)
     this.#onStop = deps.onStop ?? (() => undefined)
     this.#qc.setQueryDefaults(['u'], SYNC_QUERY_DEFAULTS)
   }
@@ -223,7 +236,11 @@ export class SyncEngine {
     ) {
       return
     }
-    if (current !== null) this.#teardown(current)
+    if (current !== null) {
+      this.#teardown(current)
+      // Another account in the same page without a stop in between: nothing of the first one's may be left for the second.
+      if (current.userId !== me.id) this.#onStop()
+    }
     this.#scopes += 1
     const scope: SyncScope = {
       userId: me.id,
@@ -343,6 +360,8 @@ export class SyncEngine {
         controller: new AbortController(),
         olderLoading: false,
         newerLoading: false,
+        turn: 0,
+        epoch: 0,
       }
       this.#convs.set(id, cs)
     }
@@ -416,21 +435,71 @@ export class SyncEngine {
     }
   }
 
-  /** Public: an answer about a conversation that the screens obtained themselves (a write, a read, a profile). */
-  ingestConversation(conversation: Conversation): void {
+  // ───────── Answers to requests that screens made (D-171) ─────────
+
+  /**
+   * Taken by a screen when it sends a request about the account (no id) or about one conversation: what the answer is
+   * checked against when it comes back. A request made while nobody is signed in gets a ticket nothing accepts.
+   */
+  ticket(conversationId: string | null = null): RequestTicket {
     const scope = this.#scope
+    if (scope === null || conversationId === null) {
+      return { scope, conversationId, membershipId: null, watermark: 0 }
+    }
+    return {
+      scope,
+      conversationId,
+      membershipId: this.#index(scope).byId[conversationId]?.me?.membershipId ?? null,
+      watermark: this.#headOf(scope, conversationId),
+    }
+  }
+
+  /** The newest change of a conversation that the client already knows of: a read made now is at least as new as this. */
+  #headOf(scope: SyncScope, id: string): number {
+    return Math.max(
+      this.#convs.get(id)?.synced ?? 0,
+      this.#index(scope).byId[id]?.lastChangeSeq ?? 0,
+    )
+  }
+
+  /**
+   * The scope an answer to a request may still be merged into, or null when the request belongs to something that is gone:
+   * the scope was replaced (another account, a new login generation, a stop and a start), or the conversation is held
+   * under another membership now (left, removed and joined again). Such an answer, and such an error, is dropped.
+   */
+  #answerable(ticket: RequestTicket): SyncScope | null {
+    const scope = this.#scope
+    if (scope === null || ticket.scope !== scope) return null
+    if (ticket.conversationId === null) return scope
+    const held = this.#index(scope).byId[ticket.conversationId]?.me?.membershipId ?? null
+    return held === ticket.membershipId ? scope : null
+  }
+
+  /** Public: an answer about a conversation that the screens obtained themselves (a write, a read, a profile). */
+  ingestConversation(conversation: Conversation, ticket: RequestTicket): void {
+    const scope = this.#answerable(ticket)
     if (scope !== null) this.#mergeConversation(scope, conversation)
   }
 
-  /** Public: the answer to a write on a message (send, edit, recall): merged by version like everything else. */
-  ingestMessage(envelope: MessageEnvelope): void {
-    const scope = this.#scope
-    if (scope === null) return
+  /**
+   * Public: the answer to a write on a message (send, edit, recall): merged by version like everything else. Returns whether
+   * it was taken; an answer to a request made under another scope or membership is not (the message could be one the person
+   * in front of the screen may not see).
+   */
+  ingestMessage(envelope: MessageEnvelope, ticket: RequestTicket): boolean {
     const { message } = envelope
+    const scope = this.#answerable(ticket)
+    if (
+      scope === null ||
+      ticket.conversationId !== message.conversationId ||
+      ticket.membershipId === null
+    ) {
+      return false
+    }
     this.#mergeUsers(scope, envelope.users)
     const index = this.#index(scope)
     const membershipId = index.byId[message.conversationId]?.me?.membershipId
-    if (membershipId === undefined) return
+    if (membershipId === undefined) return false
     const cs = this.#conv(message.conversationId)
     this.#observe(cs, message.changeSeq)
     const window = this.#window(scope, message.conversationId, membershipId)
@@ -438,13 +507,29 @@ export class SyncEngine {
       const next = mergeChanges(window, [message])
       if (next !== window) this.#writeWindow(scope, next)
       this.#derive(scope, message.conversationId)
+      // A reply carries a quote that was true when the server answered; whatever the log said since about the quoted
+      // message is replayed onto it, from the position this request was made at.
+      const quote = message.replyTo
+      if (quote !== null && 'id' in quote) this.#rewind(cs, ticket.watermark)
       this.#schedulePull(cs)
+    }
+    return true
+  }
+
+  /**
+   * My own message went out and the server accepted it: it goes into the cache, and the server has moved my read position
+   * with it (D-083), so only the local claim is needed to keep it from showing up as unread until my own log delivers the
+   * new position. No request.
+   */
+  messageSent(envelope: MessageEnvelope, ticket: RequestTicket): void {
+    if (this.ingestMessage(envelope, ticket)) {
+      this.noteSent(envelope.message.conversationId, envelope.message.seq)
     }
   }
 
   /** Public: people a screen learned of (a member list, a search) go into the dictionary by profile version. */
-  ingestUsers(users: Iterable<UserSummary>): void {
-    const scope = this.#scope
+  ingestUsers(users: Iterable<UserSummary>, ticket: RequestTicket): void {
+    const scope = this.#answerable(ticket)
     if (scope !== null) this.#mergeUsers(scope, users)
   }
 
@@ -455,9 +540,19 @@ export class SyncEngine {
     return this.#qc.getQueryData<UsersByid>(syncKeys.users(scope))?.[id] !== undefined
   }
 
-  /** My own account from any answer (identity, profile write, personal log): merged by version, identity changes replace. */
-  writeMe(me: Me | null): void {
+  /** My own account from my own log: merged by version, identity changes replace. */
+  #writeMe(me: Me | null): void {
     writeMe(this.#qc, me)
+  }
+
+  /**
+   * The answer to a write on my own account (a profile edit, the time zone): only ever updates the identity it was made
+   * for (D-171), and the people dictionary takes it when the account is still the one the request was made under.
+   */
+  ingestMe(me: Me, ticket: RequestTicket): void {
+    writeMeAnswer(this.#qc, me)
+    const scope = this.#answerable(ticket)
+    if (scope !== null) this.#mergeUsers(scope, [me])
   }
 
   /** Raises the counters and the preview of a conversation from its window when that reaches the newest message. */
@@ -609,13 +704,17 @@ export class SyncEngine {
     lastReadSeq: number,
   ): Promise<void> {
     const generation = cs.generation
-    const startSeq = conversation.lastChangeSeq
+    const turn = this.#nextTurn(cs)
+    // What the page will be at least as new as: read *before* the page, never after (D-150).
+    const watermark = this.#headOf(scope, cs.id)
+    const stale = (): boolean =>
+      !this.#live(scope) || cs.generation !== generation || cs.turn !== turn
     let page = await this.#transport.listMessages(
       cs.id,
       { limit: FIRST_PAGE },
       cs.controller.signal,
     )
-    if (!this.#live(scope) || cs.generation !== generation) return
+    if (stale()) return
     const first = page.messages[0]
     const unreadStart = Math.max(lastReadSeq, useSyncUi.getState().pendingRead[cs.id] ?? 0) + 1
     // Many unread messages: the first unread one lies above the newest page, so read around it instead.
@@ -630,17 +729,25 @@ export class SyncEngine {
         { aroundSeq: unreadStart, limit: FIRST_PAGE },
         cs.controller.signal,
       )
-      if (!this.#live(scope) || cs.generation !== generation) return
+      if (stale()) return
     }
-    this.#installWindow(scope, cs, membershipId, page, startSeq)
+    this.#installWindow(scope, cs, membershipId, page, watermark)
   }
 
+  /**
+   * A page that replaces the window (the first one, a jump, the way back to the newest) goes in (D-171). The window it
+   * replaces keeps what it knew in a newer version (the page was read before that change), and this is a different window
+   * now: whatever was asked for the old one is discarded. The page is only as new as the moment it was asked for
+   * (`watermark`), so the log position is set to *that*, not left where it was: the log is applied to the page again from
+   * there, and by version nothing is done twice. Leaving `synced` at the old, further position would count changes as
+   * applied that this page never had.
+   */
   #installWindow(
     scope: SyncScope,
     cs: ConvSync,
     membershipId: string,
     page: MessagesResponse,
-    startSeq: number,
+    watermark: number,
   ): void {
     this.#mergeUsers(scope, page.users)
     const previous = this.#window(scope, cs.id, membershipId)
@@ -650,14 +757,40 @@ export class SyncEngine {
     const window = windowFromPage(cs.id, membershipId, page, {
       hidden,
       gone: previous?.gone ?? {},
+      messages: previous?.messages,
+      quoted: previous?.quoted,
     })
     this.#hiddenLater.delete(cs.id)
     this.#writeWindow(
       scope,
       previous === undefined ? window : { ...window, revision: previous.revision + 1 },
     )
-    cs.synced = Math.max(cs.synced ?? 0, startSeq)
+    cs.generation += 1
+    const before = cs.synced
+    cs.synced = watermark
+    if (before !== null && before > watermark) this.#observe(cs, before)
     this.#derive(scope, cs.id)
+    this.#schedulePull(cs)
+  }
+
+  /** The number of a request that is about to replace the window: the one asked last is the one that counts (D-171). */
+  #nextTurn(cs: ConvSync): number {
+    cs.turn += 1
+    return cs.turn
+  }
+
+  /**
+   * Something read at `watermark` has joined the window, but the log was applied further since the request went out: the
+   * position goes back to the watermark so that everything after it is applied again (what the read cannot have had: a
+   * change to a message that was then outside the window, to a quoted message). A round of catch-up that is running is
+   * discarded, its result would move the position forward again over what has to be applied again.
+   */
+  #rewind(cs: ConvSync, watermark: number): void {
+    const synced = cs.synced
+    if (synced === null || synced <= watermark) return
+    cs.synced = watermark
+    cs.epoch += 1
+    this.#observe(cs, synced)
     this.#schedulePull(cs)
   }
 
@@ -665,12 +798,15 @@ export class SyncEngine {
   async refreshConversation(id: string): Promise<void> {
     const scope = this.#scope
     if (scope === null) return
+    const asked = this.#index(scope).byId[id]?.me?.membershipId ?? null
     try {
       const conversation = await this.#transport.getConversation(id, this.#controller.signal)
       if (!this.#live(scope)) return
       this.#mergeConversation(scope, conversation)
     } catch (error) {
       if (!this.#live(scope) || isAbort(error)) return
+      // Asked under a membership that is not the one held now (left and joined again meanwhile): says nothing about it.
+      if ((this.#index(scope).byId[id]?.me?.membershipId ?? null) !== asked) return
       if (!this.#handleError(error, id)) throw error
     }
   }
@@ -687,6 +823,7 @@ export class SyncEngine {
     const first = window.messages[0]
     cs.olderLoading = true
     const generation = cs.generation
+    const watermark = this.#headOf(scope, id)
     try {
       const page = await this.#transport.listMessages(
         id,
@@ -698,10 +835,11 @@ export class SyncEngine {
       const current = this.#window(scope, id, window.membershipId)
       if (current === undefined) return false
       this.#writeWindow(scope, prependPage(current, page))
+      this.#rewind(cs, watermark)
       this.#trimLater(scope, cs, window.membershipId, 'newest')
       return true
     } catch (error) {
-      if (!this.#live(scope) || isAbort(error)) return false
+      if (!this.#live(scope) || cs.generation !== generation || isAbort(error)) return false
       if (this.#handleError(error, id)) return false
       throw error
     } finally {
@@ -719,6 +857,7 @@ export class SyncEngine {
     const last = window.messages[window.messages.length - 1]
     cs.newerLoading = true
     const generation = cs.generation
+    const watermark = this.#headOf(scope, id)
     try {
       const page = await this.#transport.listMessages(
         id,
@@ -730,11 +869,12 @@ export class SyncEngine {
       const current = this.#window(scope, id, window.membershipId)
       if (current === undefined) return false
       this.#writeWindow(scope, appendPage(current, page))
+      this.#rewind(cs, watermark)
       this.#derive(scope, id)
       this.#trimLater(scope, cs, window.membershipId, 'oldest')
       return true
     } catch (error) {
-      if (!this.#live(scope) || isAbort(error)) return false
+      if (!this.#live(scope) || cs.generation !== generation || isAbort(error)) return false
       if (this.#handleError(error, id)) return false
       throw error
     } finally {
@@ -744,25 +884,38 @@ export class SyncEngine {
 
   /**
    * Makes a message the middle of the window: where it is already, nothing is read; otherwise a page around it replaces
-   * the window. 'unavailable': the answer does not contain it (not visible, hidden).
+   * the window. 'unavailable': the answer does not contain it (not visible, hidden). 'superseded': the person asked for
+   * something else after this (another jump, the way back to the newest) and that one counts, so nothing was installed.
    */
-  async jumpTo(id: string, seq: number): Promise<'in-window' | 'loaded' | 'unavailable'> {
+  async jumpTo(
+    id: string,
+    seq: number,
+  ): Promise<'in-window' | 'loaded' | 'unavailable' | 'superseded'> {
     const scope = this.#scope
     const state = scope === null ? undefined : this.#state(scope, id)
     if (scope === null || state === undefined) return 'unavailable'
     const { cs, window } = state
     if (window.messages.some((message) => message.seq === seq)) return 'in-window'
-    const conversation = this.#index(scope).byId[id]
     const generation = cs.generation
-    const startSeq = conversation?.lastChangeSeq ?? 0
-    const page = await this.#transport.listMessages(
-      id,
-      { aroundSeq: seq, limit: FIRST_PAGE },
-      cs.controller.signal,
-    )
-    if (!this.#live(scope) || cs.generation !== generation) return 'unavailable'
+    const turn = this.#nextTurn(cs)
+    const watermark = this.#headOf(scope, id)
+    let page: MessagesResponse
+    try {
+      page = await this.#transport.listMessages(
+        id,
+        { aroundSeq: seq, limit: FIRST_PAGE },
+        cs.controller.signal,
+      )
+    } catch (error) {
+      if (!this.#live(scope) || cs.generation !== generation || isAbort(error)) return 'unavailable'
+      if (this.#handleError(error, id)) return 'unavailable'
+      throw error
+    }
+    if (!this.#live(scope)) return 'unavailable'
+    if (cs.turn !== turn) return 'superseded'
+    if (cs.generation !== generation) return 'unavailable'
     if (!page.messages.some((message) => message.seq === seq)) return 'unavailable'
-    this.#installWindow(scope, cs, window.membershipId, page, startSeq)
+    this.#installWindow(scope, cs, window.membershipId, page, watermark)
     return 'loaded'
   }
 
@@ -773,10 +926,18 @@ export class SyncEngine {
     if (scope === null || state === undefined || !state.window.hasMoreAfter) return
     const { cs, window } = state
     const generation = cs.generation
-    const startSeq = this.#index(scope).byId[id]?.lastChangeSeq ?? 0
-    const page = await this.#transport.listMessages(id, { limit: FIRST_PAGE }, cs.controller.signal)
-    if (!this.#live(scope) || cs.generation !== generation) return
-    this.#installWindow(scope, cs, window.membershipId, page, startSeq)
+    const turn = this.#nextTurn(cs)
+    const watermark = this.#headOf(scope, id)
+    let page: MessagesResponse
+    try {
+      page = await this.#transport.listMessages(id, { limit: FIRST_PAGE }, cs.controller.signal)
+    } catch (error) {
+      if (!this.#live(scope) || cs.generation !== generation || isAbort(error)) return
+      if (this.#handleError(error, id)) return
+      throw error
+    }
+    if (!this.#live(scope) || cs.turn !== turn || cs.generation !== generation) return
+    this.#installWindow(scope, cs, window.membershipId, page, watermark)
   }
 
   #state(scope: SyncScope, id: string): { cs: ConvSync; window: TimelineWindow } | undefined {
@@ -877,6 +1038,7 @@ export class SyncEngine {
     cs.lastStart = startedAt
     this.#pulls += 1
     const generation = cs.generation
+    const epoch = cs.epoch
     const signal = cs.controller.signal
     try {
       let response = await this.#transport.conversationChanges(
@@ -885,7 +1047,7 @@ export class SyncEngine {
         signal,
       )
       for (;;) {
-        if (!this.#live(scope) || cs.generation !== generation) return
+        if (!this.#live(scope) || cs.generation !== generation || cs.epoch !== epoch) return
         if (response.resetRequired || response.membershipId !== cs.membershipId) {
           this.#applyReset(scope, cs, response)
           break
@@ -905,7 +1067,8 @@ export class SyncEngine {
         cs.observed = cs.synced
       }
     } catch (error) {
-      if (!this.#live(scope) || cs.generation !== generation || isAbort(error)) return
+      if (!this.#live(scope) || cs.generation !== generation || cs.epoch !== epoch) return
+      if (isAbort(error)) return
       this.#pullFailed(cs, error)
     } finally {
       if (cs.pullToken === token) {
@@ -1023,14 +1186,28 @@ export class SyncEngine {
    * have no access any more, the conversation is forgotten like any other way of losing it, and this returns true so the
    * caller shows nothing of its own. Any other error is the caller's to word.
    */
-  handleAccessError(conversationId: string, error: unknown): boolean {
+  handleAccessError(conversationId: string, error: unknown, ticket: RequestTicket): boolean {
+    // The failure of a request made for something that is gone says nothing about what is here now, and nothing is shown.
+    if (this.#answerable(ticket) === null || ticket.conversationId !== conversationId) return true
     return this.#handleError(error, conversationId)
   }
 
   /** I deleted a message for myself (the write was accepted): it leaves the window now, my other devices learn from my log. */
-  applyHidden(conversationId: string, messageId: string): void {
-    const scope = this.#scope
-    if (scope !== null) this.#hideMessage(scope, conversationId, messageId)
+  applyHidden(conversationId: string, messageId: string, ticket: RequestTicket): void {
+    const scope = this.#answerable(ticket)
+    if (scope !== null && ticket.conversationId === conversationId) {
+      this.#hideMessage(scope, conversationId, messageId)
+    }
+  }
+
+  /**
+   * I left the conversation (the server accepted it): it leaves the cache now. Not when the answer is late for it, as when
+   * another account is signed in by now and holds that conversation, or I joined again meanwhile.
+   */
+  leftConversation(conversationId: string, ticket: RequestTicket): void {
+    if (this.#answerable(ticket) !== null && ticket.conversationId === conversationId) {
+      this.forgetConversation(conversationId, 'left')
+    }
   }
 
   /** The membership I hold in a conversation now, if I am a member. */
@@ -1097,6 +1274,7 @@ export class SyncEngine {
     const queued = this.#pullQueue.indexOf(id)
     if (queued !== -1) this.#pullQueue.splice(queued, 1)
     syncUi.forget(id)
+    this.#onConversationReset(id)
     this.#onForgotten(id, reason)
   }
 
@@ -1119,6 +1297,15 @@ export class SyncEngine {
     if (at !== -1) this.#windows.splice(at, 1)
     syncUi.setTimeline(id, undefined)
     syncUi.setAnchor(id, undefined)
+    // A read position claimed, or asked for, under the old membership says nothing about the new one: it would hide unread
+    // messages there, or move a position that is not its own.
+    const read = this.#reads.get(id)
+    if (read !== undefined) this.#clearTimer(read.timer)
+    this.#reads.delete(id)
+    syncUi.setPendingRead(id, undefined)
+    syncUi.setFailures(id, 0)
+    // Unsent messages, the draft, a reply or an edit in progress: they were written under the membership that ended.
+    this.#onConversationReset(id)
   }
 
   // ───────── Hints from the WebSocket ─────────
@@ -1368,7 +1555,7 @@ export class SyncEngine {
           this.#hideMessage(scope, item.conversationId, item.messageId)
           break
         case 'me':
-          this.writeMe(item.me)
+          this.#writeMe(item.me)
           break
       }
     }
@@ -1381,7 +1568,7 @@ export class SyncEngine {
     scope: SyncScope,
     baseline: NonNullable<UserChangesResponse['baseline']>,
   ): void {
-    this.writeMe(baseline.me)
+    this.#writeMe(baseline.me)
     const present = new Set(baseline.conversations.map((conversation) => conversation.id))
     for (const conversation of baseline.conversations) this.#mergeConversation(scope, conversation)
     for (const [id, cached] of Object.entries(this.#index(scope).byId)) {
@@ -1507,7 +1694,7 @@ export class SyncEngine {
     if (wait > 0) {
       state.timer = setTimeout(() => {
         state.timer = undefined
-        if (this.#live(scope)) this.#flushRead(scope, id, state)
+        if (this.#live(scope) && this.#reads.get(id) === state) this.#flushRead(scope, id, state)
       }, wait)
       return
     }
@@ -1518,16 +1705,21 @@ export class SyncEngine {
     state.inFlight = true
     state.lastStart = this.#now()
     const seq = state.wanted
+    const asked = this.#index(scope).byId[id]?.me?.membershipId ?? null
     try {
       const conversation = await this.#transport.markRead(id, seq, this.#controller.signal)
       if (!this.#live(scope)) return
       this.#mergeConversation(scope, conversation)
     } catch (error) {
       if (!this.#live(scope) || isAbort(error)) return
+      // Asked under a membership that is not the one held now: says nothing about it.
+      if ((this.#index(scope).byId[id]?.me?.membershipId ?? null) !== asked) return
       this.#handleError(error, id)
     } finally {
       state.inFlight = false
-      if (this.#live(scope)) {
+      // A state that was taken out of the table (the conversation was forgotten, or the membership ended) is not served any
+      // more: what it still wants was wanted under something that is gone.
+      if (this.#live(scope) && this.#reads.get(id) === state) {
         this.#settleRead(id, state)
         this.#flushRead(scope, id, state)
       }

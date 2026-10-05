@@ -73,6 +73,99 @@ export function cascadeReplies(
   return next ?? messages
 }
 
+/**
+ * `cascadeReplies` for many sources at once, from the newest version of each that is known (D-171). A quote carries no
+ * version, so what the quotes were last brought up to date from is remembered per source (`seen`): a source older than
+ * that is ignored, and a source that is newer is remembered. That is how an old answer (a slow write answer, a slow
+ * page) arriving after a recall, an edit or a deletion cannot put the old excerpt back. One pass over `messages`;
+ * the same objects come back when nothing changed.
+ */
+export function followSources(
+  messages: Message[],
+  sources: ReadonlyMap<string, Message>,
+  seen: Record<string, number>,
+): { messages: Message[]; seen: Record<string, number> } {
+  let next: Message[] | undefined
+  let known = seen
+  for (let index = 0; index < messages.length; index += 1) {
+    const message = messages[index]
+    const quote = message?.replyTo
+    if (message === undefined || quote === null || quote === undefined || !('id' in quote)) continue
+    const source = sources.get(quote.id)
+    if (source === undefined) continue
+    const before = seen[quote.id]
+    if (before !== undefined && source.changeSeq < before) continue
+    if (source.changeSeq > (known[quote.id] ?? Number.NEGATIVE_INFINITY)) {
+      known = { ...known, [quote.id]: source.changeSeq }
+    }
+    const replaced = quoteOf(quote, source)
+    if (sameQuote(quote, replaced)) continue
+    next ??= messages.slice()
+    next[index] = { ...message, replyTo: replaced }
+  }
+  return { messages: next ?? messages, seen: known }
+}
+
+/**
+ * A reply that comes in with an older quote than what this window already knows is corrected on the way in (D-171): a
+ * message the window holds as recalled or deleted, and one I hid, never go back, so the quote of a reply that was read
+ * before that ("ok" and the excerpt, in a late write answer or a slow page) must not show what was taken back. Only these
+ * final states are applied here; an edit has no final state, and that is the log's to replay. The same array comes back
+ * when nothing needs correcting.
+ */
+export function settleQuotes(messages: Message[], hidden: Record<string, true>): Message[] {
+  let taken: Map<string, Message> | undefined
+  for (const message of messages) {
+    if (message.recalledAt !== null || message.deletedAt !== null) {
+      taken ??= new Map()
+      taken.set(message.id, message)
+    }
+  }
+  let anyHidden = false
+  for (const _id in hidden) {
+    anyHidden = true
+    break
+  }
+  if (taken === undefined && !anyHidden) return messages
+  let next: Message[] | undefined
+  for (let index = 0; index < messages.length; index += 1) {
+    const message = messages[index]
+    const quote = message?.replyTo
+    if (message === undefined || quote === null || quote === undefined || !('id' in quote)) continue
+    let replaced: ReplyTo | undefined
+    if (quote.id in hidden) replaced = { state: 'unavailable' }
+    else {
+      const source = taken?.get(quote.id)
+      if (source !== undefined) replaced = quoteOf(quote, source)
+    }
+    if (replaced === undefined || sameQuote(quote, replaced)) continue
+    next ??= messages.slice()
+    next[index] = { ...message, replyTo: replaced }
+  }
+  return next ?? messages
+}
+
+/** The memory of `followSources`, kept only for sources that some message in `messages` still quotes. */
+export function retainQuoted(
+  messages: readonly Message[],
+  seen: Record<string, number>,
+): Record<string, number> {
+  const ids = Object.keys(seen)
+  if (ids.length === 0) return seen
+  const alive = new Set<string>()
+  for (const message of messages) {
+    const quote = message.replyTo
+    if (quote !== null && quote !== undefined && 'id' in quote) alive.add(quote.id)
+  }
+  if (ids.every((id) => alive.has(id))) return seen
+  const kept: Record<string, number> = {}
+  for (const id of ids) {
+    const version = seen[id]
+    if (alive.has(id) && version !== undefined) kept[id] = version
+  }
+  return kept
+}
+
 /** The preview line of a conversation from its newest message, worded the way the server does. */
 export function previewOf(message: Message): LastMessagePreview {
   const state =

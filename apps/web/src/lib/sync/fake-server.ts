@@ -73,6 +73,11 @@ export class FakeServer implements SyncTransport {
     return this.#replace(seq, (m) => ({ ...m, body: null, recalledAt: '2026-10-04T08:05:00.000Z' }))
   }
 
+  /** A moderator removed it for everybody: a new version, cleared, "deleted". */
+  deleteAsModerator(seq: number): Message {
+    return this.#replace(seq, (m) => ({ ...m, body: null, deletedAt: '2026-10-04T08:05:00.000Z' }))
+  }
+
   /** The message left this person's view (deleted for themself): a tombstone in the log. */
   vanish(seq: number): void {
     const index = this.messages.findIndex((m) => m.seq === seq)

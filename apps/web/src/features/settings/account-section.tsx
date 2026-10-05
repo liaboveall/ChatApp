@@ -18,7 +18,7 @@ import {
 } from '@/features/auth/password-rules.tsx'
 import { ApiError, api } from '@/lib/api.ts'
 import { describeError, passwordProblemMessage } from '@/lib/error-messages.ts'
-import { devicesQuery, queryKeys, writeMe } from '@/lib/queries.ts'
+import { devicesQuery, queryKeys, writeMeAnswer } from '@/lib/queries.ts'
 import { endSession } from '@/lib/session.ts'
 import { showToast } from '@/lib/toast.ts'
 import { describeUserAgent, deviceTitle } from '@/lib/user-agent.ts'
@@ -508,7 +508,7 @@ function TimezoneGroup({ me }: { me: Me }) {
         schema: meSchema,
       }),
     onSuccess: (updated) => {
-      writeMe(queryClient, updated)
+      writeMeAnswer(queryClient, updated)
       showToast(m.settings_timezone_saved())
     },
     onError: async (error) => {

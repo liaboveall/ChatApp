@@ -4,7 +4,7 @@
  * typing is a transient signal that only exists between the members who are looking.
  */
 import { create } from 'zustand'
-import { registerStoreReset } from './stores.ts'
+import { registerConversationReset, registerStoreReset } from './stores.ts'
 
 type TypingState = {
   /** conversation → person → the moment (ms) their "typing" runs out. */
@@ -61,3 +61,10 @@ export function nextExpiry(state: TypingState, conversationId: string, now: numb
 }
 
 registerStoreReset(() => useTyping.setState({ byConversation: {} }))
+registerConversationReset((conversationId) =>
+  useTyping.setState((state) => {
+    if (!(conversationId in state.byConversation)) return state
+    const { [conversationId]: _typing, ...rest } = state.byConversation
+    return { byConversation: rest }
+  }),
+)

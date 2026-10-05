@@ -5,7 +5,7 @@
  * the same object.
  */
 import type { Message } from '@chatapp/contracts'
-import { cascadeReplies, mergeMessage } from './merge.ts'
+import { cascadeReplies, followSources, mergeMessage, retainQuoted, settleQuotes } from './merge.ts'
 import type { TimelineWindow } from './types.ts'
 
 /** Most messages one window keeps (docs/03 section 10). */
@@ -22,6 +22,7 @@ export function emptyWindow(conversationId: string, membershipId: string): Timel
     hasMoreAfter: false,
     hidden: {},
     gone: {},
+    quoted: {},
     revision: 0,
   }
 }
@@ -94,25 +95,54 @@ function withoutRevived(gone: Record<string, number>, revived: Message[]): Recor
   return next
 }
 
-/** A window from a page that was just read (the newest page, or one around a message). */
+/**
+ * A window from a page that was just read (the newest page, or one around a message). When it replaces another window,
+ * `previous` is what that one knew (D-171): the messages it hid or lost by tombstone stay out, and a message it holds in a
+ * *newer* version than the page's (the page was read before that change) keeps that version, so nothing the person has
+ * already seen recalled, edited or deleted goes back; the quotes of such messages follow. Whatever else changed since the
+ * page was read is applied by replaying the log from the position the page was asked at (the engine does that).
+ */
 export function windowFromPage(
   conversationId: string,
   membershipId: string,
   page: PageLike,
-  previous?: Pick<TimelineWindow, 'hidden' | 'gone'>,
+  previous?: Pick<TimelineWindow, 'hidden' | 'gone'> &
+    Partial<Pick<TimelineWindow, 'messages' | 'quoted'>>,
 ): TimelineWindow {
   const base = {
     ...emptyWindow(conversationId, membershipId),
     hidden: previous?.hidden ?? {},
     gone: previous?.gone ?? {},
   }
-  const messages = page.messages.filter((message) => admissible(base, message))
+  let messages = page.messages
+    .filter((message) => admissible(base, message))
+    .sort((a, b) => a.seq - b.seq)
+  let quoted: Record<string, number> = previous?.quoted ?? {}
+  const held = previous?.messages
+  if (held !== undefined && held.length > 0 && messages.length > 0) {
+    const known = new Map(held.map((message) => [message.id, message]))
+    const newer = new Map<string, Message>()
+    messages = messages.map((message) => {
+      const mine = known.get(message.id)
+      if (mine === undefined) return message
+      const merged = mergeMessage(message, mine)
+      if (merged !== message) newer.set(message.id, merged)
+      return merged
+    })
+    if (newer.size > 0) {
+      const followed = followSources(messages, newer, quoted)
+      messages = followed.messages
+      quoted = followed.seen
+    }
+  }
+  messages = settleQuotes(messages, base.hidden)
   return {
     ...base,
-    messages: messages.slice().sort((a, b) => a.seq - b.seq),
+    messages,
     hasMoreBefore: page.hasMoreBefore,
     hasMoreAfter: page.hasMoreAfter,
     gone: withoutRevived(base.gone, messages),
+    quoted: retainQuoted(messages, quoted),
     revision: 1,
   }
 }
@@ -121,7 +151,7 @@ export function windowFromPage(
 export function prependPage(window: TimelineWindow, page: PageLike): TimelineWindow {
   const incoming = page.messages.filter((message) => admissible(window, message))
   return bump(window, {
-    messages: union(window.messages, incoming),
+    messages: settleQuotes(union(window.messages, incoming), window.hidden),
     hasMoreBefore: page.hasMoreBefore,
     gone: withoutRevived(window.gone, incoming),
   })
@@ -131,7 +161,7 @@ export function prependPage(window: TimelineWindow, page: PageLike): TimelineWin
 export function appendPage(window: TimelineWindow, page: PageLike): TimelineWindow {
   const incoming = page.messages.filter((message) => admissible(window, message))
   return bump(window, {
-    messages: union(window.messages, incoming),
+    messages: settleQuotes(union(window.messages, incoming), window.hidden),
     hasMoreAfter: page.hasMoreAfter,
     gone: withoutRevived(window.gone, incoming),
   })
@@ -141,7 +171,8 @@ export function appendPage(window: TimelineWindow, page: PageLike): TimelineWind
  * Catch-up (and write answers): messages that changed, and tombstones of messages that left my view. A message already in
  * the window is replaced by a newer version; a new one is placed where `seq` puts it when it falls inside the window or
  * extends an end the window is attached to. Whatever lies beyond an end that has more is left for scrolling to load.
- * Quotes of every changed message are brought along, in the window or not (their own versions do not move).
+ * Quotes of every changed message are brought along, in the window or not (their own versions do not move), from the
+ * newest version of it that is known and never from an older one (D-171).
  */
 export function mergeChanges(
   window: TimelineWindow,
@@ -211,14 +242,37 @@ export function mergeChanges(
     touched = true
   }
 
-  let cascaded = messages
-  for (const item of items) cascaded = cascadeReplies(cascaded, item)
-  if (cascaded !== messages) {
-    messages = cascaded
-    touched = true
+  // Quotes follow the newest version of each changed message that is known (D-171), in the window or not. A version the
+  // window may not take (a message I hid, one older than a tombstone) does not move any quote, and neither does a version
+  // older than the one the window holds: that is what a late write answer or a slow page looks like.
+  const sources = new Map<string, Message>()
+  for (const item of items) {
+    if (admissible(probe, item)) sources.set(item.id, mergeMessage(sources.get(item.id), item))
+  }
+  if (replaced !== undefined || added !== undefined) {
+    const settled = settleQuotes(messages, window.hidden)
+    if (settled !== messages) {
+      messages = settled
+      touched = true
+    }
+  }
+  let quoted = window.quoted
+  if (sources.size > 0) {
+    for (const message of messages) {
+      if (sources.has(message.id)) sources.set(message.id, message)
+    }
+    const followed = followSources(messages, sources, quoted)
+    if (followed.messages !== messages) {
+      messages = followed.messages
+      touched = true
+    }
+    if (followed.seen !== quoted) {
+      quoted = followed.seen
+      touched = true
+    }
   }
 
-  return touched ? bump(window, { messages, gone }) : window
+  return touched ? bump(window, { messages, gone, quoted }) : window
 }
 
 /** I deleted this message for myself: it leaves the window for good, and quotes of it read "unavailable". */
@@ -239,15 +293,22 @@ export function hideInWindow(window: TimelineWindow, messageId: string): Timelin
 /** Drops the newest messages beyond `max`; the window is no longer attached to the newest message. */
 export function trimNewest(window: TimelineWindow, max = WINDOW_MAX): TimelineWindow {
   if (window.messages.length <= max) return window
-  return bump(window, { messages: window.messages.slice(0, max), hasMoreAfter: true })
+  const messages = window.messages.slice(0, max)
+  return bump(window, {
+    messages,
+    hasMoreAfter: true,
+    quoted: retainQuoted(messages, window.quoted),
+  })
 }
 
 /** Drops the oldest messages beyond `max` (a window that grew downward). */
 export function trimOldest(window: TimelineWindow, max = WINDOW_MAX): TimelineWindow {
   if (window.messages.length <= max) return window
+  const messages = window.messages.slice(window.messages.length - max)
   return bump(window, {
-    messages: window.messages.slice(window.messages.length - max),
+    messages,
     hasMoreBefore: true,
+    quoted: retainQuoted(messages, window.quoted),
   })
 }
 

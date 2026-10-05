@@ -2,10 +2,9 @@ import { messageEnvelopeSchema } from '@chatapp/contracts'
 import { api } from '@/lib/api.ts'
 import { queryClient } from '@/lib/query-client.ts'
 import { serverNow } from '@/lib/realtime.ts'
-import { setDraft } from '@/lib/sync/drafts.ts'
 import { type ForgetReason, SyncEngine } from '@/lib/sync/engine.ts'
 import { Outbox } from '@/lib/sync/outbox.ts'
-import { clearClientStores } from '@/lib/sync/stores.ts'
+import { clearClientStores, clearConversationStores } from '@/lib/sync/stores.ts'
 import { httpTransport } from '@/lib/sync/transport.ts'
 
 type ForgottenListener = (conversationId: string, reason: ForgetReason) => void
@@ -24,11 +23,11 @@ export const engine = new SyncEngine({
   queryClient,
   transport: httpTransport,
   onForgotten: (conversationId, reason) => {
-    // Nothing the person wrote for a conversation they can no longer reach may stay on this device.
-    outbox.clearConversation(conversationId)
-    setDraft(conversationId, '')
     for (const listener of listeners) listener(conversationId, reason)
   },
+  // Nothing the person wrote or chose for a conversation under a membership that ended (unsent messages, the draft, a reply
+  // or an edit in progress) may stay on this device, whichever way the membership ended (D-171, SEC-34).
+  onConversationReset: clearConversationStores,
   onStop: clearClientStores,
 })
 
@@ -40,11 +39,10 @@ export const outbox: Outbox = new Outbox({
       json: request,
       schema: messageEnvelopeSchema,
     }),
-  onSent: (envelope) => {
-    engine.ingestMessage(envelope)
-    engine.noteSent(envelope.message.conversationId, envelope.message.seq)
-  },
-  onAccessError: (conversationId, error) => engine.handleAccessError(conversationId, error),
+  ticket: (conversationId) => engine.ticket(conversationId),
+  onSent: (envelope, ticket) => engine.messageSent(envelope, ticket),
+  onAccessError: (conversationId, error, ticket) =>
+    engine.handleAccessError(conversationId, error, ticket),
   membershipOf: (conversationId) => engine.membershipOf(conversationId),
   now: serverNow,
   newId: () => crypto.randomUUID(),

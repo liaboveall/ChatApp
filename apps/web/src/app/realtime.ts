@@ -5,7 +5,7 @@ import { ApiError, api } from '@/lib/api.ts'
 import { writeMe } from '@/lib/queries.ts'
 import { queryClient } from '@/lib/query-client.ts'
 import { RealtimeClient, realtimeUrl } from '@/lib/realtime.ts'
-import { endSession } from '@/lib/session.ts'
+import { currentGeneration, endSession } from '@/lib/session.ts'
 import { ActivityReporter } from '@/lib/sync/activity.ts'
 import { applyPresence, PresenceWatch } from '@/lib/sync/presence.ts'
 import { registerStoreReset } from '@/lib/sync/stores.ts'
@@ -20,11 +20,16 @@ import { applyTyping } from '@/lib/sync/typing.ts'
  * the session was still considered live, and a probe that stored "nobody" first would make it think it was already over.
  */
 async function onUnauthenticated(): Promise<void> {
+  // The answer belongs to the session the question was asked in: if that one ended or another began meanwhile (a sign-out,
+  // a sign-in as someone else), it is not for this page any more (D-171).
+  const generation = currentGeneration()
   try {
     const me = await api('/api/me', { schema: meSchema, anonymous: true })
+    if (currentGeneration() !== generation) return
     writeMe(queryClient, me)
     realtime.start()
   } catch (error) {
+    if (currentGeneration() !== generation) return
     if (error instanceof ApiError && error.status === 401) endSession('expired')
     else realtime.start() // the API is unreachable: keep the session and let the connection back off and retry
   }

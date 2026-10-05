@@ -1,5 +1,6 @@
 import type { Message } from '@chatapp/contracts'
 import { useState } from 'react'
+import { engine } from '@/app/sync.ts'
 import { startEdit, startReply } from '@/lib/sync/compose.ts'
 import { draftOf, setDraft, useDrafts } from '@/lib/sync/drafts.ts'
 import { showToast } from '@/lib/toast.ts'
@@ -24,12 +25,22 @@ export function useMessageCommands(conversationId: string) {
     confirm,
     clearConfirm: () => setConfirm(null),
     reply: (message: Message): void => {
-      const stash = startReply(conversationId, message)
+      // A reply and an edit belong to the membership they were started under (D-171): without one there is nothing to start.
+      const membershipId = engine.membershipOf(conversationId)
+      if (membershipId === undefined) return
+      const stash = startReply(conversationId, membershipId, message)
       if (stash !== undefined) setDraft(conversationId, stash)
       focusComposer()
     },
     edit: (message: Message): void => {
-      startEdit(conversationId, message, draftOf(useDrafts.getState(), conversationId))
+      const membershipId = engine.membershipOf(conversationId)
+      if (membershipId === undefined) return
+      startEdit(
+        conversationId,
+        membershipId,
+        message,
+        draftOf(useDrafts.getState(), conversationId),
+      )
       setDraft(conversationId, message.body ?? '')
       focusComposer()
     },

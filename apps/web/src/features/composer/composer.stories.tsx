@@ -41,16 +41,17 @@ function Stage({
   useState(() => seedUsers(client, [makeUser(2, { displayName: 'Bob Lin' })]))
   useEffect(() => clearSeed, [])
   useEffect(() => {
-    endCompose(conversation.id)
+    const membershipId = conversation.me?.membershipId ?? uuid(700)
+    endCompose(conversation.id, membershipId)
     setDraft(conversation.id, draft)
-    if (mode === 'reply') startReply(conversation.id, note)
-    if (mode === 'edit') startEdit(conversation.id, mine, '')
+    if (mode === 'reply') startReply(conversation.id, membershipId, note)
+    if (mode === 'edit') startEdit(conversation.id, membershipId, mine, '')
     if (mode === 'edit') setDraft(conversation.id, mine.body ?? '')
     return () => {
-      endCompose(conversation.id)
+      endCompose(conversation.id, membershipId)
       setDraft(conversation.id, '')
     }
-  }, [conversation.id, draft, mode])
+  }, [conversation.id, conversation.me?.membershipId, draft, mode])
   return (
     <div className="convo" style={{ position: 'relative', width: 760, height: 150, inset: 'auto' }}>
       <div className="composer-dock" style={{ position: 'absolute', bottom: 0 }}>

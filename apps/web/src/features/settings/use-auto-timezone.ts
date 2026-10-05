@@ -2,7 +2,7 @@ import { type Me, meSchema, timezoneSchema } from '@chatapp/contracts'
 import { useQueryClient } from '@tanstack/react-query'
 import { useEffect, useRef } from 'react'
 import { api } from '@/lib/api.ts'
-import { queryKeys, writeMe } from '@/lib/queries.ts'
+import { queryKeys, writeMeAnswer } from '@/lib/queries.ts'
 
 /**
  * While the account follows the browser's time zone (the default, `settings.timezoneAuto !== false`), keep the stored zone
@@ -24,7 +24,7 @@ export function useAutoTimezone(me: Me | null): void {
       json: { expectedMeVersion: me.meVersion, timezone: zone },
       schema: meSchema,
     })
-      .then((updated) => writeMe(queryClient, updated))
+      .then((updated) => writeMeAnswer(queryClient, updated))
       .catch(() => queryClient.invalidateQueries({ queryKey: queryKeys.me }))
   }, [me, queryClient])
 }

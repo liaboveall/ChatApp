@@ -33,6 +33,7 @@ function setup(overrides: Partial<OutboxDeps> = {}) {
           reject,
         })
       }),
+    ticket: (conversationId) => ({ scope: null, conversationId, membershipId: M, watermark: 0 }),
     onSent: (envelope) => sent.push(envelope),
     onAccessError: () => false,
     membershipOf: () => M,
@@ -251,7 +252,11 @@ describe('Outbox', () => {
     })
     calls[0]?.reject(new ApiError(404, 'NOT_FOUND'))
     await flush()
-    expect(onAccessError).toHaveBeenCalledWith(C, expect.any(ApiError))
+    expect(onAccessError).toHaveBeenCalledWith(
+      C,
+      expect.any(ApiError),
+      expect.objectContaining({ conversationId: C, membershipId: M }),
+    )
     expect(list()).toHaveLength(0)
     expect(calls).toHaveLength(1)
   })
@@ -267,5 +272,116 @@ describe('Outbox', () => {
     })
     clearClientStores()
     expect(list()).toHaveLength(0)
+  })
+
+  test('the ticket is taken when a message goes out, once per attempt, and comes back with the answer', async () => {
+    const tickets: Array<{ conversationId: string | null; watermark: number }> = []
+    let watermark = 0
+    const onSent = vi.fn()
+    const { outbox, calls } = setup({
+      ticket: (conversationId) => {
+        watermark += 10
+        const ticket = { scope: null, conversationId, membershipId: M, watermark }
+        tickets.push(ticket)
+        return ticket
+      },
+      onSent,
+    })
+    const pending = outbox.enqueue({
+      conversationId: C,
+      membershipId: M,
+      body: 'one',
+      replyToId: null,
+      quote: null,
+    })
+    calls[0]?.reject(new ApiError(0, 'NETWORK'))
+    await flush()
+    outbox.retry(pending.clientId, C)
+    calls[1]?.resolve()
+    await flush()
+    expect(tickets.map((ticket) => ticket.watermark)).toEqual([10, 20])
+    expect(onSent).toHaveBeenCalledTimes(1)
+    expect(onSent.mock.calls[0]?.[1]).toBe(tickets[1])
+  })
+})
+
+/**
+ * M2b review 2026-10-05 (R3): clearing a line takes its message away while the request is out, and what that request brings
+ * back belongs to what was cleared. Nothing of it may reach the cache, the read position or the line of whoever uses the
+ * screen next.
+ */
+describe('a line that is cleared while a message is on its way', () => {
+  const write = (outbox: Outbox, body: string, conversationId = C) =>
+    outbox.enqueue({ conversationId, membershipId: M, body, replyToId: null, quote: null })
+
+  test.each([
+    ['the account ended', () => clearClientStores()],
+    ['the conversation was forgotten', (outbox: Outbox) => outbox.clearConversation(C)],
+    ['everything was cleared', (outbox: Outbox) => outbox.clearAll()],
+  ])('the answer is dropped when %s', async (_why, clear) => {
+    const { outbox, calls, sent } = setup()
+    write(outbox, 'ACCOUNT_A_SECRET')
+    clear(outbox)
+    calls[0]?.resolve()
+    await flush()
+    expect(sent).toEqual([])
+    expect(list()).toEqual([])
+  })
+
+  test('the failure is dropped too: it is not taken for an access error of whoever is here now', async () => {
+    const onAccessError = vi.fn(() => true)
+    const { outbox, calls } = setup({ onAccessError })
+    write(outbox, 'ACCOUNT_A_SECRET')
+    clearClientStores()
+    // The next account writes in the same conversation while the first request is still out.
+    write(outbox, 'ACCOUNT_B_MESSAGE')
+    calls[0]?.reject(new ApiError(404, 'NOT_FOUND'))
+    await flush()
+    expect(onAccessError).not.toHaveBeenCalled()
+    expect(list().map((entry) => [entry.body, entry.state])).toEqual([
+      ['ACCOUNT_B_MESSAGE', 'sending'],
+    ])
+  })
+
+  test('a message of the next account in the same conversation is not disturbed by the late answer', async () => {
+    const { outbox, calls, sent } = setup()
+    write(outbox, 'ACCOUNT_A_SECRET')
+    clearClientStores()
+    write(outbox, 'ACCOUNT_B_MESSAGE')
+    expect(calls).toHaveLength(2)
+    calls[0]?.resolve()
+    await flush()
+    expect(sent).toEqual([])
+    expect(list().map((entry) => [entry.body, entry.state])).toEqual([
+      ['ACCOUNT_B_MESSAGE', 'sending'],
+    ])
+    expect(calls).toHaveLength(2)
+    calls[1]?.resolve()
+    await flush()
+    expect(sent.map((envelope) => envelope.message.body)).toEqual(['ACCOUNT_B_MESSAGE'])
+    expect(list()).toEqual([])
+  })
+
+  test('one conversation’s line being cleared does not touch the answers of another', async () => {
+    const { outbox, calls, sent } = setup()
+    write(outbox, 'here')
+    write(outbox, 'there', uuid(501))
+    outbox.clearConversation(C)
+    calls[0]?.resolve()
+    calls[1]?.resolve()
+    await flush()
+    expect(sent.map((envelope) => envelope.message.body)).toEqual(['there'])
+  })
+
+  test('a message that is not cleared goes in as before, with the one that was behind it', async () => {
+    const { outbox, calls, sent } = setup()
+    write(outbox, 'one')
+    write(outbox, 'two')
+    calls[0]?.resolve()
+    await flush()
+    calls[1]?.resolve()
+    await flush()
+    expect(sent.map((envelope) => envelope.message.body)).toEqual(['one', 'two'])
+    expect(list()).toEqual([])
   })
 })
