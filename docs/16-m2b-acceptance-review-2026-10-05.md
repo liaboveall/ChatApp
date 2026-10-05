@@ -82,7 +82,7 @@ bun run --cwd apps/web e2e --config ../../.test-runs/m2b-review/playwright.confi
 
 ## 修复记录（Claude，同日）
 
-> 本节是修复方的记录，不改变上面的复核结论：是否通过由独立复验决定。修复的决定与做法见 [D-171](12-decisions.md)；执行过的命令、结果和限制见 [PROGRESS](PROGRESS.md) 的「M2b 复核问题 R1 到 R4 的修复」。已提交并推送：`3eeb36d`（代码与单元测试）、`bc36903`（浏览器回归），外加记录它们的文档提交。
+> 本节是修复方的记录，不改变上面的复核结论：是否通过由独立复验决定。修复的决定与做法见 [D-171](12-decisions.md)；执行过的命令、结果和限制见 [PROGRESS](PROGRESS.md) 的「M2b 复核问题 R1 到 R4 的修复」。已提交并推送：`3eeb36d`（代码与单元测试）、`bc36903`（浏览器回归），外加记录它们的文档提交 `b241504`；`b241504` 的 `check`、`integration`、`security`、`e2e` 四个工作流在远端全部成功。
 
 | 项 | 修在哪里 | 正式回归 |
 |---|---|---|
