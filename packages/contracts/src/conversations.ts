@@ -43,6 +43,8 @@ export const conversationMeSchema = z.object({
   version,
   role: memberRoleSchema,
   membershipId: z.uuid(),
+  /** When this membership began; rewritten on re-joining (the client words the join boundary with it, D-155). */
+  joinedAt: isoDate,
   visibleFromSeq: version,
   lastReadSeq: version,
   unread: version,

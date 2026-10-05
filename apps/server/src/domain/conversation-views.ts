@@ -161,6 +161,7 @@ export function toConversationDto(row: ViewRow, now: Date): Conversation {
         version: viewerVersion,
         role: m.role,
         membershipId: m.membershipId,
+        joinedAt: m.joinedAt.toISOString(),
         visibleFromSeq: m.visibleFromSeq,
         lastReadSeq: m.lastReadSeq,
         unread: Math.max(c.lastSeq - m.lastReadSeq, 0),

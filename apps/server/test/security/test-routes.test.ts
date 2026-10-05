@@ -54,6 +54,23 @@ describe('test-only routes', () => {
       { peerAddress: () => '127.0.0.1' },
     )
     expect(clock.status).toBe(404)
+    // The routes M2b added (D-155) are absent too.
+    const aged = await production.request(
+      `http://localhost:5173/api/test/messages/${crypto.randomUUID()}/age`,
+      {
+        method: 'POST',
+        headers: { origin: 'http://localhost:5173', 'content-type': 'application/json' },
+        body: JSON.stringify({ ms: 1000 }),
+      },
+      { peerAddress: () => '127.0.0.1' },
+    )
+    expect(aged.status).toBe(404)
+    const ip = await production.request(
+      'http://localhost:5173/api/test/client-ip',
+      {},
+      { peerAddress: () => '127.0.0.1' },
+    )
+    expect(ip.status).toBe(404)
     await testApp.close()
   })
 
