@@ -215,6 +215,7 @@ export const test = base.extend<Fixtures>({
     async ({ registry, context: own }, use, testInfo) => {
       await use(undefined)
       try {
+        if (testInfo.status === 'timedOut') await describeOpenPages(registry, testInfo)
         await check(registry, testInfo)
       } finally {
         // The contexts a test opened with `newContext()` are not closed by Playwright: a page left open keeps its connection
@@ -229,6 +230,62 @@ export const test = base.extend<Fixtures>({
     { auto: true },
   ],
 })
+
+/**
+ * What every page that is still open says about itself, for a test that ran out of time. Firefox on a CI runner has been seen
+ * to wait for the `load` event of a page that was drawn and whose requests had all been answered (D-170); nothing else shows
+ * who holds the event, or whether the page had fired it and the tool missed it. The answer goes to the log (the report is
+ * uploaded with the failures only) and to the report.
+ */
+async function describeOpenPages(registry: Registry, testInfo: TestInfo): Promise<void> {
+  const answers: unknown[] = []
+  for (const context of registry.contexts) {
+    for (const page of context.pages()) {
+      const answer = await Promise.race([
+        page
+          .evaluate(() => {
+            const navigation = performance.getEntriesByType('navigation')[0] as
+              | PerformanceNavigationTiming
+              | undefined
+            return {
+              // What the page says its address is: the tool's own idea (`url` next to it) differs when it missed the navigation.
+              href: location.href,
+              readyState: document.readyState,
+              visibility: document.visibilityState,
+              focused: document.hasFocus(),
+              navigation:
+                navigation === undefined
+                  ? null
+                  : {
+                      type: navigation.type,
+                      responseEnd: Math.round(navigation.responseEnd),
+                      domContentLoadedEnd: Math.round(navigation.domContentLoadedEventEnd),
+                      loadEventStart: Math.round(navigation.loadEventStart),
+                      loadEventEnd: Math.round(navigation.loadEventEnd),
+                    },
+              fonts: {
+                status: document.fonts.status,
+                faces: [...document.fonts].map((face) => `${face.family} ${face.status}`),
+              },
+              imagesNotComplete: [...document.images].filter((image) => !image.complete).length,
+              resourcesSeen: performance.getEntriesByType('resource').length,
+              scripts: document.scripts.length,
+              preloads: document.querySelectorAll('link[rel="modulepreload"]').length,
+              now: Math.round(performance.now()),
+            }
+          })
+          .catch((error: Error) => ({ error: error.message })),
+        new Promise((resolve) => setTimeout(() => resolve({ error: 'no answer in 5 s' }), 5_000)),
+      ])
+      answers.push({ url: page.url(), ...(answer as object) })
+    }
+  }
+  console.log(`pages at the time-out (${testInfo.project.name}): ${JSON.stringify(answers)}`)
+  await testInfo.attach('pages-at-timeout.json', {
+    body: JSON.stringify(answers, null, 2),
+    contentType: 'application/json',
+  })
+}
 
 /** The checks of D-148, run when the test is over and its pages are still open. */
 async function check(registry: Registry, testInfo: TestInfo): Promise<void> {
