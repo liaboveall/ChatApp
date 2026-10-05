@@ -14,8 +14,17 @@ import { Toasts } from '../src/components/ui/toasts.tsx'
 import { TooltipProvider } from '../src/components/ui/tooltip.tsx'
 import '../src/lib/zod-config.ts'
 import { ACCENT_KEYS, GLASS_KEYS } from '../src/design/tokens.ts'
+import { useRealtime } from '../src/lib/realtime.ts'
 import { installMockApi, type MockApi, restoreFetch } from './mock-api.ts'
 import '../src/styles/app.css'
+
+/**
+ * The day of every story. The page words times against the server's clock ("16:00" for today, "Yesterday", a weekday, a date;
+ * who is still silenced; which link is still valid), and the fixtures write fixed dates, so on the day after the baselines
+ * were made every row of the sidebar said "Yesterday" and the pictures no longer matched. The clock still runs, from here.
+ */
+const STORY_NOW = Date.parse('2026-10-04T12:00:00.000Z')
+useRealtime.setState({ clockOffsetMs: STORY_NOW - Date.now() })
 
 type StoryContext = {
   globals: { theme?: string; accent?: string; glass?: string }
