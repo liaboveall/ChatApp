@@ -9,6 +9,8 @@ import {
 import { CSP } from '../../tools/csp.ts'
 import { fakeClientIp } from './accounts.ts'
 
+type StorageState = Awaited<ReturnType<BrowserContext['storageState']>>
+
 /**
  * The checks every end-to-end test runs on every browser context it uses (docs/12 D-148, strengthening D-122): no policy
  * violation, no console error and no page exception that the test did not expect, and every document the site serves
@@ -330,7 +332,7 @@ export function networkCut(context: BrowserContext, cut: boolean): void {
  */
 export async function newContext(
   browser: Browser,
-  overrides: { timezoneId?: string } = {},
+  overrides: { timezoneId?: string; storageState?: StorageState } = {},
 ): Promise<BrowserContext> {
   const info = test.info()
   const registry = registries.get(info)
@@ -342,6 +344,7 @@ export async function newContext(
     baseURL,
     locale,
     timezoneId: overrides.timezoneId ?? timezoneId,
+    storageState: overrides.storageState,
     extraHTTPHeaders: { 'x-forwarded-for': fakeClientIp() },
   })
   await instrument(context, registry)

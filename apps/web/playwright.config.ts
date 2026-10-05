@@ -37,9 +37,12 @@ export default defineConfig({
     },
     // The performance scenarios (T1 to T4, latency; docs/12 D-149, D-161) run in Chromium with the graphics card where there
     // is one: headless Chromium otherwise composites in software, where the glass of the toolbar and the composer alone
-    // costs three frames in four. On WSL the card is reached through Mesa's d3d12 driver.
+    // costs three frames in four. On WSL the card is reached through Mesa's d3d12 driver. Never retried: the scenarios use up
+    // the state of the conversation they read (T4 starts from a person who has a hundred unread messages, and reading them
+    // is the test), so a second run would fail for that reason and hide the first, real, failure behind it.
     {
       name: 'perf',
+      retries: 0,
       use: { ...devices['Desktop Chrome'], launchOptions: GPU_LAUNCH },
       grep: /@perf/,
     },

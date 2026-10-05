@@ -84,6 +84,7 @@ test.describe('keyboard shortcuts', () => {
 test.describe('appearance', () => {
   test('@smoke the choices apply at once, survive a reload, and the stored values are applied before the app runs', async ({
     page,
+    browser,
   }) => {
     const person = await createVerifiedMember('look')
     await signIn(page, person.email, person.password)
@@ -102,15 +103,25 @@ test.describe('appearance', () => {
     expect(await html(page, 'data-reduce-motion')).toBe('true')
 
     // With the application's scripts blocked, the stored look is still on the page: theme-init.js applies it before first paint.
-    await page.route('**/assets/*.js', (route) =>
-      route.fulfill({ status: 200, contentType: 'text/javascript', body: '' }),
+    // The blocked page lives in a context of its own (the same stored look and session) and its stand-in scripts are marked
+    // as not to be kept: on a CI runner WebKit went on using the empty ones after the route was removed, and the load
+    // below came up without the application.
+    const bare = await newContext(browser, { storageState: await page.context().storageState() })
+    const blocked = await bare.newPage()
+    await blocked.route('**/assets/*.js', (route) =>
+      route.fulfill({
+        status: 200,
+        contentType: 'text/javascript',
+        headers: { 'cache-control': 'no-store' },
+        body: '',
+      }),
     )
-    await page.goto('/login')
-    expect(await html(page, 'data-theme')).toBe('dark')
-    expect(await html(page, 'data-accent')).toBe('purple')
-    expect(await html(page, 'data-glass')).toBe('clear')
-    expect(await html(page, 'data-type-size')).toBe('2')
-    await page.unroute('**/assets/*.js')
+    await blocked.goto('/login')
+    expect(await html(blocked, 'data-theme')).toBe('dark')
+    expect(await html(blocked, 'data-accent')).toBe('purple')
+    expect(await html(blocked, 'data-glass')).toBe('clear')
+    expect(await html(blocked, 'data-type-size')).toBe('2')
+    await bare.close()
 
     // And the app keeps it after a normal load; resetting returns to the defaults.
     await openSettings(page, 'appearance')

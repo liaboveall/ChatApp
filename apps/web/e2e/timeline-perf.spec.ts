@@ -195,7 +195,8 @@ test("@perf T2: reading all the way to the oldest message: the reader's row neve
   // 2,000 once the trim after a page has landed; between the page and its trim (one commit, D-151) one page more.
   expect(stats.maxSettled).toBeLessThanOrEqual(2_000)
   expect(stats.maxMessages).toBeLessThanOrEqual(2_100)
-  expect(stats.longFrames).toBe(0)
+  // Frames of 200 ms or more are a matter of time like the rest of the frame budget: asserted where the card is (D-161).
+  if (LOCAL && (await hardwareCompositing(page))) expect(stats.longFrames).toBe(0)
   // At the very top the first row is the start of the conversation.
   await expect(page.locator('.history-boundary')).toBeVisible()
 })
