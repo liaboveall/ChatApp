@@ -4,8 +4,12 @@ import type { LaunchOptions } from '@playwright/test'
 /**
  * How to start Chromium so that it composites with the graphics card where there is one (docs/12 D-161). On WSL the card is
  * reached through Mesa's d3d12 driver; elsewhere headless Chromium's own choice stands (software, when there is no card).
+ * `E2E_NO_GPU=1` leaves the card out on purpose: the performance scenarios then run the way they do on a CI runner.
  */
-const WSL_GPU = existsSync('/dev/dxg') && existsSync('/usr/lib/wsl/lib/libd3d12.so')
+const WSL_GPU =
+  process.env.E2E_NO_GPU === undefined &&
+  existsSync('/dev/dxg') &&
+  existsSync('/usr/lib/wsl/lib/libd3d12.so')
 
 export const GPU_LAUNCH: LaunchOptions = WSL_GPU
   ? {

@@ -347,10 +347,19 @@ export function loadAllOlder(page: Page, options: { maxLoads: number }): Promise
     }
     requestAnimationFrame(frame)
 
-    // Every commit that changes how many messages are loaded.
+    // Every commit that changes how many messages are loaded. A page that arrives is a commit that raises the count; it is
+    // counted from the commits themselves (each record knows the value it replaced), because the count itself cannot say
+    // that a page came: once the window is full, the trim that follows a page brings the count back to where it was, and
+    // on a slow page that happens before the next frame, so a poll of the count never sees the page.
     let lastCount = loaded()
-    const observer = new MutationObserver(() => {
+    let pagesArrived = 0
+    const observer = new MutationObserver((records) => {
       const count = loaded()
+      records.forEach((record, index) => {
+        const was = Number(record.oldValue ?? 0)
+        const now = index + 1 < records.length ? Number(records[index + 1]?.oldValue ?? 0) : count
+        if (now > was) pagesArrived += 1
+      })
       if (tracked.element?.isConnected) {
         const anchor = tracked.element
         const baseline = tracked.top
@@ -374,7 +383,11 @@ export function loadAllOlder(page: Page, options: { maxLoads: number }): Promise
       lastCount = count
       sample()
     })
-    observer.observe(scroller, { attributes: true, attributeFilter: ['data-loaded-count'] })
+    observer.observe(scroller, {
+      attributes: true,
+      attributeFilter: ['data-loaded-count'],
+      attributeOldValue: true,
+    })
 
     const frames = (n: number): Promise<void> =>
       new Promise((resolve) => {
@@ -393,18 +406,40 @@ export function loadAllOlder(page: Page, options: { maxLoads: number }): Promise
       return test()
     }
 
-    while (stats.loads < maxLoads && document.querySelector('.history-boundary') === null) {
-      const before = loaded()
+    // The list is at rest: it is not asking for a page (it marks the timeline busy while it does), the window is back to its
+    // size, and neither the count nor the scroll position has changed for a few frames. Nothing is moved by hand before
+    // that. A step that lands between a page and its trim, or in the list's own settling after a jump, is measured as the
+    // list's own movement; on a slow runner it did, and the page the list had asked for by itself was the cause.
+    const quiet = async (): Promise<void> => {
+      let steady = 0
+      let last = ''
+      const end = performance.now() + 3_000
+      while (steady < 6 && performance.now() < end) {
+        await frames(1)
+        const now = `${loaded()} ${Math.round(scroller.scrollTop)}`
+        const resting =
+          scroller.getAttribute('aria-busy') !== 'true' && loaded() <= 2_000 && now === last
+        steady = resting ? steady + 1 : 0
+        last = now
+      }
+    }
+
+    while (pagesArrived < maxLoads && document.querySelector('.history-boundary') === null) {
+      await quiet()
+      const arrivedBefore = pagesArrived
       // Settle just outside the zone in which the list asks for older messages (600 px from the top), step into the zone, and
       // take the reader's row as it is after the step: the first row below the toolbar then. Both happen in one task, before
       // anything can render or be asked for. (The list moves itself a little before it settles, from estimated to measured
       // heights, so a row chosen before the step can be a screenful away after it, and no longer drawn.)
       scroller.scrollTop = 800
-      await frames(3)
+      await quiet()
+      // That settling can reach into the zone by itself and ask for a page: it has landed and been trimmed by now, and the
+      // step starts again from the new top.
+      if (pagesArrived > arrivedBefore) continue
       scroller.scrollTop = 500
       pickAnchor()
       const askedAt = performance.now()
-      let grew = await waitFor(() => loaded() > before, 4_000)
+      let grew = await waitFor(() => pagesArrived > arrivedBefore, 4_000)
       // The list corrects its own offset after a page arrives and can swallow a step: take the step again (a few times).
       for (
         let again = 0;
@@ -413,26 +448,25 @@ export function loadAllOlder(page: Page, options: { maxLoads: number }): Promise
       ) {
         stats.retries += 1
         scroller.scrollTop = 800
-        await frames(3)
+        await quiet()
+        if (pagesArrived > arrivedBefore) {
+          grew = true
+          break
+        }
         scroller.scrollTop = 500
         pickAnchor()
-        grew = await waitFor(() => loaded() > before, 4_000)
+        grew = await waitFor(() => pagesArrived > arrivedBefore, 4_000)
       }
       if (!grew) {
         if (document.querySelector('.history-boundary') !== null) break
         throw new Error('older messages stopped arriving')
       }
       stats.slowestLoadMs = Math.max(stats.slowestLoadMs, Math.round(performance.now() - askedAt))
-      stats.loads += 1
-      // Let the later trim of the far end land too, and keep watching the same row through it. The wait is for the trim
-      // itself (the window is back to its size), not for a count of frames: when the page is slow for a moment the trim comes
-      // late, and the next step, which moves the scroll position by hand, would land between the page and its trim and be
-      // measured as the list's own movement.
-      await frames(2)
-      await waitFor(() => loaded() <= 2_000, 2_000)
-      await frames(2)
+      // Let the later trim of the far end land too, and keep watching the same row through it.
+      await quiet()
       stats.maxSettled = Math.max(stats.maxSettled, loaded())
     }
+    stats.loads = pagesArrived
     stats.reachedStart = document.querySelector('.history-boundary') !== null
     watching = false
     observer.disconnect()
