@@ -1,10 +1,11 @@
 /**
  * The signed-in session on the client side. When the account's session ends (sign-out, a 401 from the API, a 4401 from
- * the WebSocket, a sign-out in another tab) everything account-related is dropped at once: queries are cancelled and
- * cleared, the connection is closed, account-scoped storage is wiped, and the other tabs are told (D-070).
+ * the WebSocket, a sign-out in another tab) everything account-related is dropped at once: the requests it made are given
+ * up (D-175), queries are cancelled and cleared, the connection is closed, account-scoped storage is wiped, and the other
+ * tabs are told (D-070).
  */
 import type { QueryClient } from '@tanstack/react-query'
-import { setUnauthenticatedHandler } from './api.ts'
+import { cancelSessionRequests, setUnauthenticatedHandler } from './api.ts'
 import { clearPendingInvite } from './pending-invite.ts'
 import { queryKeys } from './queries.ts'
 import { clearScopedStorage } from './storage.ts'
@@ -51,6 +52,9 @@ export function currentGeneration(): number {
 function resetLocal(): void {
   if (!deps) return
   generation += 1
+  // First: what this session asked is given up, so that nothing it brings back, in the page or in the browser's cookies,
+  // reaches the next one (D-175).
+  cancelSessionRequests()
   deps.stopRealtime()
   deps.resetClientState()
   void deps.queryClient.cancelQueries()
@@ -75,6 +79,8 @@ export function sessionStarted(): void {
   if (!deps) return
   active = true
   generation += 1
+  // Whatever was asked before the sign-in belongs to a time when this session did not exist: it is given up (D-175).
+  cancelSessionRequests()
   void deps.queryClient.invalidateQueries({ queryKey: queryKeys.me })
   announce({ type: 'signed-in' })
 }

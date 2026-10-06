@@ -78,6 +78,30 @@ export function setUnauthenticatedHandler(handler: (() => void) | undefined): vo
   unauthenticatedHandler = handler
 }
 
+/**
+ * The login session that requests are made in (D-175). Every request made now belongs to it and carries its signal; the
+ * session module cancels it when the session ends or another one begins. The browser is told to give the requests up, and
+ * that is the point: what the browser does with an answer (it applies the cookie lines in its headers, deletions included)
+ * does not wait for the page to look at the answer, so a page that merely ignores a late answer has not kept it from
+ * deleting the cookie of whoever signed in since. A request that has been given up gets no answer in the browser.
+ */
+let sessionRequests = new AbortController()
+
+/**
+ * The session ended, or another began: everything that was asked in the one before is given up, and what is asked from now
+ * on belongs to the next. Called by the session module only.
+ */
+export function cancelSessionRequests(): void {
+  const ended = sessionRequests
+  sessionRequests = new AbortController()
+  ended.abort()
+}
+
+/** Whether a failure is a request given up (by the caller, or because its session ended), not something the server said. */
+export function isAbortError(error: unknown): boolean {
+  return error instanceof DOMException && error.name === 'AbortError'
+}
+
 export type RequestOptions<S extends z.ZodType | undefined> = {
   method?: 'GET' | 'POST' | 'PATCH' | 'PUT' | 'DELETE'
   json?: unknown
@@ -146,6 +170,10 @@ export async function api<S extends z.ZodType | undefined = undefined>(
   if (options.idempotencyKey !== undefined)
     headers.set(IDEMPOTENCY_KEY_HEADER, options.idempotencyKey)
 
+  // Taken now, before anything is awaited: the session this request is made in is the one that is current at this moment.
+  const session = sessionRequests.signal
+  const signal = options.signal === undefined ? session : AbortSignal.any([session, options.signal])
+
   let response: Response
   try {
     response = await fetch(path, {
@@ -155,15 +183,20 @@ export async function api<S extends z.ZodType | undefined = undefined>(
       credentials: 'same-origin',
       cache: 'no-store',
       referrerPolicy: 'no-referrer',
-      signal: options.signal,
+      signal,
     })
   } catch (error) {
-    if (error instanceof DOMException && error.name === 'AbortError') throw error
+    if (signal.aborted || isAbortError(error)) throw error
     throw new ApiError(0, 'NETWORK')
   }
+  // Whatever the answer says is for the session the request was made in. If that one is over, nobody here is told anything
+  // by it: not the result, not the failure, and no 401 may end the session of whoever is here now. The browser has
+  // given the request up by then, so this is for an answer that was already on its way when the session ended.
+  signal.throwIfAborted()
 
   if (!response.ok) {
     const failure = await toError(response)
+    signal.throwIfAborted()
     if (failure.status === 401 && failure.code === 'UNAUTHENTICATED' && !options.anonymous) {
       unauthenticatedHandler?.()
     }
@@ -172,6 +205,7 @@ export async function api<S extends z.ZodType | undefined = undefined>(
 
   if (!options.schema) return undefined as never
   const body: unknown = await response.json().catch(() => undefined)
+  signal.throwIfAborted()
   const parsed = options.schema.safeParse(body)
   if (!parsed.success) throw new ApiError(response.status, 'BAD_RESPONSE')
   return parsed.data as never

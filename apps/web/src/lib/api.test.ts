@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest'
 import { z } from 'zod'
-import { ApiError, api, setUnauthenticatedHandler } from './api.ts'
+import { ApiError, api, cancelSessionRequests, setUnauthenticatedHandler } from './api.ts'
 
 const respond = (status: number, body: unknown, headers: Record<string, string> = {}): Response =>
   new Response(body === undefined ? null : typeof body === 'string' ? body : JSON.stringify(body), {
@@ -163,5 +163,201 @@ describe('a lost session', () => {
     fetchMock.mockResolvedValueOnce(unauthenticated())
     await expect(api('/api/me', { anonymous: true })).rejects.toBeInstanceOf(ApiError)
     expect(handler).not.toHaveBeenCalled()
+  })
+
+  test('an ordinary refusal is not a lost session', async () => {
+    const handler = vi.fn()
+    setUnauthenticatedHandler(handler)
+    for (const [status, code] of [
+      [403, 'FORBIDDEN'],
+      [404, 'NOT_FOUND'],
+      [409, 'CONFLICT'],
+    ] as const) {
+      fetchMock.mockResolvedValueOnce(
+        respond(status, { error: { code, message: 'no', requestId: 'r' } }),
+      )
+      await expect(api('/api/x', { json: {} })).rejects.toMatchObject({ code })
+    }
+    expect(handler).not.toHaveBeenCalled()
+  })
+})
+
+/**
+ * D-175: a request belongs to the login session it was made in. When that session ends (or another begins) the browser is
+ * told to give the request up, so that nothing it brings back (a status, a body, a cookie that the browser would apply
+ * whatever the page thinks) reaches the next one; and an answer that gets through anyway is not delivered.
+ */
+describe('the session a request belongs to', () => {
+  const unauthenticated = (): Response =>
+    respond(401, {
+      error: { code: 'UNAUTHENTICATED', message: 'Sign in required', requestId: 'r' },
+    })
+
+  /** A fetch that stays out until it is aborted, as the browser's does, and says so the way the browser's does. */
+  const hangsUntilAborted = (): void => {
+    fetchMock.mockImplementationOnce(
+      (_input, init) =>
+        new Promise((_resolve, reject) => {
+          init?.signal?.addEventListener('abort', () => reject(init.signal?.reason))
+        }),
+    )
+  }
+
+  /** A fetch that ignores its signal and answers when the test says: an answer that was already on its way. */
+  const answersLater = (response: Response): (() => void) => {
+    let answer: () => void = () => undefined
+    fetchMock.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          answer = () => resolve(response)
+        }),
+    )
+    return () => answer()
+  }
+
+  test('a request whose session ended is given up, and the caller sees an abort', async () => {
+    hangsUntilAborted()
+    const pending = api('/api/conversations', { json: {} })
+    const outcome = pending.catch((caught: unknown) => caught)
+    cancelSessionRequests()
+    expect(await outcome).toMatchObject({ name: 'AbortError' })
+  })
+
+  test('every kind of request is given up with its session: signed in or not, with a schema or without', async () => {
+    const outcomes: Promise<unknown>[] = []
+    for (const options of [
+      {},
+      { anonymous: true },
+      { schema: z.object({ n: z.number() }) },
+      { method: 'DELETE' as const },
+    ]) {
+      hangsUntilAborted()
+      outcomes.push(api('/api/x', options).catch((caught: unknown) => caught))
+    }
+    cancelSessionRequests()
+    for (const outcome of await Promise.all(outcomes)) {
+      expect(outcome).toMatchObject({ name: 'AbortError' })
+    }
+  })
+
+  test('a 401 that arrives after its session ended is not a lost session of the one that is here now', async () => {
+    const handler = vi.fn()
+    setUnauthenticatedHandler(handler)
+    const answer = answersLater(unauthenticated())
+    const outcome = api('/api/conversations', { json: {} }).catch((caught: unknown) => caught)
+    cancelSessionRequests()
+    answer()
+    // Not the 401 either: a failure that says nothing about whoever is here now is nobody's to be told (D-171).
+    expect(await outcome).toMatchObject({ name: 'AbortError' })
+    expect(handler).not.toHaveBeenCalled()
+  })
+
+  test('an answer that arrives after its session ended is not delivered', async () => {
+    const answer = answersLater(respond(200, { n: 1 }))
+    const outcome = api('/api/x', { schema: z.object({ n: z.number() }) }).catch(
+      (caught: unknown) => caught,
+    )
+    cancelSessionRequests()
+    answer()
+    expect(await outcome).toMatchObject({ name: 'AbortError' })
+  })
+
+  test('an answer that arrives with no schema to read is not delivered either', async () => {
+    const answer = answersLater(respond(200, { status: 'ok' }))
+    const outcome = api('/api/x', { method: 'POST' }).catch((caught: unknown) => caught)
+    cancelSessionRequests()
+    answer()
+    expect(await outcome).toMatchObject({ name: 'AbortError' })
+  })
+
+  test('the session ending while the body of an answer is being read gives the request up', async () => {
+    const handler = vi.fn()
+    setUnauthenticatedHandler(handler)
+    let end: () => void = () => undefined
+    const body = new Response(
+      new ReadableStream({
+        start(controller) {
+          end = () => {
+            controller.enqueue(new TextEncoder().encode(JSON.stringify({ n: 1 })))
+            controller.close()
+          }
+        },
+      }),
+      { status: 401, headers: { 'content-type': 'application/json' } },
+    )
+    fetchMock.mockResolvedValueOnce(body)
+    const outcome = api('/api/x', { json: {} }).catch((caught: unknown) => caught)
+    // The headers are in, the body is not: the session ends in between.
+    await new Promise((resolve) => setTimeout(resolve, 0))
+    cancelSessionRequests()
+    end()
+    expect(await outcome).toMatchObject({ name: 'AbortError' })
+    expect(handler).not.toHaveBeenCalled()
+  })
+
+  test('the session ending while the body of a good answer is being read gives the request up too', async () => {
+    let end: () => void = () => undefined
+    fetchMock.mockResolvedValueOnce(
+      new Response(
+        new ReadableStream({
+          start(controller) {
+            end = () => {
+              controller.enqueue(new TextEncoder().encode(JSON.stringify({ n: 1 })))
+              controller.close()
+            }
+          },
+        }),
+        { status: 200, headers: { 'content-type': 'application/json' } },
+      ),
+    )
+    const outcome = api('/api/x', { schema: z.object({ n: z.number() }) }).catch(
+      (caught: unknown) => caught,
+    )
+    await new Promise((resolve) => setTimeout(resolve, 0))
+    cancelSessionRequests()
+    end()
+    expect(await outcome).toMatchObject({ name: 'AbortError' })
+  })
+
+  test('a request made in the session that is current is untouched by the end of the one before', async () => {
+    const handler = vi.fn()
+    setUnauthenticatedHandler(handler)
+    cancelSessionRequests()
+    fetchMock.mockResolvedValueOnce(respond(200, { n: 1 }))
+    await expect(api('/api/x', { schema: z.object({ n: z.number() }) })).resolves.toEqual({
+      n: 1,
+    })
+    fetchMock.mockResolvedValueOnce(unauthenticated())
+    await expect(api('/api/x', { json: {} })).rejects.toMatchObject({ code: 'UNAUTHENTICATED' })
+    expect(handler).toHaveBeenCalledTimes(1)
+  })
+
+  test('a request keeps the signal of the caller: the caller can still give it up on its own', async () => {
+    hangsUntilAborted()
+    const own = new AbortController()
+    const outcome = api('/api/x', { signal: own.signal }).catch((caught: unknown) => caught)
+    own.abort()
+    expect(await outcome).toMatchObject({ name: 'AbortError' })
+    // The session was not touched by that: the next request goes out as usual.
+    fetchMock.mockResolvedValueOnce(respond(200, {}))
+    await expect(api('/api/x')).resolves.toBeUndefined()
+  })
+
+  test('the browser is given one signal that follows both: the session that ends, and the caller who gives up', async () => {
+    fetchMock.mockResolvedValue(respond(200, {}))
+    const own = new AbortController()
+    await api('/api/x', { signal: own.signal })
+    await api('/api/x', { signal: own.signal })
+    const [byCaller, bySession] = fetchMock.mock.calls.map((call) => call[1]?.signal as AbortSignal)
+    expect([byCaller?.aborted, bySession?.aborted]).toEqual([false, false])
+    own.abort()
+    expect([byCaller?.aborted, bySession?.aborted]).toEqual([true, true])
+    // The same signal of the session serves a request that has no caller signal.
+    fetchMock.mockClear()
+    await api('/api/x')
+    const alone = fetchMock.mock.calls[0]?.[1]?.signal as AbortSignal
+    expect(alone.aborted).toBe(false)
+    cancelSessionRequests()
+    expect(alone.aborted).toBe(true)
   })
 })
