@@ -51,7 +51,7 @@
 - 所有外部输入都用 `packages/contracts` 里的 zod schema 校验。
 - 业务逻辑只写在 `apps/server/src/domain/`，其他层只调用它（分层规则见 docs/03 第 3 节）。
 - 集成测试使用真实的 Postgres、Valkey、Garage；只模拟外部服务（DeepSeek、推送服务、生产环境的邮件服务商）。
-- 前端同步层（D-171，SEC-34）：屏幕和发送队列自己发的请求，发之前取 `engine.ticket()`，回答与失败带着它进 `engine.ingest*` 等入口，账号或成员关系变了的会被丢弃（必填参数，漏了编译不过）；任何按会话存状态的前端 store（草稿、待发、回复/编辑、输入提示……）必须向 `lib/sync/stores.ts` 的 `registerConversationReset` 登记，成员关系结束时才会一起清除；用一页替换窗口或把页面并入窗口时，日志位置要退回到请求发起时的水位（见 `engine.ts` 的 `#installWindow`、`#rewind`）。
+- 前端同步层（D-171，SEC-34）：屏幕和发送队列自己发的请求，发之前取 `engine.ticket()`，回答与失败带着它进 `engine.ingest*` 等入口，账号或成员关系变了的会被丢弃（必填参数，漏了编译不过）；任何按会话存状态的前端 store（草稿、待发、回复/编辑、输入提示……）必须向 `lib/sync/stores.ts` 的 `registerConversationReset` 登记，成员关系结束时才会一起清除；用一页替换窗口或把页面并入窗口时，日志位置要退回到请求发起时的水位（见 `engine.ts` 的 `#installWindow`、`#rewind`）。回答回来之后的界面收尾（结束编辑、放回草稿等）同样受它约束（D-173）：`await` 之后不用渲染时的闭包做决定，拿发起时的身份（回复/编辑的编号、成员关系、发出的文本）去问 store 现在的状态（`compose.ts` 的 `settleEdit`、`endCompose` 的编号参数）；引擎拒绝的回答（`ingestMessage` 返回 false）不算成功。屏幕发的写请求一律经 `app/sync.ts` 的 `forScreen`（D-174）：回答和失败只在同一次登录会话、同一个成员关系时交给屏幕，否则是 null，屏幕拿到 null 什么也不做（跳转、提示、结束会话都不做）；新写的请求如果不经它，`features/screen-writes.test.ts` 会失败。
 
 **流程**
 - 没跑过的检查不能说"通过"。收工前在 `docs/PROGRESS.md` 记录执行过的命令、结果和下一步。
@@ -68,17 +68,17 @@
 - **Docker** 29.8.1 来自 Docker Desktop 的 WSL 集成，和 Windows 共用同一个引擎、容器和数据卷；使用前 Windows 上的 Docker Desktop 必须在运行。
 - **Bun** 1.4.2 在 `~/.bun/bin`，**Node** 26.8.1 在 `~/.local/share/node`，软链接放在 `~/.local/bin`。如果当前 shell 找不到 `bun`，新开一个终端，或先执行：`export PATH="$HOME/.local/bin:$HOME/.bun/bin:$PATH"`。
 - **端口冲突，两个占用方都不能停**。它们都在 Windows 主机上，而 Docker Desktop 把端口发布在 Windows 主机上，所以搬到 WSL 后依然适用：
-  - 5432 被 Windows 上原生的 PostgreSQL 占用，所以开发库用 **5434**；
+  - 5432 被 Windows 上原生的 PostgreSQL 占用，所以开发库不用它：Postgres 和 Valkey 的主机端口是 `.env.local` 里的变量 `POSTGRES_PORT`、`VALKEY_PORT`，默认 **25434** 和 **26379**（D-172；2026-10-05 之前是 5434 和 6379）；
   - 1025 被 Cisco VPN（`vpnagent`）占用；Mailpit 默认用 **2525**，但 2525 又落入 Windows 保留范围，现通过 `.env.local` 的 `SMTP_PORT` 改用 **12525**。Compose 与应用共用该变量。
-  - Windows 还会动态保留端口段（`netsh interface ipv4 show excludedportrange protocol=tcp`，重启后会变）：2026-10-05 起 5433–5532 和 6357–6456 被保留，Docker Desktop 因此发布不出 5434（Postgres）和 6379（Valkey）：容器在运行，`docker port` 却是空的，`bun run test:e2e` 报 `migrate failed: Error`。不动配置的办法见 docs/PROGRESS.md 2026-10-05 的记录（用 `test:infra:up` 的独立实例，只把 `DATABASE_URL_TEST`、`DATABASE_OWNER_URL_TEST`、`VALKEY_URL_TEST` 用环境变量指过去）。
-- 其他端口：web 5173、api 3100、Valkey 6379、Garage 3900 和 3903、Mailpit 网页 8025、Storybook 6006；`bun run test:e2e` 期间另有预览服务器 4173 和测试环境 API 3102。Windows 浏览器可以直接访问 WSL 里的 `localhost:<端口>`；访问应用必须用 `http://localhost:5173`（不是 127.0.0.1，服务端要求 Origin 等于 `APP_ORIGIN`）。
+  - Windows 还会动态保留端口段（`netsh interface ipv4 show excludedportrange protocol=tcp`，重启后会变；它们都从动态端口范围 `netsh int ipv4 show dynamicport tcp` 里划，这台机器上是 1024–15000）。落进保留段的端口 Docker Desktop 既不发布、也不报错：容器 healthy，`docker port` 却是空的，连库的命令报 `ECONNREFUSED` 或 `migrate failed: Error`（2026-10-05 就是这样）。所以默认端口取在动态范围之外；`bun run infra:up` 启动前拒绝保留段里的端口、启动后核对端口真的发布了并连得上，`bun run doctor` 同样检查并建议换成哪个端口。换端口：改变量，`bun run setup`（连接串里的端口跟着变，密码不动），`bun run infra:up`（D-172）。
+- 其他端口：web 5173、api 3100、Garage 3900 和 3903、Mailpit 网页 8025、Storybook 6006；`bun run test:e2e` 期间另有预览服务器 4173 和测试环境 API 3102。Windows 浏览器可以直接访问 WSL 里的 `localhost:<端口>`；访问应用必须用 `http://localhost:5173`（不是 127.0.0.1，服务端要求 Origin 等于 `APP_ORIGIN`）。
 - `.env.local` 由 `bun run setup` 生成（WSL 里的这份是从迁移前的 Windows 副本原样复制来的），已被 git 忽略，**不要在输出中打印其中的值**。
 - 本仓库的 git 提交身份在仓库级配置：`liaboveall <2628370933@qq.com>`。推送凭据由仓库级的 credential helper 通过 Windows 的 `gh.exe` 提供（见 docs/09 第 10 节）。
 
 ## 常用命令
 
 - **已经可用**：
-  - 环境与基础设施：`bun run setup` · `doctor`（加 `--ai` 可以检查 DeepSeek key）· `infra:up` / `infra:down` / `infra:ps` / `infra:logs` · `infra:bootstrap` · `infra:reset --yes`（会删除全部本地数据，执行前先征得用户同意）
+  - 环境与基础设施：`bun run setup` · `doctor`（加 `--ai` 可以检查 DeepSeek key）· `infra:up`（启动、等健康、再核对每个主机端口真的发布且连得上）/ `infra:down` / `infra:ps` / `infra:logs` · `infra:bootstrap` · `infra:reset --yes`（会删除全部本地数据，执行前先征得用户同意）
   - 检查：`lint` / `lint:fix` · `typecheck`（所有工作区包，含 `apps/web`）· `guard`（含架构边界）· `check`（以上加单元测试、令牌对比度、文案一致性，不需要任何服务）
   - 数据库（M1a）：`db:generate` / `db:check` · `db:migrate` / `db:migrate:test` · `db:bootstrap`（生产也可用）/ `db:bootstrap:test` · `db:seed`（仅开发；M2a 起还会建演示会话和 59 条消息，幂等，开发库要先 `db:migrate`）
   - 后端（M1a）：`dev:api` · `dev:worker` · `admin:create`（密码在用户自己的终端输入）· `admin:verify-email`

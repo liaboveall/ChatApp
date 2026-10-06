@@ -13,15 +13,16 @@
 | Git | 较新版本即可 | ✅ 2.53.0。本仓库已配置提交身份：`liaboveall <2628370933@qq.com>`，只在本仓库生效，没有改全局配置 |
 
 **本机端口冲突**（两处都不要去关占用方）。冲突发生在 **Windows 主机**上：Docker Desktop 把容器端口发布在 Windows 主机上，所以搬到 WSL 后依然适用。2026-10-01 迁移时核对过：开发端口由 Windows 上的 `com.docker.backend` 发布，5432 由 Windows 上的 `postgres` 进程监听。
-- **5432**：被 Windows 上原生的 PostgreSQL 服务占用 → 开发库用 **5434**。
+- **5432**：被 Windows 上原生的 PostgreSQL 服务占用 → 开发库不用它。Postgres 和 Valkey 的主机端口是 `.env.local` 里的变量 `POSTGRES_PORT`、`VALKEY_PORT`，默认 **25434** 和 **26379**（见下面的「Windows 保留端口段」，D-172；2026-10-05 之前是 5434 和 6379）。
 - **1025**：被 Cisco VPN 客户端（`vpnagent`）占用 → Mailpit 的 SMTP 默认用 **2525**。2026-10-01 复核时，2525 落入 Windows 保留范围 2492–2591，本机已通过 `.env.local` 的 `SMTP_PORT` 改用 **12525**。
+- **Windows 保留端口段**（D-172）：Windows 把一段段 TCP 端口（每段 100 个，Hyper-V 和 WinNAT 划的）保留起来，谁也绑不了，**每次重启都不一样**（`netsh interface ipv4 show excludedportrange protocol=tcp`，不带星号的）。Docker Desktop 在 Windows 主机上发布端口，落进保留段的端口它**不报错**：容器在运行、健康检查通过，端口却不在那里（`docker port` 是空的），于是连库的命令只报 `ECONNREFUSED` 或 `migrate failed: Error`。2026-10-05 就是 5433–5532 和 6357–6456 挡住了当时的 5434 和 6379。这些保留段都是从**动态端口范围**里划出来的（`netsh int ipv4 show dynamicport tcp`：这台机器上是 1024–15000，系统默认 49152–65535），所以高于动态范围的端口不会被碰到，默认值就取在那里（常用端口加 20000）。`bun run infra:up` 启动前会拒绝落在保留段里的端口、启动后核对每个端口真的发布了并且连得上；`bun run doctor` 同样检查，并给出换成哪个端口。换端口：改 `.env.local` 里的变量，`bun run setup`（它把六个连接串里的端口改成一致，密码不动），`bun run infra:up`（数据卷保留，只重建端口变了的容器）。Garage（3900、3903）和 Mailpit 网页（8025）的端口写在 `infra/compose.dev.yml` 里，不是变量：它们落进保留段时 `doctor` 会指出来，改 compose（和 `S3_ENDPOINT`）。
 
 ## 2. 首次搭建
 
 ```bash
 bun install                    # install dependencies; also installs the lefthook git hooks
 bun run setup                  # create .env.local + infra/garage/garage.toml; generate local secrets (never printed)
-bun run infra:up               # start postgres, valkey, garage, mailpit and wait until healthy
+bun run infra:up               # start postgres, valkey, garage, mailpit, wait until healthy, and check that every host port is published and answers
 bun run infra:bootstrap        # Garage: layout + import key + buckets (idempotent)
 bun run doctor                 # end-to-end checks; add --ai to also test the DeepSeek key
 ```
@@ -57,13 +58,13 @@ bun run doctor                 # end-to-end checks; add --ai to also test the De
 | api | 3100 | M1a 起可用 |
 | E2E：预览服务器 / API | 4173 / 3102 | 只在 `bun run test:e2e` 期间存在：`vite preview` 提供生产构建（带生产 CSP），API 与 worker 用测试环境（D-122） |
 | edge：Nginx / API | 8443 / 3104 | M2b 起可用，只在 `bun run test:edge`（或 `edge:up` 加手动起栈）期间存在：Nginx 容器用生产站点配置提供构建产物，访问地址 `https://chat.localhost:8443`；它后面是测试环境的 API 与 worker（3104，`scripts/e2e-stack.ts`，D-147）。用于头与网关测试和 M7 彩排 |
-| Postgres | **5434** → 容器内 5432 | 用户名 `chatapp`；开发库 `chatapp`，测试库 `chatapp_test`。两个库都已安装 `vector` 0.8.6 和 `pg_trgm` 1.6 |
-| Valkey | 6379 | 开发用 db 0，测试用 db 1；配置为 `noeviction`，已开启 AOF。pub/sub 不区分 db，所以事件频道名带环境：`events:development`、`events:test`（D-044） |
+| Postgres | `POSTGRES_PORT`，默认 **25434** → 容器内 5432 | 用户名 `chatapp`；开发库 `chatapp`，测试库 `chatapp_test`。两个库都已安装 `vector` 0.8.6 和 `pg_trgm` 1.6 |
+| Valkey | `VALKEY_PORT`，默认 **26379** → 容器内 6379 | 开发用 db 0，测试用 db 1；配置为 `noeviction`，已开启 AOF。pub/sub 不区分 db，所以事件频道名带环境：`events:development`、`events:test`（D-044） |
 | Garage | 3900（S3）、3903（管理接口） | region 为 `garage`；bucket `chatapp` 和 `chatapp-test` |
 | Mailpit | **12525**（本机 SMTP）→ 容器内 1025；8025（网页界面） | Compose 从 `SMTP_PORT` 读取宿主机端口，模板默认 2525 |
 | Storybook | 6006 | M1b 起可用：`bun run storybook` |
 
-所有端口都只绑定在 `127.0.0.1` 上。
+所有端口都只绑定在 `127.0.0.1` 上。主机端口可能被 Windows 保留，见第 1 节的「Windows 保留端口段」和第 9 节（D-172）。
 
 ## 4. 基础设施：`infra/compose.dev.yml`
 
@@ -95,7 +96,7 @@ bun run doctor                 # end-to-end checks; add --ai to also test the De
 ## 6. 环境变量文件
 
 - **`.env.example`**：提交到仓库，列出所有变量及说明，不含真实密钥。
-- **`.env.local`**：不提交，已被 `.gitignore` 忽略；`guard` 脚本也会拦截任何被 git 跟踪的 env 文件。它由 `bun run setup` 生成，只有 `DEEPSEEK_API_KEY` 需要自己填写。
+- **`.env.local`**：不提交，已被 `.gitignore` 忽略；`guard` 脚本也会拦截任何被 git 跟踪的 env 文件。它由 `bun run setup` 生成，只有 `DEEPSEEK_API_KEY` 需要自己填写。`POSTGRES_PORT`、`VALKEY_PORT` 是主机端口，连接串里的端口始终跟着它们，`setup` 重复运行是安全的（D-172）。
 - **读取方式**：
   - Bun 只会从**当前目录**自动加载 `.env.local`，而且 `bun test`（`NODE_ENV=test`）根本不自动加载它。所以根目录的脚本都显式传 `--env-file=.env.local`；测试的 `APP_ENV=test` 由 `bunfig.toml` 的 preload 强制设置，配置加载器在测试环境下改用 `DATABASE_(OWNER_)URL_TEST`、`VALKEY_URL_TEST`、`S3_BUCKET_TEST`，并拒绝库名不以 `_test` 结尾、与开发共用 Valkey 库号或桶的配置。
   - 前端（M1b）：Vite 的 `envDir` 指向仓库根目录，`envPrefix` 设为 `VITE_PUBLIC_`，因此前端只能读取以它开头的变量。这些变量里不要放任何需要保密的内容。
@@ -118,7 +119,7 @@ bun run doctor                 # end-to-end checks; add --ai to also test the De
 |---|---|---|
 | `setup` | 生成 `.env.local`、本地密钥和 Garage 配置 | ✅ 可用 |
 | `doctor` | 端到端检查环境（`--ai` 额外检查 DeepSeek key） | ✅ 可用 |
-| `infra:up` / `infra:down` / `infra:ps` / `infra:logs` | 启动、停止、查看状态、查看日志 | ✅ 可用 |
+| `infra:up` / `infra:down` / `infra:ps` / `infra:logs` | 启动并等健康、再核对每个主机端口真的发布且连得上（Windows 保留的端口 Docker 不会报错，D-172；`INFRA_SKIP_PORT_CHECK=1` 关掉）/ 停止 / 查看状态 / 查看日志 | ✅ 可用 |
 | `infra:bootstrap` | 初始化 Garage | ✅ 可用 |
 | `infra:reset --yes` | **删除所有开发数据卷**，不带 `--yes` 会拒绝执行 | ✅ 可用 |
 | `lint` / `lint:fix` / `format` | Biome 检查、自动修复、格式化 | ✅ 可用 |
@@ -162,7 +163,8 @@ bun run doctor                 # end-to-end checks; add --ai to also test the De
 | `infra:up` 报 `ports are not available … 1025` | 1025 被 VPN 占用，已经改用 2525；如果还报错，检查 compose 文件是否是最新的 |
 | Mailpit 显示 healthy，但 `doctor` 连不上；或启动时报端口访问权限错误 | 检查 `docker compose -f infra/compose.dev.yml --env-file .env.local ps` 是否有实际宿主机端口映射；在 Windows 的 PowerShell 里用 `netsh interface ipv4 show excludedportrange protocol=tcp` 检查保留范围（端口是 Docker Desktop 在 Windows 主机上绑定的）。把 `.env.local` 的 `SMTP_PORT` 改为可绑定的端口，再运行 `bun run infra:up` 和 `bun run doctor`。端口变更会重建 Mailpit，需保留的测试邮件应先导出；不要停止 VPN 或重置其他服务的数据卷 |
 | 拉取新代码后 API 提示 `database is not bootstrapped`，或读到的 JSON 字段是字符串 | 先 `bun run db:migrate`（测试库用 `bun run db:migrate:test`）：`0002_normalize_jsonb` 会把旧的双重编码 JSON 值改成真正的 JSON（D-107） |
-| 连数据库被拒绝，或连到了别的库 | 端口要用 **5434**，5432 是 Windows 上原生的 PostgreSQL |
+| 连数据库被拒绝（`ECONNREFUSED`、`migrate failed: Error`），容器却是 healthy | 多半是端口被 Windows 保留了，Docker 没有发布它也没有报错。运行 `bun run doctor`：「host ports」和「containers」两项会说出是哪个端口、落在哪一段、换成哪个。按它说的改 `.env.local` 的 `POSTGRES_PORT` 或 `VALKEY_PORT`，`bun run setup`，`bun run infra:up`（D-172） |
+| 连到了别的库，或 `doctor` 说连接串的端口和变量不一致 | 开发库不在 5432（那是 Windows 上原生的 PostgreSQL）。`bun run setup` 会让连接串里的端口跟着 `POSTGRES_PORT`、`VALKEY_PORT` |
 | 改了 `POSTGRES_PASSWORD` 后认证失败 | 见第 5 节：执行 `bun run infra:reset --yes`，然后重新 up 和 bootstrap |
 | Garage 报 layout 相关的错误 | 重新执行 `bun run infra:bootstrap` |
 | S3 报签名错误 | 检查 `S3_ENDPOINT` 是否为 `http://localhost:3900`，`S3_REGION` 是否为 `garage` |
