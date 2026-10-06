@@ -127,6 +127,8 @@ describe('devices and revocation', () => {
     expect((await app.request('/api/auth/sign-out', { method: 'POST', jar: a.jar })).status).toBe(
       200,
     )
+    // The answer tells the browser to drop its cookie: the client leans on it for the person who signs out (D-175).
+    expect(a.jar.size).toBe(0)
     expect((await me(a.jar)).status).toBe(401)
     expect((await me(b.jar)).status).toBe(200)
     // Signing out without any session still answers 200 (idempotent).
