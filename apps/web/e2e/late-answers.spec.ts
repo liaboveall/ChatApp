@@ -1,4 +1,4 @@
-import type { APIRequestContext, Page, Response } from '@playwright/test'
+import type { APIRequestContext, Page } from '@playwright/test'
 import { createVerifiedMember } from './support/api.ts'
 import {
   addMembersApi,
@@ -14,6 +14,14 @@ import {
   signedIn,
 } from './support/chat.ts'
 import { expect, test } from './support/fixtures.ts'
+import {
+  frames,
+  holdAnswer,
+  signInInPlace,
+  signOutInPlace,
+  waitForChanges,
+  watchText,
+} from './support/late.ts'
 import { signIn } from './support/ui.ts'
 
 /**
@@ -25,119 +33,12 @@ import { signIn } from './support/ui.ts'
  * recall cannot bring the recalled text back when it replaces the window (R2). The held answer is delivered, and the
  * page is given its turn to act on it, before anything is asserted: the assertion is about what the page does with a
  * late answer.
+ *
+ * The answer to the save of an edit also finishes something on the screen: the composer leaves the edit and puts back
+ * the text it had set aside (M2b recheck 2026-10-06, R5, D-173). That is done only for the very edit the save went out
+ * under, so a late answer cannot clear the draft of whoever signed in next, of the person who signed in again or joined
+ * again, nor end the edit they went to meanwhile.
  */
-
-/**
- * Holds the answer to the first matching request until `deliver()`. The server has handled the request by then (its effect
- * is real and stays), the page has not been told yet. `deliver` gives the page the answer and then a few frames to act on it.
- */
-async function holdAnswer<T = { message: { id: string; seq: number } }>(
-  page: Page,
-  url: RegExp,
-  method: string,
-) {
-  let release: () => void = () => undefined
-  const gate = new Promise<void>((resolve) => {
-    release = resolve
-  })
-  let reached: (body: T) => void = () => undefined
-  const answered = new Promise<T>((resolve) => {
-    reached = resolve
-  })
-  let fulfilled: () => void = () => undefined
-  const given = new Promise<void>((resolve) => {
-    fulfilled = resolve
-  })
-  let taken = false
-  await page.route(url, async (route) => {
-    if (taken || route.request().method() !== method) return route.continue()
-    taken = true
-    const response = await route.fetch()
-    expect(response.ok()).toBe(true)
-    reached((await response.json()) as T)
-    await gate
-    await route.fulfill({ response })
-    fulfilled()
-  })
-  return {
-    /** The server has handled it; what the answer says. */
-    reached: answered,
-    async deliver(): Promise<void> {
-      release()
-      await given
-      // The page reads the body and acts on it in the turns after the answer arrives: let two frames pass.
-      await frames(page)
-    },
-  }
-}
-
-/** Two animation frames: what the page does with an answer it was just given (reading the body, merging, rendering) is done. */
-const frames = (page: Page): Promise<void> =>
-  page.evaluate(
-    () =>
-      new Promise<void>((resolve) =>
-        requestAnimationFrame(() => requestAnimationFrame(() => resolve())),
-      ),
-  )
-
-/** Resolves once the page has received, in its catch-up reads of the conversation, a version of every one of these messages. */
-function waitForChanges(page: Page, conversationId: string, messageIds: string[]): Promise<void> {
-  const missing = new Set(messageIds)
-  return new Promise((resolve) => {
-    const listener = async (response: Response): Promise<void> => {
-      if (!response.url().includes(`/api/conversations/${conversationId}/changes`)) return
-      const body = await response.text().catch(() => '')
-      for (const messageId of [...missing]) if (body.includes(messageId)) missing.delete(messageId)
-      if (missing.size > 0) return
-      page.off('response', listener)
-      resolve()
-    }
-    page.on('response', listener)
-  })
-}
-
-/**
- * Records whether a text is in the elements matching `css` at any moment from now on (a mutation observer, not a poll, so
- * that a text that is there for a single frame is seen); the returned function says whether it ever was.
- */
-async function watchText(page: Page, css: string, needle: string): Promise<() => Promise<boolean>> {
-  const key = `__seen:${css}:${needle}`
-  await page.evaluate(
-    ([selector, text, flag]) => {
-      const holder = window as unknown as Record<string, boolean>
-      const look = (): boolean =>
-        [...document.querySelectorAll(selector as string)].some((element) =>
-          (element.textContent ?? '').includes(text as string),
-        )
-      holder[flag as string] = look()
-      new MutationObserver(() => {
-        if (look()) holder[flag as string] = true
-      }).observe(document.body, { subtree: true, childList: true, characterData: true })
-    },
-    [css, needle, key],
-  )
-  return () =>
-    page.evaluate((flag) => (window as unknown as Record<string, boolean>)[flag] === true, key)
-}
-
-/** Signs out through the settings panel without leaving the page: a held request stays alive only in the same document. */
-async function signOutInPlace(page: Page): Promise<void> {
-  await composer(page).blur()
-  await page.keyboard.press('Control+,')
-  await page
-    .getByRole('dialog', { name: '设置' })
-    .getByRole('link', { name: '账号', exact: true })
-    .click()
-  await page.getByRole('button', { name: '退出登录' }).click()
-  await expect(page).toHaveURL(/\/login/)
-}
-
-async function signInInPlace(page: Page, email: string, password: string): Promise<void> {
-  await page.getByLabel('邮箱').fill(email)
-  await page.getByLabel('密码', { exact: true }).fill(password)
-  await page.getByRole('button', { name: '登录', exact: true }).click()
-  await expect(page.getByRole('heading', { name: /^欢迎回来/ })).toBeVisible()
-}
 
 test('R1: a late answer to a send cannot bring back the quote of a message that was recalled meanwhile', async ({
   page,
@@ -399,4 +300,201 @@ test('R2: a page of older messages that was read before a recall does not bring 
   )
   await expect(page.getByText(inBoth.text)).toHaveCount(0)
   await expect(page.getByText(onlyInPage.text)).toHaveCount(0)
+})
+
+/**
+ * Puts the person in an edit of one of their messages and presses Enter with the new text. The server handles the save
+ * (its effect is real and stays); the page is not told yet, `deliver()` of the result tells it.
+ */
+async function saveEditHeld(page: Page, source: { id: string }, oldText: string, newText: string) {
+  await message(page, oldText).click({ button: 'right' })
+  await page.getByRole('menuitem', { name: '编辑', exact: true }).click()
+  await expect(page.locator('.composer__ctx')).toContainText('正在编辑')
+  await expect(composer(page)).toHaveValue(oldText)
+  const held = await holdAnswer(page, new RegExp(`/api/messages/${source.id}$`), 'PATCH')
+  await sendFromComposer(page, newText)
+  await held.reached
+  return held
+}
+
+test('R5: the answer to an edit made before another person signed in does not clear what that person has typed', async ({
+  page,
+}) => {
+  const alice = await createVerifiedMember('r5alice')
+  const bob = await createVerifiedMember('r5bob')
+  const apiA = await signedIn(alice)
+  const apiB = await signedIn(bob)
+  const name = `R5-${Date.now().toString(36)}`
+  const id = await createChannelApi(apiA, name)
+  expect((await apiB.post(`/api/conversations/${id}/join`, { data: {} })).ok()).toBe(true)
+  const source = await sendApi(apiA, id, 'R5_ALICE_ORIGINAL')
+  await signIn(page, alice.email, alice.password)
+  await openFromSidebar(page, name)
+  await expect(message(page, 'R5_ALICE_ORIGINAL')).toBeVisible()
+  const held = await saveEditHeld(page, source, 'R5_ALICE_ORIGINAL', 'R5_ALICE_EDITED')
+
+  // Alice signs out and Bob signs in, in the same page, with the save still out; Bob starts writing.
+  await signOutInPlace(page)
+  await signInInPlace(page, bob.email, bob.password)
+  await openFromSidebar(page, name)
+  await composer(page).fill('R5_BOB_UNSENT_DRAFT')
+  await expect(composer(page)).toHaveValue('R5_BOB_UNSENT_DRAFT')
+
+  await held.deliver()
+  await expect(composer(page)).toHaveValue('R5_BOB_UNSENT_DRAFT')
+  await expect(page.locator('.composer__ctx')).toHaveCount(0)
+  // Bob's page is in step: the edit that did happen reaches him through the log, and his draft goes out as it was.
+  await expect(message(page, 'R5_ALICE_EDITED')).toBeVisible()
+  await expect(composer(page)).toHaveValue('R5_BOB_UNSENT_DRAFT')
+  await sendFromComposer(page, 'R5_BOB_UNSENT_DRAFT')
+  await expect(message(page, 'R5_BOB_UNSENT_DRAFT')).toBeVisible()
+})
+
+test('R5: the answer to an edit made before the person signed out and in again does not clear what they typed since', async ({
+  page,
+}) => {
+  const alice = await createVerifiedMember('r5again')
+  const apiA = await signedIn(alice)
+  const name = `R5a-${Date.now().toString(36)}`
+  const id = await createChannelApi(apiA, name)
+  const source = await sendApi(apiA, id, 'R5_AGAIN_ORIGINAL')
+  await signIn(page, alice.email, alice.password)
+  await openFromSidebar(page, name)
+  await expect(message(page, 'R5_AGAIN_ORIGINAL')).toBeVisible()
+  const held = await saveEditHeld(page, source, 'R5_AGAIN_ORIGINAL', 'R5_AGAIN_EDITED')
+
+  await signOutInPlace(page)
+  await signInInPlace(page, alice.email, alice.password)
+  await openFromSidebar(page, name)
+  await composer(page).fill('R5_DRAFT_AFTER_SIGNING_IN')
+  await expect(composer(page)).toHaveValue('R5_DRAFT_AFTER_SIGNING_IN')
+
+  await held.deliver()
+  await expect(composer(page)).toHaveValue('R5_DRAFT_AFTER_SIGNING_IN')
+  await expect(page.locator('.composer__ctx')).toHaveCount(0)
+  await expect(message(page, 'R5_AGAIN_EDITED')).toBeVisible()
+})
+
+test('R5: the answer to an edit made before the person left the channel and joined it again does not clear what they typed in the new membership', async ({
+  page,
+}) => {
+  const alice = await createVerifiedMember('r5lalice')
+  const bob = await createVerifiedMember('r5lbob')
+  const apiA = await signedIn(alice)
+  const apiB = await signedIn(bob)
+  const name = `R5l-${Date.now().toString(36)}`
+  const id = await createChannelApi(apiA, name)
+  expect((await apiB.post(`/api/conversations/${id}/join`, { data: {} })).ok()).toBe(true)
+  const source = await sendApi(apiB, id, 'R5_LEAVER_ORIGINAL')
+  await signIn(page, bob.email, bob.password)
+  await openFromSidebar(page, name)
+  await expect(message(page, 'R5_LEAVER_ORIGINAL')).toBeVisible()
+  const held = await saveEditHeld(page, source, 'R5_LEAVER_ORIGINAL', 'R5_LEAVER_EDITED')
+
+  await openDetails(page)
+  await page.getByRole('button', { name: '退出会话' }).click()
+  await page.getByRole('alertdialog').getByRole('button', { name: '退出', exact: true }).click()
+  await expect(page).toHaveURL(/\/$/)
+  expect((await apiB.post(`/api/conversations/${id}/join`, { data: {} })).ok()).toBe(true)
+  await openFromSidebar(page, name)
+  await composer(page).fill('R5_DRAFT_AFTER_JOINING')
+  await expect(composer(page)).toHaveValue('R5_DRAFT_AFTER_JOINING')
+
+  await held.deliver()
+  await expect(composer(page)).toHaveValue('R5_DRAFT_AFTER_JOINING')
+  await expect(page.locator('.composer__ctx')).toHaveCount(0)
+})
+
+for (const how of ['cancelled it', 'went on to another message'] as const) {
+  test(`R5: the answer to an edit made before the person ${how} does not end the edit they are in now`, async ({
+    page,
+  }) => {
+    const alice = await createVerifiedMember(how === 'cancelled it' ? 'r5cancel' : 'r5switch')
+    const apiA = await signedIn(alice)
+    const name = `R5${how === 'cancelled it' ? 'c' : 's'}-${Date.now().toString(36)}`
+    const id = await createChannelApi(apiA, name)
+    const first = await sendApi(apiA, id, 'R5_FIRST_ORIGINAL')
+    await sendApi(apiA, id, 'R5_SECOND_ORIGINAL')
+    await signIn(page, alice.email, alice.password)
+    await openFromSidebar(page, name)
+    await expect(message(page, 'R5_SECOND_ORIGINAL')).toBeVisible()
+    await composer(page).fill('R5_TYPED_BEFORE_EDITING')
+    const held = await saveEditHeld(page, first, 'R5_FIRST_ORIGINAL', 'R5_FIRST_EDITED')
+
+    // The save is out. The person leaves the edit (Escape) or does not, and edits the other message.
+    if (how === 'cancelled it') {
+      await composer(page).press('Escape')
+      await expect(page.locator('.composer__ctx')).toHaveCount(0)
+      await expect(composer(page)).toHaveValue('R5_TYPED_BEFORE_EDITING')
+    }
+    await message(page, 'R5_SECOND_ORIGINAL').click({ button: 'right' })
+    await page.getByRole('menuitem', { name: '编辑', exact: true }).click()
+    await expect(composer(page)).toHaveValue('R5_SECOND_ORIGINAL')
+    await composer(page).fill('R5_SECOND_HALF_WRITTEN')
+    await expect(composer(page)).toHaveValue('R5_SECOND_HALF_WRITTEN')
+
+    await held.deliver()
+    // The first save went through and shows; the second edit is as the person left it.
+    await expect(message(page, 'R5_FIRST_EDITED')).toBeVisible()
+    await expect(page.locator('.composer__ctx')).toContainText('正在编辑')
+    await expect(composer(page)).toHaveValue('R5_SECOND_HALF_WRITTEN')
+
+    // It is saved like any edit, and what was typed before the edits is back.
+    await sendFromComposer(page, 'R5_SECOND_EDITED')
+    await expect(message(page, 'R5_SECOND_EDITED')).toBeVisible()
+    await expect(page.locator('.composer__ctx')).toHaveCount(0)
+    await expect(composer(page)).toHaveValue('R5_TYPED_BEFORE_EDITING')
+  })
+}
+
+test('R5: a saved edit ends and puts back the text that was set aside before it', async ({
+  page,
+}) => {
+  const alice = await createVerifiedMember('r5normal')
+  const apiA = await signedIn(alice)
+  const name = `R5n-${Date.now().toString(36)}`
+  const id = await createChannelApi(apiA, name)
+  await sendApi(apiA, id, 'R5_NORMAL_ORIGINAL')
+  await signIn(page, alice.email, alice.password)
+  await openFromSidebar(page, name)
+  await expect(message(page, 'R5_NORMAL_ORIGINAL')).toBeVisible()
+  await composer(page).fill('R5_TYPED_BEFORE')
+  await message(page, 'R5_NORMAL_ORIGINAL').click({ button: 'right' })
+  await page.getByRole('menuitem', { name: '编辑', exact: true }).click()
+  await expect(page.locator('.composer__ctx')).toContainText('正在编辑')
+  await expect(composer(page)).toHaveValue('R5_NORMAL_ORIGINAL')
+
+  await sendFromComposer(page, 'R5_NORMAL_EDITED')
+  await expect(message(page, 'R5_NORMAL_EDITED')).toContainText('已编辑')
+  await expect(page.locator('.composer__ctx')).toHaveCount(0)
+  await expect(composer(page)).toHaveValue('R5_TYPED_BEFORE')
+  await expect(page.getByText('R5_NORMAL_ORIGINAL')).toHaveCount(0)
+})
+
+test('R5: what is typed while the save of an edit is out is kept, and the edit goes on from the saved version', async ({
+  page,
+}) => {
+  const alice = await createVerifiedMember('r5keep')
+  const apiA = await signedIn(alice)
+  const name = `R5k-${Date.now().toString(36)}`
+  const id = await createChannelApi(apiA, name)
+  const source = await sendApi(apiA, id, 'R5_KEEP_ORIGINAL')
+  await signIn(page, alice.email, alice.password)
+  await openFromSidebar(page, name)
+  await expect(message(page, 'R5_KEEP_ORIGINAL')).toBeVisible()
+  const held = await saveEditHeld(page, source, 'R5_KEEP_ORIGINAL', 'R5_KEEP_FIRST')
+  await composer(page).fill('R5_KEEP_FIRST and then some more')
+
+  await held.deliver()
+  // The first text is saved and shows; the field keeps what was typed after it, and the edit is still open.
+  await expect(message(page, 'R5_KEEP_FIRST')).toContainText('已编辑')
+  await expect(composer(page)).toHaveValue('R5_KEEP_FIRST and then some more')
+  await expect(page.locator('.composer__ctx')).toContainText('正在编辑')
+
+  // Saving it again is not taken for a clash with the first save.
+  await sendFromComposer(page, 'R5_KEEP_FIRST and then some more')
+  await expect(message(page, 'R5_KEEP_FIRST and then some more')).toBeVisible()
+  await expect(page.locator('.composer__ctx')).toHaveCount(0)
+  await expect(composer(page)).toHaveValue('')
+  await expect(page.getByText('这条消息刚被修改过')).toHaveCount(0)
 })
