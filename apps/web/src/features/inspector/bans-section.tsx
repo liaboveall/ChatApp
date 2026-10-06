@@ -35,7 +35,8 @@ export function BansSection({
 
   const lift = async (ban: Ban): Promise<void> => {
     try {
-      await liftBan(conversation.id, ban.user.id)
+      // Null: the person who asked is not here any more (D-174); the name of the person is not for them.
+      if ((await liftBan(conversation.id, ban.user.id)) === null) return
       showToast(m.inspector_unban_done({ name: nameOf(ban.user) }))
       reload()
     } catch (error) {

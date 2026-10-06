@@ -3,6 +3,7 @@ import { changePasswordRequestSchema, meSchema } from '@chatapp/contracts'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Fingerprint, Laptop, LogOut, Pencil, Smartphone } from 'lucide-react'
 import { type FormEvent, useId, useMemo, useState } from 'react'
+import { forScreen } from '@/app/sync.ts'
 import { Badge } from '@/components/ui/badge.tsx'
 import { Button } from '@/components/ui/button.tsx'
 import { SegmentedControl } from '@/components/ui/controls.tsx'
@@ -99,8 +100,13 @@ function ChangePasswordDialog({
   )
 
   const change = useMutation({
-    mutationFn: () => authApi.changePassword({ currentPassword: current, newPassword: next }),
-    onSuccess: async () => {
+    mutationFn: () =>
+      forScreen(null, () =>
+        authApi.changePassword({ currentPassword: current, newPassword: next }),
+      ),
+    onSuccess: async (answer) => {
+      // Null: the person who asked is not here any more (D-174); nothing is announced to whoever is.
+      if (answer === null) return
       onOpenChange(false)
       setCurrent('')
       setNext('')
@@ -201,16 +207,26 @@ function PasskeyRow({ passkey }: { passkey: Passkey }) {
   const nameId = useId()
   const refresh = () => queryClient.invalidateQueries({ queryKey: queryKeys.passkeys })
   const rename = useMutation({
-    mutationFn: () => renamePasskey(passkey.id, name.trim()),
-    onSuccess: async () => {
+    mutationFn: () =>
+      forScreen(null, async () => {
+        await renamePasskey(passkey.id, name.trim())
+        return true as const
+      }),
+    onSuccess: async (answer) => {
+      if (answer === null) return
       setRenaming(false)
       await refresh()
     },
     onError: (error) => showToast(describeError(error)),
   })
   const remove = useMutation({
-    mutationFn: () => deletePasskey(passkey.id),
-    onSuccess: async () => {
+    mutationFn: () =>
+      forScreen(null, async () => {
+        await deletePasskey(passkey.id)
+        return true as const
+      }),
+    onSuccess: async (answer) => {
+      if (answer === null) return
       setRemoving(false)
       showToast(m.settings_passkey_removed())
       await refresh()
@@ -287,8 +303,14 @@ function PasskeysRows() {
   const add = useMutation({
     // Named after the device it was created on, so the list tells them apart.
     mutationFn: () =>
-      addPasskey(deviceTitle(describeUserAgent(navigator.userAgent), m.settings_passkey_unnamed())),
-    onSuccess: async () => {
+      forScreen(null, async () => {
+        await addPasskey(
+          deviceTitle(describeUserAgent(navigator.userAgent), m.settings_passkey_unnamed()),
+        )
+        return true as const
+      }),
+    onSuccess: async (answer) => {
+      if (answer === null) return
       showToast(m.settings_passkey_added_toast())
       await queryClient.invalidateQueries({ queryKey: queryKeys.passkeys })
     },
@@ -333,13 +355,18 @@ function DevicesGroup() {
   const [target, setTarget] = useState<RevokeTarget | null>(null)
 
   const revoke = useMutation({
-    mutationFn: async (what: RevokeTarget) => {
-      if (what.kind === 'one') await api(`/api/me/devices/${what.device.id}`, { method: 'DELETE' })
-      else if (what.kind === 'others')
-        await api('/api/me/devices/revoke-others', { method: 'POST' })
-      else await api('/api/me/devices/revoke-all', { method: 'POST' })
-    },
-    onSuccess: async (_data, what) => {
+    mutationFn: (what: RevokeTarget) =>
+      forScreen(null, async () => {
+        if (what.kind === 'one')
+          await api(`/api/me/devices/${what.device.id}`, { method: 'DELETE' })
+        else if (what.kind === 'others')
+          await api('/api/me/devices/revoke-others', { method: 'POST' })
+        else await api('/api/me/devices/revoke-all', { method: 'POST' })
+        return true as const
+      }),
+    onSuccess: async (answer, what) => {
+      // Null: the person who asked is not here any more (D-174); ending the session below would end whoever's is here.
+      if (answer === null) return
       setTarget(null)
       if (what.kind === 'all') {
         endSession('signed-out')
@@ -496,18 +523,21 @@ function TimezoneGroup({ me }: { me: Me }) {
   }, [me.timezone])
   const save = useMutation({
     mutationFn: (change: { timezone?: string; timezoneAuto?: boolean }) =>
-      api('/api/me', {
-        method: 'PATCH',
-        json: {
-          expectedMeVersion: me.meVersion,
-          ...(change.timezone === undefined ? {} : { timezone: change.timezone }),
-          ...(change.timezoneAuto === undefined
-            ? {}
-            : { settings: { timezoneAuto: change.timezoneAuto } }),
-        },
-        schema: meSchema,
-      }),
+      forScreen(null, () =>
+        api('/api/me', {
+          method: 'PATCH',
+          json: {
+            expectedMeVersion: me.meVersion,
+            ...(change.timezone === undefined ? {} : { timezone: change.timezone }),
+            ...(change.timezoneAuto === undefined
+              ? {}
+              : { settings: { timezoneAuto: change.timezoneAuto } }),
+          },
+          schema: meSchema,
+        }),
+      ),
     onSuccess: (updated) => {
+      if (updated === null) return
       writeMeAnswer(queryClient, updated)
       showToast(m.settings_timezone_saved())
     },

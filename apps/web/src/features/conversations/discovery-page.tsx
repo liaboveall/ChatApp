@@ -61,7 +61,8 @@ export function DiscoveryPage({
   const join = async (id: string): Promise<void> => {
     setJoining(id)
     try {
-      await joinConversation(id)
+      // Null: the person who asked is not here any more (D-174); it is not for them to be taken to the channel.
+      if ((await joinConversation(id)) === null) return
       await navigate({ to: '/c/$conversationId', params: { conversationId: id } })
     } catch (error) {
       showToast(joinErrorText(error) ?? describeError(error))

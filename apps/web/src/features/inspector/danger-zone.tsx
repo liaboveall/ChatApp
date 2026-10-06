@@ -34,7 +34,8 @@ export function DangerZone({
 
   const archive = async (): Promise<void> => {
     try {
-      await archiveConversation(conversation.id)
+      // Null: the person who asked is not here any more (D-174); the name of the conversation is not for them.
+      if ((await archiveConversation(conversation.id)) === null) return
       showToast(m.inspector_archived_toast({ name }))
       void navigate({ to: '/' })
     } catch (error) {

@@ -3,6 +3,7 @@ import { api } from '@/lib/api.ts'
 import { queryClient } from '@/lib/query-client.ts'
 import { serverNow } from '@/lib/realtime.ts'
 import { type ForgetReason, SyncEngine } from '@/lib/sync/engine.ts'
+import { screenWrites } from '@/lib/sync/for-screen.ts'
 import { Outbox } from '@/lib/sync/outbox.ts'
 import { clearClientStores, clearConversationStores } from '@/lib/sync/stores.ts'
 import { httpTransport } from '@/lib/sync/transport.ts'
@@ -30,6 +31,12 @@ export const engine = new SyncEngine({
   onConversationReset: clearConversationStores,
   onStop: clearClientStores,
 })
+
+/**
+ * Every write a screen makes goes through this (D-174): the answer, and the failure, reach the screen only while the person
+ * who asked, and the membership the request was about, are still here; otherwise the screen gets null and does nothing more.
+ */
+export const forScreen = screenWrites(engine)
 
 /** Messages being sent (D-154): the answer goes into the engine's cache like every other answer. */
 export const outbox: Outbox = new Outbox({

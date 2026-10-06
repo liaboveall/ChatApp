@@ -13,6 +13,7 @@ import {
 import { engine } from '@/app/sync.ts'
 import { ApiError, api } from '@/lib/api.ts'
 import { describeError } from '@/lib/error-messages.ts'
+import { type EditMode, settleEdit } from '@/lib/sync/compose.ts'
 import type { RequestTicket } from '@/lib/sync/types.ts'
 import { showToast } from '@/lib/toast.ts'
 import { m } from '@/paraglide/messages.js'
@@ -39,8 +40,13 @@ function fail(message: Message, kind: Kind, error: unknown, ticket: RequestTicke
   showToast(describeError(error))
 }
 
-/** Returns whether the change was accepted (the composer leaves edit mode only then). */
-export async function editMessage(message: Message, body: string): Promise<boolean> {
+/**
+ * Returns the version the change made when the server accepted it *and this page took the answer*; null otherwise: it was
+ * refused (the failure is worded here), or the answer came for an account or a membership that is not the one here any
+ * more (the engine drops it, and so does everything that would follow from it: nothing is finished on this screen, D-173).
+ * The change itself may well have happened on the server then, and reaches this page through the log like any other.
+ */
+export async function editMessage(message: Message, body: string): Promise<Message | null> {
   const request: EditMessageRequest = { body, expectedChangeSeq: message.changeSeq }
   const ticket = engine.ticket(message.conversationId)
   try {
@@ -49,12 +55,22 @@ export async function editMessage(message: Message, body: string): Promise<boole
       json: request,
       schema: messageEnvelopeSchema,
     })
-    engine.ingestMessage(envelope, ticket)
-    return true
+    return engine.ingestMessage(envelope, ticket) ? envelope.message : null
   } catch (error) {
     fail(message, 'edit', error, ticket)
-    return false
+    return null
   }
+}
+
+/**
+ * Saves the edit the composer is in. Once the answer is taken, the edit that was saved is finished (what was set aside
+ * goes back into the field), but only if it is still the one in progress and the field still holds what was sent: that is
+ * decided against the stores as they are when the answer comes, never against what the screen held when the save went out,
+ * which is the screen of an account, a membership or an edit that may be gone (D-173).
+ */
+export async function saveEdit(mode: EditMode, body: string): Promise<void> {
+  const saved = await editMessage(mode.message, body)
+  if (saved !== null) settleEdit(mode, body, saved)
 }
 
 export async function recallMessage(message: Message): Promise<void> {

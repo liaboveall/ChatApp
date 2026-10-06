@@ -27,6 +27,11 @@ export type SyncScope = {
  */
 export type RequestTicket = {
   readonly scope: SyncScope | null
+  /**
+   * Which sign-in the request went out under (D-174). It differs from the engine's when the person signed out, or somebody
+   * else signed in, meanwhile; a password change (a new login generation, so a new `scope`) does not move it.
+   */
+  readonly session: number
   readonly conversationId: string | null
   /** The membership held when the request went out; null when the request is not about a conversation, or I held none. */
   readonly membershipId: string | null

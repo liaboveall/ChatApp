@@ -69,6 +69,8 @@ export function JoinPage() {
     setBusy(true)
     try {
       const conversation = await acceptInvite(code)
+      // Null: the person who asked is not here any more (D-174); nothing follows.
+      if (conversation === null) return
       await navigate({ to: '/c/$conversationId', params: { conversationId: conversation.id } })
     } catch (error) {
       setProblem(

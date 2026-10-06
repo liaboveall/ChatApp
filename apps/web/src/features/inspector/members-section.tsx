@@ -149,7 +149,9 @@ export function MembersSection({ conversation, meId, actor, facts, permissions }
 
   const run: Run = async (call, success) => {
     try {
-      await call()
+      // Null: the person who asked, or the membership it was about, is not here any more (D-174); the name in `success`
+      // is not for whoever is here now.
+      if ((await call()) === null) return false
       showToast(success)
       reload()
       return true

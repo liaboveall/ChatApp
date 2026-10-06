@@ -15,6 +15,7 @@ import { draftOf, setDraft, useDrafts } from './drafts.ts'
 import { type ForgetReason, SyncEngine } from './engine.ts'
 import { FakeServer } from './fake-server.ts'
 import { makeAccount, makeConversation, makeMe, makeMessage, makeUser, uuid } from './fixtures.ts'
+import { screenWrites } from './for-screen.ts'
 import { syncKeys } from './keys.ts'
 import { Outbox, pendingOf, useOutbox } from './outbox.ts'
 import { syncUi, useSyncUi } from './state.ts'
@@ -1680,6 +1681,137 @@ describe('what the person wrote under a membership that ended does not outlive i
     t.engine.onEvent(hint(t.server.head))
     await tick(100)
     expect(liveTarget(mode, t.engine.windowOf(CONV))).toBeNull()
+    t.engine.stop()
+  })
+})
+
+describe('what follows from the answer to a request is for the person who asked (D-174)', () => {
+  const accountB = () =>
+    makeAccount({ id: uuid(2), email: 'user2@example.test', username: 'user2' })
+  const joinedAs = (membershipId: string) =>
+    makeConversation(500, {
+      me: makeMe({ membershipId, version: 9, visibleFromSeq: 3 }),
+      lastSeq: 3,
+    })
+
+  test('a ticket taken in this sign-in is current, for the account and for a conversation', async () => {
+    const t = setup({ seed: 3 })
+    await open(t)
+    expect(t.engine.isCurrent(t.engine.ticket())).toBe(true)
+    expect(t.engine.isCurrent(t.engine.ticket(CONV))).toBe(true)
+    t.engine.stop()
+  })
+
+  test('a request made where no engine runs (a page outside the shell) is current while that is still so', async () => {
+    const t = setup({ seed: 3 })
+    const before = t.engine.ticket()
+    expect(t.engine.isCurrent(before)).toBe(true)
+    // …and it is not once the engine starts (the person went into the application), or the session ends.
+    await open(t)
+    expect(t.engine.isCurrent(before)).toBe(false)
+    t.engine.stop()
+    const again = t.engine.ticket()
+    expect(t.engine.isCurrent(again)).toBe(true)
+    t.engine.stop()
+    expect(t.engine.isCurrent(again)).toBe(false)
+  })
+
+  test('another person signing in makes every earlier ticket stale, with the engine stopped in between or not', async () => {
+    const t = setup({ seed: 3 })
+    await open(t)
+    const account = t.engine.ticket()
+    const conversation = t.engine.ticket(CONV)
+    await t.engine.start(accountB())
+    expect(t.engine.isCurrent(account)).toBe(false)
+    expect(t.engine.isCurrent(conversation)).toBe(false)
+    const second = t.engine.ticket()
+    t.engine.stop()
+    await t.engine.start(makeAccount())
+    expect(t.engine.isCurrent(second)).toBe(false)
+    t.engine.stop()
+  })
+
+  test('the same person signing out and in again is not who asked either', async () => {
+    const t = setup({ seed: 3 })
+    await open(t)
+    const account = t.engine.ticket()
+    t.engine.stop()
+    await t.engine.start(t.me)
+    expect(t.engine.isCurrent(account)).toBe(false)
+    t.engine.stop()
+  })
+
+  test('a password change under a live session moves the cache on, not the person: they are still who asked', async () => {
+    const t = setup({ seed: 3 })
+    await open(t)
+    const account = t.engine.ticket()
+    const conversation = t.engine.ticket(CONV)
+    await t.engine.switchScope(makeAccount({ authEpoch: 2 }))
+    // The cache refuses what was asked under the old generation (it is read again), the screen still gets its answer.
+    expect(t.engine.isCurrent(account)).toBe(true)
+    expect(t.engine.isCurrent(conversation)).toBe(true)
+    t.engine.stop()
+  })
+
+  test('a membership that ended and began again is not the one the request was about; one about the account still is', async () => {
+    const t = setup({ seed: 3 })
+    await open(t)
+    const account = t.engine.ticket()
+    const conversation = t.engine.ticket(CONV)
+    t.engine.ingestConversation(joinedAs(M2), t.engine.ticket())
+    expect(t.engine.isCurrent(conversation)).toBe(false)
+    expect(t.engine.isCurrent(account)).toBe(true)
+    t.engine.stop()
+  })
+
+  test('a conversation that left the cache is not the one the request was about', async () => {
+    const t = setup({ seed: 3 })
+    await open(t)
+    const conversation = t.engine.ticket(CONV)
+    t.engine.leftConversation(CONV, t.engine.ticket(CONV))
+    expect(t.engine.isCurrent(conversation)).toBe(false)
+    t.engine.stop()
+  })
+
+  test('a write of the person who signed out, answered after somebody else signed in, is null and puts nothing into the cache', async () => {
+    const t = setup({ seed: 3 })
+    await open(t)
+    const forScreen = screenWrites(t.engine)
+    const answer = defer<Conversation>()
+    const joinedLater = joinedAs(M2)
+    const write = forScreen(
+      null,
+      () => answer.promise,
+      (conversation, ticket) => t.engine.ingestConversation(conversation, ticket),
+    )
+    t.engine.stop()
+    t.server.conversation = makeConversation(500, { me: makeMe({ membershipId: M2 }) })
+    await t.engine.start(accountB())
+    const before = JSON.stringify(t.index())
+    answer.resolve(joinedLater)
+    expect(await write).toBeNull()
+    expect(JSON.stringify(t.index())).toBe(before)
+    t.engine.stop()
+  })
+
+  test('a failure of such a write is swallowed, one of a write whose person is still here is not', async () => {
+    const t = setup({ seed: 3 })
+    await open(t)
+    const forScreen = screenWrites(t.engine)
+    let fail: (error: unknown) => void = () => undefined
+    const stale = forScreen(
+      CONV,
+      () =>
+        new Promise<never>((_resolve, reject) => {
+          fail = reject
+        }),
+    )
+    t.engine.stop()
+    await t.engine.start(accountB())
+    fail(new ApiError(0, 'NETWORK'))
+    expect(await stale).toBeNull()
+    const here = forScreen(null, () => Promise.reject(new ApiError(0, 'NETWORK')))
+    await expect(here).rejects.toBeInstanceOf(ApiError)
     t.engine.stop()
   })
 })

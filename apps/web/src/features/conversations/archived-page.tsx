@@ -41,7 +41,8 @@ export function ArchivedPage() {
     setBusy(id)
     setNameError(null)
     try {
-      await restoreConversation(id, name === undefined ? {} : { name })
+      // Null: the person who asked is not here any more (D-174); it is not for them to be taken to the conversation.
+      if ((await restoreConversation(id, name === undefined ? {} : { name })) === null) return
       setRenaming(null)
       await navigate({ to: '/c/$conversationId', params: { conversationId: id } })
     } catch (error) {
