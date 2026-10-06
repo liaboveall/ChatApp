@@ -187,8 +187,8 @@ Events: api/worker ──publish──▶ Valkey channel "events:{APP_ENV}" ─�
 | worker | M1a宿主机热重载；M3起Linux容器热重载，以便和media共享Unix socket | 与api同server镜像；1536MiB。向量若不兼容Bun（V-12），在本容器内用Node子进程，仍受总预算 |
 | media（M3） | Linux 容器，network_mode=none，无TCP端口 | 独立镜像；仅私有Unix socket，512 MiB上限；不挂应用密钥或对象卷 |
 | edge（M2b 起） | Nginx 容器，`https://chat.localhost:8443`，加载生产站点配置，服务一次构建产物，用于 CSP 测试和彩排 | 宿主机 Nginx，配置文件相同 |
-| postgres | 容器，宿主机端口 **5434**（Windows 主机的 5432 已被原生 PostgreSQL 占用） | 仅容器内网 |
-| valkey | 容器，宿主机端口 6379 | 仅容器内网 |
+| postgres | 容器，宿主机端口 `POSTGRES_PORT`，默认 **25434**（Windows 主机的 5432 已被原生 PostgreSQL 占用；默认值在 Windows 动态端口范围之外，D-172） | 仅容器内网 |
+| valkey | 容器，宿主机端口 `VALKEY_PORT`，默认 **26379**（D-172） | 仅容器内网 |
 | garage | 容器，S3 接口 :3900，管理接口 :3903 | 仅容器内网 |
 | mailpit | 容器；SMTP 从 `SMTP_PORT` 读取（默认 2525，本机 12525），映射到容器内 1025；网页 :8025 | 不部署，改用 Resend |
 
@@ -329,10 +329,10 @@ work_items 唯一 dedupe_key 与业务事务关联；payload 只存 id、版本�
 | `APP_TIMEZONE` | `Asia/Shanghai` | 业务时区：每日额度重置、月度预算（M1a 新增，D-049） |
 | `API_PORT` | `3100` | |
 | `TRUSTED_PROXIES` | `127.0.0.1,::1` | 只信任这些地址转发的客户端 IP 头（M1a 新增，SEC-28） |
-| `DATABASE_URL` | `postgres://chatapp_app:…@localhost:5434/chatapp` | 应用运行时的无特权账号（D-097） |
-| `DATABASE_OWNER_URL` | `postgres://chatapp:…@localhost:5434/chatapp` | 拥有者账号：迁移、bootstrap、CLI 和测试清表；运行中的生产应用不持有它。测试环境读 `DATABASE_(OWNER_)URL_TEST` |
+| `DATABASE_URL` | `postgres://chatapp_app:…@localhost:25434/chatapp`（端口即 `POSTGRES_PORT`） | 应用运行时的无特权账号（D-097） |
+| `DATABASE_OWNER_URL` | `postgres://chatapp:…@localhost:25434/chatapp` | 拥有者账号：迁移、bootstrap、CLI 和测试清表；运行中的生产应用不持有它。测试环境读 `DATABASE_(OWNER_)URL_TEST` |
 | `API_HOST` | `127.0.0.1` | API 监听接口；只有容器内才设为 `0.0.0.0` 并把端口只发布到 127.0.0.1 |
-| `VALKEY_URL` | `redis://localhost:6379` | |
+| `VALKEY_URL` | `redis://localhost:26379`（端口即 `VALKEY_PORT`） | |
 | `S3_ENDPOINT` / `S3_REGION` / `S3_BUCKET` | `http://localhost:3900` / `garage` / `chatapp` | |
 | `S3_ACCESS_KEY_ID` / `S3_SECRET_ACCESS_KEY` | 由 setup 脚本生成 | |
 | `BETTER_AUTH_SECRET` | 由 setup 脚本生成 | ≥ 32 字节随机值 |
@@ -396,6 +396,8 @@ work_items 唯一 dedupe_key 与业务事务关联；payload 只存 id、版本�
   - **回答只和发起时一样新**：用一页替换窗口（首屏、跳转、回到最新）时，日志位置设成请求发起时的水位，从那里重放到新窗口上；后发起的替换算数；向上/向下翻页和回复的写响应也退回水位重放；在途的补发和翻页随之作废（D-171）；
   - 收到消息更新时，同时更新引用它的回复和会话预览；引用跟随源消息**已知的最新版本**，迟到的旧响应不能让引用恢复旧摘要，新进窗口的回复按窗口已知的撤回/删除/隐藏当场改正（D-171）；
   - 草稿、待发队列、回复/编辑状态按会话存，**成员关系结束时一起清除**（退出、被移出、个人日志快照、读到另一个成员关系、重置里换了成员关系）；回复/编辑状态记着自己的成员关系，输入栏里的引用副本跟随源消息的当前版本，源消息被撤回、删除、隐藏就结束该状态（D-171）；
+  - **回答带来的界面收尾也只对发起时的那一次生效**：每次开始回复/编辑有自己的编号，`endCompose` 没有匹配的模式时什么也不做；保存编辑的回答回来后由 `settleEdit` 对照 store 现在的状态决定要不要结束编辑、放回暂存（编号相同，输入栏仍是发出的文本），引擎拒绝了回答（账号或成员关系已变）就不算保存；异步回调不使用渲染时的闭包做决定（D-173）；
+  - **屏幕发的写请求一律经 `forScreen`**（D-174）：回答和失败只在「同一次登录会话、同一个成员关系」时交给屏幕，否则是 null，屏幕什么也不做，所以换了人之后迟到的回答不会让新的人被带去别的会话、看到前一个人的会话名或用户名、或结束他的会话；比缓存宽一点（改密码换登录世代不算换人）；`features/screen-writes.test.ts` 读源码守住这条约定；
   - 收到conversation.removed提示先对账；仅接受较新viewerVersion且匹配关系的移除墓碑后清缓存，迟到提示不能删除重新加入后的关系。
 - **全局状态**（zustand）：当前会话、Inspector 是否打开、输入框草稿（按会话保存，M6 起持久化到 IndexedDB）、外观设置。M1b 已有：实时连接状态与时钟偏移（`lib/realtime.ts`）、外观（`lib/appearance.ts`，设备级，D-117）、外壳布局（`lib/shell-state.ts`：侧栏宽度、抽屉、Inspector）。
 - **WebSocket 客户端**：
