@@ -70,7 +70,8 @@ function NotMember({
   const join = async (): Promise<void> => {
     setBusy(true)
     try {
-      await joinConversation(conversation.id)
+      // Null: the person who asked is not here any more (D-174); the button was theirs, nothing follows.
+      if ((await joinConversation(conversation.id)) === null) setBusy(false)
     } catch (error) {
       showToast(joinErrorText(error) ?? describeError(error))
       setBusy(false)

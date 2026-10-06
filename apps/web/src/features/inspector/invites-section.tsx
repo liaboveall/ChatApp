@@ -60,6 +60,11 @@ function CreateForm({
         expiresInDays: days,
         maxUses: uses,
       })
+      // Null: the person who asked, or the membership it was about, is not here any more (D-174); nothing follows.
+      if (created === null) {
+        setBusy(false)
+        return
+      }
       onCreated(created.code)
     } catch (error) {
       setProblem(
@@ -173,7 +178,7 @@ export function InvitesSection({
 
   const revoke = async (invite: ConversationInvite): Promise<void> => {
     try {
-      await revokeInvite(conversation.id, invite.id)
+      if ((await revokeInvite(conversation.id, invite.id)) === null) return
       showToast(m.inspector_invite_revoked())
       reload()
     } catch (error) {

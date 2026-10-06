@@ -29,7 +29,7 @@ import { draftOf, setDraft, useDrafts } from '@/lib/sync/drafts.ts'
 import { useTimelineWindow, useUsers } from '@/lib/sync/hooks.ts'
 import { displayName } from '@/lib/sync/selectors.ts'
 import { m } from '@/paraglide/messages.js'
-import { editMessage } from '../message-actions/actions.ts'
+import { saveEdit } from '../message-actions/actions.ts'
 import { lastEditable } from '../message-actions/eligibility.ts'
 import { useMessageCommands } from '../message-actions/use-message-commands.ts'
 import type { TimelineHandle } from '../timeline/timeline.tsx'
@@ -79,12 +79,14 @@ export function Composer({
   const tooLong = length > LIMITS.messageMaxCodePoints
   const canSend = parsed.success && me !== null
 
-  /** Ends a reply or an edit and puts back what was in the field before it (nothing, after a reply). */
+  /**
+   * Ends this reply or edit and puts back what was in the field before it (nothing, after a reply). It names the one it
+   * ends: when another was started since, or the membership is another one, nothing is ended and the field is not touched.
+   */
   const leaveMode = (): void => {
-    if (membershipId === undefined) return
-    const wasEdit = stored?.type === 'edit'
-    const stash = endCompose(id, membershipId)
-    if (wasEdit) setDraft(id, stash ?? '')
+    if (stored === undefined) return
+    const stash = endCompose(id, stored.membershipId, stored.serial)
+    if (stash !== undefined) setDraft(id, stash)
   }
 
   // biome-ignore lint/correctness/useExhaustiveDependencies: ends the mode once, when its target is gone
@@ -97,7 +99,9 @@ export function Composer({
     if (mode?.type === 'edit') {
       // Nothing changed: just leave the edit.
       if (draft === mode.message.body) return leaveMode()
-      if (await editMessage(mode.message, draft)) leaveMode()
+      // The answer comes after this render has been replaced, and maybe after this screen is gone, so what it finishes is
+      // not decided here: the edit that went out and the text that was sent are named, and the stores are asked (D-173).
+      await saveEdit(mode, draft)
       return
     }
     const quote =
@@ -118,7 +122,7 @@ export function Composer({
       quote,
     })
     setDraft(id, '')
-    if (mode?.type === 'reply') endCompose(id, me.membershipId)
+    if (mode?.type === 'reply') endCompose(id, me.membershipId, mode.serial)
     field.current?.focus()
     void timeline.current?.toLatest()
   }

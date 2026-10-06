@@ -183,6 +183,11 @@ export class SyncEngine {
 
   #scope: SyncScope | null = null
   #scopes = 0
+  /**
+   * Which sign-in the tab is in (D-174): it moves on when the session ends or another person signs in, and stays when the
+   * same person's login generation changes under a live session (a password change). `#scopes` counts the second kind too.
+   */
+  #session = 0
   #controller = new AbortController()
   readonly #convs = new Map<string, ConvSync>()
   #user: UserSync = newUser()
@@ -239,7 +244,10 @@ export class SyncEngine {
     if (current !== null) {
       this.#teardown(current)
       // Another account in the same page without a stop in between: nothing of the first one's may be left for the second.
-      if (current.userId !== me.id) this.#onStop()
+      if (current.userId !== me.id) {
+        this.#session += 1
+        this.#onStop()
+      }
     }
     this.#scopes += 1
     const scope: SyncScope = {
@@ -278,6 +286,7 @@ export class SyncEngine {
     const scope = this.#scope
     if (scope !== null) this.#teardown(scope)
     this.#scope = null
+    this.#session += 1
     syncUi.reset()
     this.#onStop()
   }
@@ -443,15 +452,37 @@ export class SyncEngine {
    */
   ticket(conversationId: string | null = null): RequestTicket {
     const scope = this.#scope
+    const session = this.#session
     if (scope === null || conversationId === null) {
-      return { scope, conversationId, membershipId: null, watermark: 0 }
+      return { scope, session, conversationId, membershipId: null, watermark: 0 }
     }
     return {
       scope,
+      session,
       conversationId,
       membershipId: this.#index(scope).byId[conversationId]?.me?.membershipId ?? null,
       watermark: this.#headOf(scope, conversationId),
     }
+  }
+
+  /**
+   * Whether what follows from the answer to a request (a jump to the conversation it made, a message saying what was done) is
+   * still for the person in front of the screen (D-174): the same sign-in, and, for a request about one conversation, the same
+   * membership. Looser than what the cache accepts (`#answerable` also wants the same login generation, which a password
+   * change moves on): the person who asked still wants to see that it worked, and the cache catches up by itself. Another
+   * person, the same person after signing out and in again, or a membership that ended and began again are not the ones that
+   * asked: nothing may follow from an answer, nor from a failure, that is not for them.
+   */
+  isCurrent(ticket: RequestTicket): boolean {
+    if (ticket.session !== this.#session) return false
+    const scope = this.#scope
+    // A request made where no engine runs (a page outside the shell, the invitation link) has no scope to compare: it is for
+    // whoever is there while that is still so, and it is not once the engine starts or the session ends.
+    if (ticket.scope === null) return scope === null
+    if (scope === null) return false
+    if (ticket.conversationId === null) return true
+    const held = this.#index(scope).byId[ticket.conversationId]?.me?.membershipId ?? null
+    return held === ticket.membershipId
   }
 
   /** The newest change of a conversation that the client already knows of: a read made now is at least as new as this. */

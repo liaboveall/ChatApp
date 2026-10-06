@@ -33,7 +33,13 @@ function setup(overrides: Partial<OutboxDeps> = {}) {
           reject,
         })
       }),
-    ticket: (conversationId) => ({ scope: null, conversationId, membershipId: M, watermark: 0 }),
+    ticket: (conversationId) => ({
+      scope: null,
+      session: 0,
+      conversationId,
+      membershipId: M,
+      watermark: 0,
+    }),
     onSent: (envelope) => sent.push(envelope),
     onAccessError: () => false,
     membershipOf: () => M,
@@ -281,7 +287,7 @@ describe('Outbox', () => {
     const { outbox, calls } = setup({
       ticket: (conversationId) => {
         watermark += 10
-        const ticket = { scope: null, conversationId, membershipId: M, watermark }
+        const ticket = { scope: null, session: 0, conversationId, membershipId: M, watermark }
         tickets.push(ticket)
         return ticket
       },

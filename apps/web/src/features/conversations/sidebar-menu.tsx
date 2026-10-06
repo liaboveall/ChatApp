@@ -48,8 +48,8 @@ export function SidebarMenu({
   ): Promise<void> => {
     if (conversation === undefined) return
     try {
-      await patchMyState(conversation.id, request)
-      after?.()
+      // Null: the person who asked, or the membership it was about, is not here any more (D-174); nothing follows.
+      if ((await patchMyState(conversation.id, request)) !== null) after?.()
     } catch (error) {
       if (error instanceof ApiError && error.code === 'VERSION_CONFLICT') {
         void engine.refreshConversation(conversation.id)

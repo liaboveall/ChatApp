@@ -6,7 +6,7 @@
  */
 import { displayNameSchema, LIMITS, type Me, meSchema, usernameSchema } from '@chatapp/contracts'
 import { useState } from 'react'
-import { engine } from '@/app/sync.ts'
+import { engine, forScreen } from '@/app/sync.ts'
 import { Button } from '@/components/ui/button.tsx'
 import { Dialog } from '@/components/ui/dialog.tsx'
 import { Banner } from '@/components/ui/feedback.tsx'
@@ -39,19 +39,24 @@ function Form({ me, onClose }: { me: Me; onClose: () => void }) {
     if (!canSave) return
     setBusy(true)
     setProblems({})
-    const ticket = engine.ticket()
     try {
-      const updated = await api('/api/me', {
-        method: 'PATCH',
-        json: {
-          expectedMeVersion: me.meVersion,
-          ...(nameChanged ? { displayName: displayName.trim() } : {}),
-          ...(usernameChanged ? { username } : {}),
-          ...(bioChanged ? { bio: bio.trim() === '' ? null : bio.trim() } : {}),
-        },
-        schema: meSchema,
-      })
-      engine.ingestMe(updated, ticket)
+      const updated = await forScreen(
+        null,
+        () =>
+          api('/api/me', {
+            method: 'PATCH',
+            json: {
+              expectedMeVersion: me.meVersion,
+              ...(nameChanged ? { displayName: displayName.trim() } : {}),
+              ...(usernameChanged ? { username } : {}),
+              ...(bioChanged ? { bio: bio.trim() === '' ? null : bio.trim() } : {}),
+            },
+            schema: meSchema,
+          }),
+        (answer, ticket) => engine.ingestMe(answer, ticket),
+      )
+      // Null: the person who asked is not here any more (D-174); nothing is announced to whoever is.
+      if (updated === null) return
       showToast(m.settings_profile_saved())
       onClose()
       return

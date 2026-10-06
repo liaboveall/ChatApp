@@ -22,8 +22,14 @@ export type MemberDialog =
   | { kind: 'ban'; member: Member }
   | { kind: 'transfer'; member: Member }
 
-/** Does the call and shows its result; true when it worked (then the dialog closes). */
-export type Run = (call: () => Promise<unknown>, success: string) => Promise<boolean>
+/**
+ * Does the call and shows its result; true when it worked (then the dialog closes). A call answers null when the person who
+ * asked is not here any more (D-174): nothing is shown then, and it did not work as far as the screen is concerned.
+ */
+export type Run = (
+  call: () => Promise<NonNullable<unknown> | null>,
+  success: string,
+) => Promise<boolean>
 
 const silenceLabel = (choice: SilenceChoice): string => {
   switch (choice) {

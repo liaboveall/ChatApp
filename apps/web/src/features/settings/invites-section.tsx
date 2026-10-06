@@ -8,6 +8,7 @@ import {
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Copy, Ticket } from 'lucide-react'
 import { useId, useState } from 'react'
+import { forScreen } from '@/app/sync.ts'
 import { Button } from '@/components/ui/button.tsx'
 import { SegmentedControl } from '@/components/ui/controls.tsx'
 import { Dialog } from '@/components/ui/dialog.tsx'
@@ -83,15 +84,19 @@ function CreateInvite() {
   const linkId = useId()
   const create = useMutation({
     mutationFn: () =>
-      api('/api/invites', {
-        json: {
-          expiresInDays: Number(days),
-          maxUses: Number(uses),
-          ...(note.trim() ? { note: note.trim() } : {}),
-        },
-        schema: createdInviteSchema,
-      }),
+      forScreen(null, () =>
+        api('/api/invites', {
+          json: {
+            expiresInDays: Number(days),
+            maxUses: Number(uses),
+            ...(note.trim() ? { note: note.trim() } : {}),
+          },
+          schema: createdInviteSchema,
+        }),
+      ),
     onSuccess: async (invite) => {
+      // Null: the person who asked is not here any more (D-174); the code is not for whoever is.
+      if (invite === null) return
       setCreated(invite.code)
       setNote('')
       await queryClient.invalidateQueries({ queryKey: queryKeys.invites })
@@ -188,8 +193,13 @@ function InviteRow({ invite }: { invite: Invite }) {
   const queryClient = useQueryClient()
   const status = inviteStatus(invite)
   const revoke = useMutation({
-    mutationFn: () => api(`/api/invites/${invite.id}`, { method: 'DELETE' }),
-    onSuccess: async () => {
+    mutationFn: () =>
+      forScreen(null, async () => {
+        await api(`/api/invites/${invite.id}`, { method: 'DELETE' })
+        return true as const
+      }),
+    onSuccess: async (answer) => {
+      if (answer === null) return
       showToast(m.invites_revoked_toast())
       await queryClient.invalidateQueries({ queryKey: queryKeys.invites })
     },
@@ -224,8 +234,13 @@ function RegistrationRow({ registration }: { registration: InviteRegistration })
     ? `@${registration.username}`
     : m.invites_registration_unnamed()
   const revoke = useMutation({
-    mutationFn: () => api(`/api/invites/registrations/${registration.id}`, { method: 'DELETE' }),
-    onSuccess: async () => {
+    mutationFn: () =>
+      forScreen(null, async () => {
+        await api(`/api/invites/registrations/${registration.id}`, { method: 'DELETE' })
+        return true as const
+      }),
+    onSuccess: async (answer) => {
+      if (answer === null) return
       setAsking(false)
       showToast(m.invites_registration_revoked())
       await queryClient.invalidateQueries({ queryKey: queryKeys.invites })

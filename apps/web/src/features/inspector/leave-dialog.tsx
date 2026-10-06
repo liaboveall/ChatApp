@@ -34,7 +34,8 @@ export function LeaveDialog({
   const alone = conversation.me?.role === 'owner' && conversation.memberCount <= 1
   const leave = async (): Promise<void> => {
     try {
-      await leaveConversation(conversation.id)
+      // Null: the person who asked is not here any more (D-174); it is not for them to be taken home.
+      if ((await leaveConversation(conversation.id)) === null) return
       void navigate({ to: '/' })
     } catch (error) {
       showToast(inspectorError(error))

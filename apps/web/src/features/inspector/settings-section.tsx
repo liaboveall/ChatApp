@@ -38,7 +38,7 @@ function Form({ conversation }: { conversation: Conversation }) {
     setNameError(null)
     setProblem(null)
     try {
-      await patchConversation(conversation.id, {
+      const saved = await patchConversation(conversation.id, {
         expectedMetadataVersion: conversation.metadataVersion,
         ...(name !== initialName ? { name } : {}),
         ...(description.trim() !== initialDescription
@@ -46,7 +46,8 @@ function Form({ conversation }: { conversation: Conversation }) {
           : {}),
         ...(invite !== initialInvite ? { settings: { whoCanInvite: invite } } : {}),
       })
-      showToast(m.inspector_settings_saved())
+      // Null: the person who asked, or the membership it was about, is not here any more (D-174); nothing is announced.
+      if (saved !== null) showToast(m.inspector_settings_saved())
     } catch (error) {
       if (error instanceof ApiError && error.status === 409 && error.field === 'name') {
         setNameError(m.new_conversation_name_taken())

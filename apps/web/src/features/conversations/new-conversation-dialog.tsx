@@ -62,6 +62,8 @@ function Form({ kind, onDone }: { kind: NewKind; onDone: (conversation: Conversa
               },
               key,
             )
+      // Null: the person who asked is not here any more (D-174); the dialog is not theirs to close, nothing follows.
+      if (conversation === null) return
       onDone(conversation)
     } catch (error) {
       if (error instanceof ApiError && error.status === 409 && kind === 'channel') {
