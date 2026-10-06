@@ -187,18 +187,23 @@ describe('forged targets are refused and change nothing', () => {
   })
 
   test('a development port in the endpoints, or published by a container', async () => {
-    const forged = copy()
-    forged.endpoints.databaseOwnerUrl = forged.endpoints.databaseOwnerUrl.replace(
-      /:\d+\//,
-      ':5434/',
-    )
-    await expectRefused(forged, 'development port')
-    const forgedValkey = copy()
-    forgedValkey.endpoints.valkeyUrl = forgedValkey.endpoints.valkeyUrl.replace(
-      /:\d+\/1$/,
-      ':6379/1',
-    )
-    await expectRefused(forgedValkey, 'development port')
+    // The port the development instance had before the ports became variables, and the one it has now (D-172).
+    for (const port of [5434, 25434]) {
+      const forged = copy()
+      forged.endpoints.databaseOwnerUrl = forged.endpoints.databaseOwnerUrl.replace(
+        /:\d+\//,
+        `:${port}/`,
+      )
+      await expectRefused(forged, 'development port')
+    }
+    for (const port of [6379, 26379]) {
+      const forgedValkey = copy()
+      forgedValkey.endpoints.valkeyUrl = forgedValkey.endpoints.valkeyUrl.replace(
+        /:\d+\/1$/,
+        `:${port}/1`,
+      )
+      await expectRefused(forgedValkey, 'development port')
+    }
   })
 
   test('a mismatched project or run id', async () => {

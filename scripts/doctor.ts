@@ -7,16 +7,34 @@
 import { $, RedisClient, S3Client, SQL } from 'bun'
 import packageJson from '../package.json'
 import { getEnv, isUnset, readEnvFile } from './lib/env-file.ts'
+import {
+  infraPorts,
+  parseComposePs,
+  publishedProblems,
+  reservedProblems,
+  urlProblems,
+  windowsPorts,
+} from './lib/ports.ts'
 
 type Check = { name: string; ok: boolean; detail: string; optional?: boolean }
 const results: Check[] = []
+
+/** Several things wrong at once, each said in full (a failed check otherwise keeps the first line of its message). */
+class Problems extends Error {
+  constructor(readonly lines: string[]) {
+    super(lines.join('\n'))
+  }
+}
 
 async function check(name: string, run: () => Promise<string>, optional = false): Promise<void> {
   try {
     results.push({ name, ok: true, detail: await run(), optional })
   } catch (error) {
-    const detail = error instanceof Error ? error.message : String(error)
-    results.push({ name, ok: false, detail: detail.split('\n')[0] ?? 'failed', optional })
+    const detail =
+      error instanceof Problems
+        ? error.lines.join('\n    ')
+        : (error instanceof Error ? error.message : String(error)).split('\n')[0]
+    results.push({ name, ok: false, detail: detail ?? 'failed', optional })
   }
 }
 
@@ -65,22 +83,37 @@ await check(
   true,
 )
 
+// Host ports (D-172): set by variables, and reserved by Windows at random. A reserved port is not an error for Docker: the
+// container is healthy and the port is not there, so the connection checks below would only say "refused".
+const optionalValue = (key: string): string | undefined => {
+  const found = getEnv(env, key)
+  return found === undefined || isUnset(found) ? undefined : found
+}
+const ports = infraPorts(optionalValue)
+const windows = await windowsPorts()
+await check('host ports', async () => {
+  const problems = [...urlProblems(optionalValue, ports), ...reservedProblems(ports, windows)]
+  if (problems.length > 0) throw new Problems(problems)
+  const where =
+    windows === null ? 'Windows reservations not checked (not WSL)' : 'none reserved by Windows'
+  return `${ports.map((entry) => `${entry.service} ${entry.port}`).join(', ')}; ${where}`
+})
+
 // Containers
 await check('containers', async () => {
   const raw =
     await $`docker compose -f infra/compose.dev.yml --env-file .env.local ps --format json`
       .quiet()
       .text()
-  const rows = raw
-    .split('\n')
-    .filter((line) => line.trim().startsWith('{'))
-    .map((line) => JSON.parse(line) as { Service: string; State: string; Health: string })
+  const rows = parseComposePs(raw)
   const expected = ['postgres', 'valkey', 'garage', 'mailpit']
   const unhealthy = expected.filter(
     (service) => !rows.some((row) => row.Service === service && row.Health === 'healthy'),
   )
   if (unhealthy.length > 0) throw new Error(`not healthy: ${unhealthy.join(', ')}`)
-  return 'postgres, valkey, garage, mailpit healthy'
+  const unpublished = publishedProblems(rows, ports)
+  if (unpublished.length > 0) throw new Problems(unpublished)
+  return 'postgres, valkey, garage, mailpit healthy, every host port published'
 })
 
 // PostgreSQL 18 + extensions (dev and test databases)
