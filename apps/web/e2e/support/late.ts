@@ -1,16 +1,36 @@
 /**
- * Helpers for the tests of answers that come back late (D-171, D-173, D-174): a request is made, the server handles it, and
- * the answer is held back until the test lets the page have it, usually after the person in front of the screen has changed.
- * The held answer is delivered, and the page is given its turn to act on it, before anything is asserted: the assertion is
- * about what the page does with a late answer.
+ * Helpers for the tests of answers that come back late (D-171, D-173, D-174, D-175): a request is made, the server handles
+ * it, and the answer is held back until the test lets the page have it, usually after the person in front of the screen has
+ * changed. The held answer is delivered, and the page is given its turn to act on it, before anything is asserted.
+ *
+ * When the session of the person who made the request has ended (a sign-out, a revocation), the page has given the request
+ * up (D-175): the browser takes nothing of the held answer, so delivering it reaches nobody, and what is asserted is that
+ * nothing of it got through to the next person, neither in the page nor in the cookies. When the session is the same (a
+ * membership that ended and began again, a password changed), the answer is delivered to the page, and the guards of D-171
+ * to D-174 are what the assertion is about.
  */
-import type { Page, Response } from '@playwright/test'
+import type { APIResponse, Page, Response } from '@playwright/test'
 import { expect } from './fixtures.ts'
+
+/** The `Set-Cookie` lines of a response as the server wrote them: what the browser applies when the response reaches it. */
+const setCookiesOf = (response: APIResponse): string[] =>
+  response
+    .headersArray()
+    .filter((header) => header.name.toLowerCase() === 'set-cookie')
+    .map((header) => header.value)
+
+/** Whether a `Set-Cookie` line tells the browser to drop a cookie. */
+export const deletesCookie = (line: string): boolean =>
+  /(^|;\s*)max-age=0(;|$)/i.test(line) || /^[^=]+=;/.test(line)
 
 /**
  * Holds the answer to the first matching request until `deliver()`. The server has handled the request by then (its effect
  * is real and stays), the page has not been told yet. `deliver` gives the page the answer and then a few frames to act on it.
  * `matching` tells requests to the same address apart by what they carry (the page may make more than one).
+ *
+ * The answer is handed to the page as the server wrote it, headers and all (`setCookies` shows what they say about cookies):
+ * what a browser does with an answer's cookies does not depend on what the page makes of it. A page that has given the
+ * request up by then is not delivered to (`deliver` still returns).
  */
 export async function holdAnswer<T = { message: { id: string; seq: number } }>(
   page: Page,
@@ -31,20 +51,29 @@ export async function holdAnswer<T = { message: { id: string; seq: number } }>(
     fulfilled = resolve
   })
   let taken = false
+  let setCookies: string[] = []
   await page.route(url, async (route) => {
     if (taken || route.request().method() !== method) return route.continue()
     if (matching !== undefined && !matching(route.request().postData())) return route.continue()
     taken = true
     const response = await route.fetch()
     expect(response.ok()).toBe(true)
+    setCookies = setCookiesOf(response)
     reached((await response.json()) as T)
     await gate
-    await route.fulfill({ response })
-    fulfilled()
+    try {
+      await route.fulfill({ response })
+    } finally {
+      fulfilled()
+    }
   })
   return {
     /** The server has handled it; what the answer says. */
     reached: answered,
+    /** The cookie lines of the answer, as the server wrote them (known once `reached` has resolved). */
+    get setCookies(): string[] {
+      return setCookies
+    },
     async deliver(): Promise<void> {
       release()
       await given
@@ -53,6 +82,91 @@ export async function holdAnswer<T = { message: { id: string; seq: number } }>(
     },
   }
 }
+
+/** What the server answered to a request that was held before it reached the server. */
+export type RealAnswer = { status: number; error: string | undefined; setCookies: string[] }
+
+/**
+ * Holds the first matching request of the page *before* the server has it, with what the browser attached to it (the
+ * cookie of whoever made it, the person who may be gone when it is let go). `sendToServer` lets it through, with those
+ * headers, and says what the server really answered; the answer is held again until `deliver`, as the server wrote it, so
+ * that an answer that was refused, and what its cookie lines tell the browser, reach the page as they would have.
+ */
+export async function holdRequest(page: Page, url: RegExp, method: string) {
+  let leave: () => void = () => undefined
+  const sendGate = new Promise<void>((resolve) => {
+    leave = resolve
+  })
+  let release: () => void = () => undefined
+  const deliverGate = new Promise<void>((resolve) => {
+    release = resolve
+  })
+  let parked: () => void = () => undefined
+  const requested = new Promise<void>((resolve) => {
+    parked = resolve
+  })
+  let answered: (answer: RealAnswer) => void = () => undefined
+  const answer = new Promise<RealAnswer>((resolve) => {
+    answered = resolve
+  })
+  let fulfilled: () => void = () => undefined
+  const given = new Promise<void>((resolve) => {
+    fulfilled = resolve
+  })
+  let taken = false
+  await page.route(url, async (route) => {
+    if (taken || route.request().method() !== method) return route.continue()
+    taken = true
+    const headers = await route.request().allHeaders()
+    // The cookie the browser attached: not every engine lists it among the headers of the request (WebKit does not), so it
+    // is read from the jar as it is now, while the person who made the request is still the one signed in.
+    const jar = await page.context().cookies(route.request().url())
+    const cookie = headers.cookie ?? jar.map((entry) => `${entry.name}=${entry.value}`).join('; ')
+    parked()
+    await sendGate
+    const response = await route.fetch({
+      headers: cookie === '' ? headers : { ...headers, cookie },
+    })
+    const body = (await response.json().catch(() => undefined)) as
+      | { error?: { code?: string } }
+      | undefined
+    answered({
+      status: response.status(),
+      error: body?.error?.code,
+      setCookies: setCookiesOf(response),
+    })
+    await deliverGate
+    try {
+      await route.fulfill({ response })
+    } finally {
+      fulfilled()
+    }
+  })
+  return {
+    /** The page made the request; it is held, the server has not seen it. */
+    requested,
+    /** Lets the request through now and resolves with what the server really answered. The page has not been told. */
+    async sendToServer(): Promise<RealAnswer> {
+      leave()
+      return await answer
+    },
+    async deliver(): Promise<void> {
+      release()
+      await given
+      await frames(page)
+    },
+  }
+}
+
+/** The session cookie the browser holds right now (null: none). */
+export async function sessionCookie(page: Page): Promise<string | null> {
+  const cookies = await page.context().cookies()
+  return cookies.find((cookie) => /session_token$/.test(cookie.name))?.value ?? null
+}
+
+/** The status the server gives the page's own cookie, asked from inside the page, as its own requests are. */
+export const identityStatus = (page: Page): Promise<number> =>
+  page.evaluate(async () => (await fetch('/api/me', { cache: 'no-store' })).status)
 
 /** Two animation frames: what the page does with an answer it was just given (reading the body, merging, rendering) is done. */
 export const frames = (page: Page): Promise<void> =>
