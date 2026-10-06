@@ -9,6 +9,7 @@ import { authApi } from '@/features/auth/auth-api.ts'
 import { SETTINGS_SECTIONS } from '@/features/settings/settings-sheet.tsx'
 import { useAutoTimezone } from '@/features/settings/use-auto-timezone.ts'
 import { AppFrame, useRealtimeBridge } from '@/features/shell/app-frame.tsx'
+import { isAbortError } from '@/lib/api.ts'
 import { describeError } from '@/lib/error-messages.ts'
 import { meQuery } from '@/lib/queries.ts'
 import { endSession, markSignedIn } from '@/lib/session.ts'
@@ -32,6 +33,9 @@ async function signOut(): Promise<void> {
   try {
     await authApi.signOut()
   } catch (error) {
+    // The session ended by itself while the request was out (the connection said so, or another tab): the page is on the
+    // sign-in page by now, perhaps with somebody else signed in, and there is nothing left to do or to say (D-175).
+    if (isAbortError(error)) return
     // Still signed in on the server: say so instead of pretending.
     showToast(describeError(error))
     return
