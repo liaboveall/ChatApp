@@ -14,8 +14,30 @@ import { dockerAction, inspectContainer, inspectNetwork, inspectVolume } from '.
 export const FAULT_SERVICES = ['postgres', 'valkey', 'garage', 'mailpit'] as const
 export type FaultService = (typeof FAULT_SERVICES)[number]
 
-/** Ports of the day-to-day development instance: a fault target must never publish any of them. */
-export const DEV_PORTS = [5432, 5434, 6379, 3900, 3903, 8025, 1025, 2525, 12525]
+/**
+ * Ports of the day-to-day development instance: a fault target must never publish any of them. The defaults of both
+ * generations of the setup (5434 and 6379 before the ports became variables, 25434 and 26379 after, D-172), the ports the
+ * services have always had, and what `.env.local` says now when the tests were started with it.
+ */
+const CONFIGURED_DEV_PORTS = ['POSTGRES_PORT', 'VALKEY_PORT', 'SMTP_PORT']
+  .map((key) => Number(process.env[key]))
+  .filter((port) => Number.isInteger(port) && port > 0)
+export const DEV_PORTS = [
+  ...new Set([
+    5432,
+    5434,
+    6379,
+    25434,
+    26379,
+    3900,
+    3903,
+    8025,
+    1025,
+    2525,
+    12525,
+    ...CONFIGURED_DEV_PORTS,
+  ]),
+]
 
 export type FaultManifest = {
   runId: string

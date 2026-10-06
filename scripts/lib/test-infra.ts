@@ -20,6 +20,7 @@ import {
 import { runBootstrap } from '../../packages/db/src/bootstrap.ts'
 import { createDatabase } from '../../packages/db/src/client.ts'
 import { runMigrations } from '../../packages/db/src/migrate.ts'
+import { isReserved, type WindowsPorts, windowsPortsSync } from './ports.ts'
 import { retryWhile } from './retry.ts'
 
 export const RUNS_DIR = resolve('.test-runs')
@@ -48,6 +49,14 @@ function composeEnv(runId: string, extra: Record<string, string> = {}): Record<s
   }
 }
 
+let windowsLists: { value: WindowsPorts | null } | undefined
+
+/** Whether Windows has reserved the port (Docker Desktop would publish nothing there and say nothing, D-172). */
+function reservedByWindows(port: number): boolean {
+  windowsLists ??= { value: windowsPortsSync() }
+  return isReserved(port, windowsLists.value) !== undefined
+}
+
 /** Free loopback ports, picked once per run and fixed afterwards, so a restarted container keeps its endpoint. */
 function freePorts(count: number): number[] {
   const listeners = Array.from({ length: count }, () =>
@@ -55,7 +64,10 @@ function freePorts(count: number): number[] {
   )
   const ports = listeners.map((listener) => listener.port)
   for (const listener of listeners) listener.stop(true)
-  if (new Set(ports).size !== count || ports.some((port) => DEV_PORTS.includes(port))) {
+  if (
+    new Set(ports).size !== count ||
+    ports.some((port) => DEV_PORTS.includes(port) || reservedByWindows(port))
+  ) {
     return freePorts(count)
   }
   return ports

@@ -14,7 +14,7 @@
     "prepare": "lefthook install",
     "setup": "bun scripts/setup.ts",
     "doctor": "bun scripts/doctor.ts",
-    "infra:up": "docker compose -f infra/compose.dev.yml --env-file .env.local up -d --wait",
+    "infra:up": "bun scripts/infra-up.ts",
     "infra:down": "docker compose -f infra/compose.dev.yml --env-file .env.local down",
     "infra:ps": "docker compose -f infra/compose.dev.yml --env-file .env.local ps",
     "infra:logs": "docker compose -f infra/compose.dev.yml --env-file .env.local logs -f --tail=100",
