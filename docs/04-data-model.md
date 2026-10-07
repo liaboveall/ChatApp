@@ -286,20 +286,21 @@ V-13 必须验证 adapter 创建事务可以实施上述锁和关联；否则先
 | generation / deleted_message_id | bigint / uuid | default 1 / null | 处理 fencing 代次 / 原消息墓碑标识（非活外键） |
 | version / privacy_class | bigint / text | 1 / standard | 状态/绑定/变体变化递增；私有 BYOK 附件标签不可被 site 工具绕过 |
 | width / height / duration_ms | int | null | |
+| metadata_cleared | boolean | null | true=媒体清理已验证；false=视频保留原始字节、只可下载并明确警示；null=普通文件/音频或旧记录未验证，不能声称已清理 |
 | storage_key | text | unique，ready 前可空 | 当前 generation 主对象 key，格式 att/{id}/{generation}/original；与原始文件名无关 |
 | variants | jsonb | default `{}` | 衍生文件：`{thumb:{key,w,h,mime}, preview:{…}}` |
 | thumbhash | text | null | |
-| status | `attachment_status` | default `uploading` | `uploading` / `processing` / `ready` / `failed` / `deleting`；图片和视频都要经过 media 队列处理 |
+| status | text + CHECK | default `uploading` | `uploading` / `processing` / `ready` / `failed` / `deleting`；图片和视频都要经过 media 队列处理 |
 | position | smallint | null | 在同一条消息中的排列顺序 |
 | created_at / deleted_at | timestamptz | | |
 
 - 索引：(message_id)、(uploader_id,created_at)、(status,created_at)。uploading 阶段的 kind/mime 为未识别占位、字节数为 0；ready 时由约束要求类型、size/hash、活对象全部齐全，不能把未校验对象标 ready。
-- **存储空间**：上传预占 reserved，发布 ready 时转为 used；deleting 时只退一次 charged_bytes。所有计数非负，由 reservation 状态转换保证不重复结算；衍生文件只计全站实际容量。
+- **存储空间**：主文件用户预占至少 20 MiB（防止小原图重编码变大），不足额度则拒绝；无声明长度预占消息 100 MiB / 头像 20 MiB。上传预占 reserved，发布 ready 时转为 used；deleting 时只退一次 charged_bytes。所有计数非负，由 reservation 状态转换保证不重复结算；衍生文件只计全站实际容量。
 
 ### upload_reservations / attachment_objects（M3）
 - upload_reservations：id、attachment_id（唯一）、user_id、idempotency_key、request_hash、reserved_bytes（用户主文件预占）、site_reserved_bytes（输入/输出/衍生文件同时存在的峰值）、status（reserved/uploaded/processing/settled/released）、lease_epoch、expires_at、created_at。默认 15 分钟接收期限，处理租约 2 分钟；完成接收后不因原接收期限误清理正在处理项。站点预占只有转换为可核对的实际对象字节或确认删除后才能释放。
-- attachment_objects：id、attachment_id、generation、variant、storage_key（唯一且不可覆盖）、size_bytes、sha256、status（staging/live/deleting/deleted）、delete_after、deleted_at。主文件和每个衍生图都记一行；外部写入完成前已有意图行，崩溃后可 HEAD/重试/删除。
-- site_storage：单行 used_bytes、reserved_bytes、budget_bytes；所有上传和处理预占必须同时通过用户额度与站点闸门。另检查磁盘实际空间，孤儿对象和备份不能靠逻辑计数忽略。
+- attachment_objects：id、attachment_id、generation、variant、storage_key（唯一且不可覆盖）、size_bytes、sha256、status（staging/live/deleting/deleted）、accounted、delete_after、deleted_at。accounted 标记该对象是否已计入站点 used，删除确认后只退一次；旧 generation 的已知对象也不能漏算。主文件和每个衍生图都记一行；外部写入完成前已有意图行，崩溃后可 HEAD/重试/删除。
+- site_storage：单行 used_bytes、reserved_bytes、budget_bytes、uploads_blocked；所有上传和处理预占必须同时通过用户额度与站点闸门。另检查磁盘实际空间，孤儿对象和备份不能靠逻辑计数忽略。
 - 对账校正按墓碑、活对象清单和 reservation 状态比较；异常只修可证明的差额，无法解释的差额告警并停止新上传。
 
 ## 5. 管理
@@ -508,3 +509,5 @@ V-13 必须验证 adapter 创建事务可以实施上述锁和关联；否则先
 - deletion_operations（M7）：id、actor_id、action、target_manifest（仅id/版本/截止时间）、request_hash、version、status（prepared/journaled/applied/failed）、journal_epoch/seq/hash、created_at、applied_at。准备时授权并冻结目标，相关实体记录delete_operation_id/待删除状态以拒绝并发编辑/绑定和目标扩展；journaled按不可撤回意图执行，不依赖原session。稳定operation id承接幂等键；清空数据、applied及version更新同事务。failed仅限确定未被异地接受的永久失败，网络未知保持pending对账，不能误解冻。
 - 删除 journal 是独立异地对象链，顺序/完整性/保留/恢复规则以10第7节为准；本地 deletion_operations 或普通备份都不能冒充这个独立来源。无权查询 operation 返回404，status 响应不含待删内容。
 - 两级预算、site_storage、work_items 的状态/计数均有非负 CHECK 和唯一键；租约和 CAS 失败不能仅记录日志后继续提交。
+
+M3 的 `0006_m3_metadata_status` 增加可空的元数据清理结果，不把已有文件猜测成已清理。`0004_m3_attachments` 建表和延迟 ready 约束；`0005_m3_object_ledger_guards` 从对象侧复核 ready 账本，禁止更换对象身份或复活删除墓碑。ready / 对象 live 的提交不能分离；绑定只允许 ready 的 message 用途，重复绑定由事务锁和数据库约束共同拒绝。

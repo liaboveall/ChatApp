@@ -27,6 +27,7 @@
     "react-dom": "19.3.0",
     "shiki": "4.5.0",
     "streamdown": "2.7.0",
+    "thumbhash": "0.1.1",
     "virtua": "0.52.10",
     "zod": "4.6.5",
     "zustand": "5.0.15"

@@ -328,6 +328,40 @@ const aimedAt = (f: Fixture, who: Person | null): Person =>
   f.kind === 'dm' ? (who?.id === P.member.id ? P.owner : P.member) : P.target
 
 const CASES: Case[] = [
+  {
+    route: 'GET /api/conversations/{id}/mentions',
+    build: ({ f }) => ({ method: 'GET', path: at(f, '/mentions') }),
+    expect: {
+      group: row(404, OK, OK, OK, 403),
+      channel: row(403, OK, OK, OK, 403),
+      dm: row(404, OK, 404, OK, 404),
+    },
+  },
+  {
+    route: 'GET /api/conversations/{id}/attachments',
+    build: ({ f }) => ({ method: 'GET', path: `/api/conversations/${f.id}/attachments` }),
+    expect: {
+      group: row(404, OK, OK, OK, 403),
+      channel: row(403, OK, OK, OK, 403),
+      dm: row(404, OK, 404, OK, 404),
+    },
+  },
+  {
+    route: 'POST /api/conversations/{id}/avatar',
+    build: async ({ f }) => {
+      const [c] = await db().select().from(conversations).where(eq(conversations.id, f.id))
+      return {
+        method: 'POST',
+        path: `/api/conversations/${f.id}/avatar`,
+        body: { attachmentId: null, expectedVersion: c?.metadataVersion ?? 1 },
+      }
+    },
+    expect: {
+      group: row(404, 403, OK, OK, OK),
+      channel: row(403, 403, OK, OK, OK),
+      dm: row(404, 403, 404, 403, 404),
+    },
+  },
   // — the person's own lists and the directory: any signed-in person —
   {
     route: 'GET /api/conversations',

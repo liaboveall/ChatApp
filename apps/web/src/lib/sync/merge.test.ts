@@ -1,4 +1,5 @@
 import { describe, expect, test } from 'vitest'
+import { messageText } from '@/lib/message-text.ts'
 import {
   edited,
   makeAccount,
@@ -463,4 +464,25 @@ describe('applyRemoval', () => {
     })
     expect(again.index).toBe(first.index)
   })
+})
+
+test('R1: source edits and optimistic previews never truncate inside mention ids', () => {
+  const user = makeUser(2, { displayName: 'Bea' })
+  const source = makeMessage(3, {
+    body: `${'x'.repeat(90)}<@user:${user.id}> suffix`,
+    changeSeq: 20,
+  })
+  const reply = makeMessage(7, {
+    replyTo: {
+      id: source.id,
+      seq: source.seq,
+      senderId: source.senderId,
+      state: 'ok',
+      excerpt: 'old',
+    },
+  })
+  const quote = cascadeReplies([reply], source)[0]?.replyTo
+  if (!quote || !('id' in quote)) throw new Error('quote missing')
+  expect(messageText(quote.excerpt, { [user.id]: user })).toBe(`${'x'.repeat(90)}@Bea suffi`)
+  expect(messageText(previewOf(source).text, { [user.id]: user })).not.toContain('<@user:')
 })

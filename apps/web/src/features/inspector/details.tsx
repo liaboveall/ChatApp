@@ -15,6 +15,8 @@ import { meQuery } from '@/lib/queries.ts'
 import { useConversation } from '@/lib/sync/hooks.ts'
 import { displayName } from '@/lib/sync/selectors.ts'
 import { m } from '@/paraglide/messages.js'
+import { AvatarEditor } from '../attachments/avatar-editor.tsx'
+import { SharedFiles } from '../attachments/shared-files.tsx'
 import { BansSection } from './bans-section.tsx'
 import { DangerZone } from './danger-zone.tsx'
 import { InvitesSection } from './invites-section.tsx'
@@ -46,6 +48,10 @@ export function ConversationDetails({ conversation, me }: { conversation: Conver
       <div className="details">
         <ProfileBlock conversation={conversation} />
         <MySettingsSection conversation={conversation} />
+        <SharedFiles
+          key={`${conversation.id}:${conversation.me?.membershipId ?? 'none'}`}
+          conversation={conversation}
+        />
       </div>
     )
   }
@@ -54,6 +60,7 @@ export function ConversationDetails({ conversation, me }: { conversation: Conver
       <div className="details__head">
         <Avatar
           name={name}
+          src={conversation.avatarUrl}
           seed={conversation.id}
           size={64}
           glyph={conversation.kind === 'channel' ? 'hash' : undefined}
@@ -68,6 +75,13 @@ export function ConversationDetails({ conversation, me }: { conversation: Conver
           <p className="details__text">{conversation.description}</p>
         ) : null}
       </div>
+      {permissions.update ? (
+        <AvatarEditor key={conversation.id} me={me} conversation={conversation} />
+      ) : null}
+      <SharedFiles
+        key={`${conversation.id}:${conversation.me?.membershipId ?? 'none'}`}
+        conversation={conversation}
+      />
       <MembersSection
         conversation={conversation}
         meId={me.id}

@@ -63,6 +63,7 @@ export type PreviewState = z.infer<typeof previewStateSchema>
 export const lastMessagePreviewSchema = z.object({
   senderId: z.uuid().nullable(),
   text: z.string().nullable(),
+  attachmentKind: z.enum(['image', 'video', 'audio', 'file']).nullable().optional(),
   kind: messageKindSchema,
   state: previewStateSchema,
 })

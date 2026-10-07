@@ -116,7 +116,13 @@ export function UserPicker({
                   aria-pressed={chosen.has(user.id)}
                   onClick={() => toggle(user)}
                 >
-                  <Avatar name={user.displayName} seed={user.id} size={32} bot={user.isBot} />
+                  <Avatar
+                    src={user.avatarUrl}
+                    name={user.displayName}
+                    seed={user.id}
+                    size={32}
+                    bot={user.isBot}
+                  />
                   <span>
                     <span className="person__name">{user.displayName}</span>
                     <span className="person__sub">@{user.username}</span>

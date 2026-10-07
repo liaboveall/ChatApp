@@ -32,6 +32,8 @@ export type Config = {
     bucket: string
     accessKeyId: string
     secretAccessKey: string
+    metricsToken?: string
+    metricsEndpoint: string
   }
   auth: {
     secret: string
@@ -78,6 +80,8 @@ const rawSchema = z.object({
   VALKEY_URL: z.string().min(1),
   VALKEY_URL_TEST: optional(z.string()),
   S3_ENDPOINT: z.string().min(1),
+  GARAGE_METRICS_TOKEN: optional(z.string()),
+  GARAGE_METRICS_ENDPOINT: optional(z.string().url()),
   S3_REGION: z.string().min(1).default('garage'),
   S3_BUCKET: z.string().min(1),
   S3_BUCKET_TEST: optional(z.string()),
@@ -232,6 +236,14 @@ export function loadConfig(source: Record<string, string | undefined>): Config {
       bucket,
       accessKeyId: raw.S3_ACCESS_KEY_ID,
       secretAccessKey: raw.S3_SECRET_ACCESS_KEY,
+      metricsToken: raw.GARAGE_METRICS_TOKEN,
+      metricsEndpoint:
+        raw.GARAGE_METRICS_ENDPOINT ??
+        (() => {
+          const url = new URL(raw.S3_ENDPOINT)
+          url.port = '3903'
+          return `${url.origin}/metrics`
+        })(),
     },
     auth: {
       secret: raw.BETTER_AUTH_SECRET,

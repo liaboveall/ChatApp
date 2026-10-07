@@ -26,6 +26,7 @@ export function createDispatcher(parts: {
   deps: Deps
   bus: EventBus
   emailQueue: Queue<WorkJobData>
+  mediaQueue?: Queue<WorkJobData>
   log: Logger
   intervalMs?: number
   batch?: number
@@ -45,6 +46,13 @@ export function createDispatcher(parts: {
           const event = busEventFromWork(work)
           if (event) await bus.publish(event)
           await completeWork(deps, { id: work.id, leaseEpoch: work.leaseEpoch })
+        } else if (work.kind === 'media') {
+          if (!parts.mediaQueue) throw new Error('media queue unavailable')
+          await parts.mediaQueue.add(
+            'process',
+            { workId: work.id, leaseEpoch: work.leaseEpoch },
+            { ...DEFAULT_JOB_OPTIONS, jobId: `${work.id}-${work.deliverySeq}` },
+          )
         } else if (work.kind === 'email') {
           await emailQueue.add(
             'deliver',

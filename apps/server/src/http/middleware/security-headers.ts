@@ -14,7 +14,7 @@ export function securityHeaders(): MiddlewareHandler<HttpEnv> {
     await next()
     const original = c.res
     const headers = new Headers(original.headers)
-    headers.set('Cache-Control', 'no-store')
+    if (!headers.has('Cache-Control')) headers.set('Cache-Control', 'no-store')
     headers.set('X-Content-Type-Options', 'nosniff')
     headers.set('Referrer-Policy', 'no-referrer')
     headers.set('Cross-Origin-Resource-Policy', 'same-origin')

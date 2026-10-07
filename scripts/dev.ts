@@ -5,11 +5,13 @@
  *   bun run dev                  all three
  *   bun run dev -- api web       only the named ones (api, worker, web)
  *
- * Ctrl+C stops everything. If one process dies the others are stopped too, and the exit code is non-zero.
+ * The worker runs through the fixed worker/media Compose topology (M3, D-081), never on the host.
+ * Ctrl+C stops child processes and only the containers this invocation created; a verified existing stack is reused.
+ * If one process dies the others are stopped too, and the exit code is non-zero.
  */
 const COMMANDS: Record<string, string[]> = {
   api: ['bun', '--env-file=.env.local', '--watch', 'apps/server/src/api.ts'],
-  worker: ['bun', '--env-file=.env.local', '--watch', 'apps/server/src/worker.ts'],
+  worker: ['bun', '--env-file=.env.local', 'scripts/media.ts', 'run'],
   web: ['bun', 'run', '--cwd', 'apps/web', 'dev'],
 }
 const COLORS: Record<string, string> = { api: '\x1b[36m', worker: '\x1b[35m', web: '\x1b[33m' }

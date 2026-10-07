@@ -9,13 +9,17 @@ import {
   type ConversationSettings,
   LIMITS,
   type Mute,
+  plainMessageText,
+  truncateCodePoints,
 } from '@chatapp/contracts'
 import {
+  attachments,
   conversationBans,
   conversationMembers,
   conversations,
   type DbOrTx,
   messageHidden,
+  messageMentions,
   messages,
   userConversationStates,
   users,
@@ -44,8 +48,16 @@ export function viewsQuery(db: DbOrTx, viewerId: string) {
       id: messages.id,
       senderId: messages.senderId,
       kind: messages.kind,
-      excerpt: sql<string | null>`left(${messages.body}, ${LIMITS.excerptMaxCodePoints})`.as(
-        'excerpt',
+      excerpt: messages.body,
+      mentionNames: sql<
+        Record<string, string>
+      >`coalesce((select jsonb_object_agg(u.id, u.name) from ${users} u join ${messageMentions} mm on mm.user_id = u.id where mm.message_id = "messages"."id"), '{}'::jsonb)`.as(
+        'mention_names',
+      ),
+      attachmentKind: sql<
+        'image' | 'video' | 'audio' | 'file' | null
+      >`(select a.kind from ${attachments} a where a.message_id = "messages"."id" and a.status = 'ready' and a.privacy_class = 'standard' order by a.position limit 1)`.as(
+        'attachment_kind',
       ),
       recalledAt: messages.recalledAt,
       deletedAt: messages.deletedAt,
@@ -74,6 +86,7 @@ export function viewsQuery(db: DbOrTx, viewerId: string) {
     .select({
       id: users.id,
       profileVersion: users.profileVersion,
+      avatarAttachmentId: users.avatarAttachmentId,
       username: users.username,
       name: users.name,
       isBot: users.isBot,
@@ -100,10 +113,13 @@ export function viewsQuery(db: DbOrTx, viewerId: string) {
       lastMessageSenderId: lastMessage.senderId,
       lastMessageKind: lastMessage.kind,
       lastMessageExcerpt: lastMessage.excerpt,
+      lastMessageMentionNames: lastMessage.mentionNames,
+      lastMessageAttachmentKind: lastMessage.attachmentKind,
       lastMessageRecalledAt: lastMessage.recalledAt,
       lastMessageDeletedAt: lastMessage.deletedAt,
       peerId: peer.id,
       peerProfileVersion: peer.profileVersion,
+      peerAvatarAttachmentId: peer.avatarAttachmentId,
       peerUsername: peer.username,
       peerName: peer.name,
       peerIsBot: peer.isBot,
@@ -184,7 +200,21 @@ export function toConversationDto(row: ViewRow, now: Date): Conversation {
               : ('ok' as const)
           return {
             senderId: row.lastMessageSenderId,
-            text: state === 'ok' ? row.lastMessageExcerpt : null,
+            text:
+              state === 'ok' &&
+              (row.lastMessageExcerpt !== null || row.lastMessageAttachmentKind !== null)
+                ? truncateCodePoints(
+                    plainMessageText(
+                      row.lastMessageExcerpt,
+                      (id) => row.lastMessageMentionNames?.[id],
+                      row.lastMessageAttachmentKind,
+                    ),
+                    LIMITS.excerptMaxCodePoints,
+                  )
+                : null,
+            ...(state === 'ok' && row.lastMessageAttachmentKind
+              ? { attachmentKind: row.lastMessageAttachmentKind }
+              : {}),
             kind: row.lastMessageKind,
             state,
           }
@@ -200,6 +230,7 @@ export function toConversationDto(row: ViewRow, now: Date): Conversation {
       ? toUserSummary({
           id: row.peerId,
           profileVersion: row.peerProfileVersion,
+          avatarAttachmentId: row.peerAvatarAttachmentId,
           username: row.peerUsername,
           name: row.peerName,
           isBot: row.peerIsBot,
@@ -212,7 +243,7 @@ export function toConversationDto(row: ViewRow, now: Date): Conversation {
     kind: c.kind,
     name: c.name,
     description: c.description,
-    avatarUrl: null,
+    avatarUrl: c.avatarAttachmentId ? `/api/attachments/${c.avatarAttachmentId}/original` : null,
     metadataVersion: c.metadataVersion,
     membershipVersion: c.membershipVersion,
     viewerVersion,

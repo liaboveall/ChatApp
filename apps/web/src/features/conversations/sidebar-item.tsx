@@ -111,6 +111,7 @@ export function SidebarItem({
     >
       <Avatar
         name={name}
+        src={peer?.avatarUrl ?? conversation.avatarUrl}
         seed={peer?.id ?? conversation.id}
         size={36}
         glyph={conversation.kind === 'channel' ? 'hash' : undefined}

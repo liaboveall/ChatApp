@@ -1,0 +1,14 @@
+{
+  "name": "@chatapp/media",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "typecheck": "tsc -p tsconfig.json"
+  },
+  "dependencies": {
+    "@chatapp/contracts": "workspace:*",
+    "sharp": "0.35.5",
+    "thumbhash": "0.1.1"
+  }
+}

@@ -105,6 +105,8 @@ export function isAbortError(error: unknown): boolean {
 export type RequestOptions<S extends z.ZodType | undefined> = {
   method?: 'GET' | 'POST' | 'PATCH' | 'PUT' | 'DELETE'
   json?: unknown
+  body?: Blob
+  onUploadProgress?: (percent: number) => void
   /** Validates and types the response. Omitted: the body is ignored. */
   schema?: S
   headers?: Record<string, string>
@@ -167,6 +169,7 @@ export async function api<S extends z.ZodType | undefined = undefined>(
   const headers = new Headers(options.headers)
   headers.set('accept', 'application/json')
   if (options.json !== undefined) headers.set('content-type', 'application/json')
+  if (options.body !== undefined) headers.set('content-type', 'application/octet-stream')
   if (options.idempotencyKey !== undefined)
     headers.set(IDEMPOTENCY_KEY_HEADER, options.idempotencyKey)
 
@@ -176,15 +179,18 @@ export async function api<S extends z.ZodType | undefined = undefined>(
 
   let response: Response
   try {
-    response = await fetch(path, {
-      method: options.method ?? (options.json !== undefined ? 'POST' : 'GET'),
-      headers,
-      body: options.json !== undefined ? JSON.stringify(options.json) : undefined,
-      credentials: 'same-origin',
-      cache: 'no-store',
-      referrerPolicy: 'no-referrer',
-      signal,
-    })
+    response =
+      options.body && options.onUploadProgress
+        ? await uploadBytes(path, options.body, headers, signal, options.onUploadProgress)
+        : await fetch(path, {
+            method: options.method ?? (options.json !== undefined ? 'POST' : 'GET'),
+            headers,
+            body: options.json !== undefined ? JSON.stringify(options.json) : options.body,
+            credentials: 'same-origin',
+            cache: 'no-store',
+            referrerPolicy: 'no-referrer',
+            signal,
+          })
   } catch (error) {
     if (signal.aborted || isAbortError(error)) throw error
     throw new ApiError(0, 'NETWORK')
@@ -214,4 +220,60 @@ export async function api<S extends z.ZodType | undefined = undefined>(
 /** A fresh idempotency key. Forms reuse one key while the request body stays the same (docs/05 section 1). */
 export function newIdempotencyKey(): string {
   return crypto.randomUUID()
+}
+
+/** XHR supplies real byte progress on Safari too; shares the same session cancellation as JSON fetches. */
+function uploadBytes(
+  path: string,
+  body: Blob,
+  headers: Headers,
+  signal: AbortSignal,
+  progress: (percent: number) => void,
+): Promise<Response> {
+  return new Promise((resolve, reject) => {
+    const xhr = new XMLHttpRequest()
+    const abort = () => xhr.abort()
+    const dispose = () => signal.removeEventListener('abort', abort)
+    xhr.open('PUT', path)
+    xhr.responseType = 'arraybuffer'
+    xhr.withCredentials = true
+    headers.forEach((value, name) => {
+      xhr.setRequestHeader(name, value)
+    })
+    xhr.upload.onprogress = (event) => {
+      if (!signal.aborted && event.lengthComputable)
+        progress(Math.floor((event.loaded / event.total) * 100))
+    }
+    xhr.onload = () => {
+      dispose()
+      if (signal.aborted) {
+        reject(new DOMException('Cancelled', 'AbortError'))
+        return
+      }
+      const returned = new Headers()
+      for (const line of xhr
+        .getAllResponseHeaders()
+        .trim()
+        .split(/[\r\n]+/)) {
+        const index = line.indexOf(':')
+        if (index > 0) returned.append(line.slice(0, index), line.slice(index + 1).trim())
+      }
+      resolve(new Response(xhr.response as ArrayBuffer, { status: xhr.status, headers: returned }))
+    }
+    xhr.onerror = () => {
+      dispose()
+      reject(new ApiError(0, 'NETWORK'))
+    }
+    xhr.onabort = () => {
+      dispose()
+      reject(new DOMException('Cancelled', 'AbortError'))
+    }
+    signal.addEventListener('abort', abort, { once: true })
+    if (signal.aborted) {
+      dispose()
+      reject(new DOMException('Cancelled', 'AbortError'))
+      return
+    }
+    xhr.send(body)
+  })
 }

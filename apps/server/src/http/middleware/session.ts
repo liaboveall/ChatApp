@@ -22,22 +22,30 @@ export function sdkHeaders(c: Context<HttpEnv>, origin: string): Headers {
 export type { Authenticated } from '../../auth/session-auth.ts'
 
 /** HTTP flavour of the shared authentication: builds the SDK headers from the request. */
-export function authenticate(services: Services, c: Context<HttpEnv>) {
-  return authenticateSession(services, sdkHeaders(c, services.config.origin))
+export function authenticate(
+  services: Services,
+  c: Context<HttpEnv>,
+  options: { readOnly?: boolean } = {},
+) {
+  return authenticateSession(services, sdkHeaders(c, services.config.origin), options)
 }
 
 /** Requires a valid session and sets `principal`; a dead session answers 401 and tells the browser to drop its cookie. */
-export function requireSession(services: Services): MiddlewareHandler<HttpEnv> {
+export function requireSession(
+  services: Services,
+  options: { cookieEffects?: boolean } = {},
+): MiddlewareHandler<HttpEnv> {
   const names = cookieNames(services.config.origin)
   const secure = services.config.origin.startsWith('https://')
   return async (c, next) => {
-    const result = await authenticate(services, c)
+    const result = await authenticate(services, c, { readOnly: options.cookieEffects === false })
     if (!result.principal) {
-      if (result.staleCookie) c.get('pendingCookies').push(...sessionCookieDeletions(names, secure))
+      if (result.staleCookie && options.cookieEffects !== false)
+        c.get('pendingCookies').push(...sessionCookieDeletions(names, secure))
       throw new AppError('UNAUTHENTICATED', 'Sign in required')
     }
     c.set('principal', result.principal)
-    c.get('pendingCookies').push(...result.refreshedCookies)
+    if (options.cookieEffects !== false) c.get('pendingCookies').push(...result.refreshedCookies)
     await services.limiter.enforce([{ policy: POLICIES.apiUser, subject: result.principal.userId }])
     await next()
   }

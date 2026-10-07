@@ -11,7 +11,12 @@ import {
   verifications,
 } from '@chatapp/db'
 import { eq } from 'drizzle-orm'
-import { purgeExpiredRecords, purgeSessionsAndOrigins } from '../../src/domain/maintenance.ts'
+import {
+  purgeExpiredRecords,
+  purgeSessionsAndOrigins,
+  runMaintenanceTask,
+} from '../../src/domain/maintenance.ts'
+import { createMaintenance } from '../../src/jobs/maintenance.ts'
 import { openTestDatabases, type TestDatabases, truncateAll } from '../support/db.ts'
 import { createActiveUser, makeDeps, makePrincipal } from '../support/deps.ts'
 
@@ -216,4 +221,53 @@ describe('retention of small records (docs/04 section 10)', () => {
     // Running it again changes nothing.
     expect(Object.values(await purgeExpiredRecords(deps)).every((n) => n === 0)).toBe(true)
   })
+})
+
+test('R3: local schedules and separate workers skip a running storage reconciliation, then can run again', async () => {
+  const deps = makeDeps(dbs.app.db)
+  if (!deps.blobs) throw new Error('store missing')
+  let calls = 0
+  const reached = Promise.withResolvers<void>(),
+    release = Promise.withResolvers<void>()
+  const scoped = {
+    ...deps,
+    blobs: {
+      ...deps.blobs,
+      list: async () => {
+        calls++
+        reached.resolve()
+        await release.promise
+        return { items: [], nextCursor: null }
+      },
+    },
+  }
+  const one = createMaintenance({ deps: scoped, log: deps.log }),
+    two = createMaintenance({ deps: scoped, log: deps.log })
+  const first = one.storageReconcile()
+  await reached.promise
+  try {
+    await one.storageReconcile()
+    await two.storageReconcile()
+    expect(calls).toBe(1)
+  } finally {
+    release.resolve()
+    await first
+    await one.stop()
+    await two.stop()
+  }
+  await two.storageReconcile()
+  expect(calls).toBe(2)
+})
+test('R3: an errored maintenance task releases its advisory lock', async () => {
+  const deps = makeDeps(dbs.app.db)
+  await expect(
+    runMaintenanceTask(deps, 'test-release', async () => {
+      throw new Error('failure')
+    }),
+  ).rejects.toThrow('failure')
+  let ran = false
+  await runMaintenanceTask(deps, 'test-release', async () => {
+    ran = true
+  })
+  expect(ran).toBe(true)
 })

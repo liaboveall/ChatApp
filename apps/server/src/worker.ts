@@ -11,6 +11,7 @@ import type { Deps } from './domain/deps.ts'
 import { createDispatcher } from './jobs/dispatcher.ts'
 import { createEmailWorker } from './jobs/email.ts'
 import { createMaintenance } from './jobs/maintenance.ts'
+import { createMediaWorker } from './jobs/media.ts'
 import { createPresenceSweeper } from './jobs/presence.ts'
 import { DEFAULT_JOB_OPTIONS, QUEUE, queuePrefix, type WorkJobData } from './jobs/queues.ts'
 import { createSmtpMailer } from './jobs/smtp.ts'
@@ -20,7 +21,9 @@ import { createBullConnection, createValkey } from './lib/valkey.ts'
 import { createEventBus } from './realtime/bus.ts'
 import { createPresenceStore } from './realtime/presence.ts'
 import { uuidv7 } from './runtime/ids.ts'
+import { createMediaClient } from './runtime/media.ts'
 import { assertDatabaseReady } from './startup.ts'
+import { createBlobStore } from './storage/s3.ts'
 
 async function main(): Promise<void> {
   let config: Config
@@ -57,6 +60,8 @@ async function main(): Promise<void> {
       },
       product: config.product,
     },
+    blobs: createBlobStore(config.s3),
+    media: createMediaClient(),
     passwords: sdkPasswords,
     log,
   }
@@ -68,7 +73,17 @@ async function main(): Promise<void> {
     prefix: queuePrefix(config.env),
     defaultJobOptions: DEFAULT_JOB_OPTIONS,
   })
-  const dispatcher = createDispatcher({ deps, bus, emailQueue, log })
+  const mediaQueue = new Queue<WorkJobData>(QUEUE.media, {
+    connection: queueConnection,
+    prefix: queuePrefix(config.env),
+    defaultJobOptions: DEFAULT_JOB_OPTIONS,
+  })
+  const mediaWorker = createMediaWorker({
+    deps,
+    connection: consumerConnection,
+    environment: config.env,
+  })
+  const dispatcher = createDispatcher({ deps, bus, emailQueue, mediaQueue, log })
   const emailWorker = createEmailWorker({
     deps,
     mailer: createSmtpMailer(config.smtp),
@@ -100,6 +115,8 @@ async function main(): Promise<void> {
     await dispatcher.stop()
     await maintenance.stop()
     await presence.stop()
+    await mediaWorker.close()
+    await mediaQueue.close()
     await emailWorker.close()
     await emailQueue.close()
     queueConnection.disconnect()

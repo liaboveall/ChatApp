@@ -12,6 +12,13 @@ export const busEventSchema = z.discriminatedUnion('type', [
   /** Work was committed: the dispatcher should look now instead of waiting for its next scan. */
   z.object({ type: z.literal('work.wake') }),
   z.object({
+    type: z.literal('attachment.updated'),
+    userId: z.uuid(),
+    attachmentId: z.uuid(),
+    generation: z.number().int(),
+    version: z.number().int(),
+  }),
+  z.object({
     type: z.literal('message.changed'),
     conversationId: z.uuid(),
     messageId: z.uuid(),
@@ -83,6 +90,18 @@ export function busEventFromWork(work: {
     case 'member.changed':
       return version !== null
         ? { type: 'member.changed', conversationId: entityId, membershipVersion: version }
+        : null
+    case 'attachment.updated':
+      return typeof payload.attachmentId === 'string' &&
+        typeof payload.generation === 'number' &&
+        version !== null
+        ? {
+            type: 'attachment.updated',
+            userId: entityId,
+            attachmentId: payload.attachmentId,
+            generation: payload.generation,
+            version,
+          }
         : null
     case 'user.changed':
       return version !== null

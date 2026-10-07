@@ -1,0 +1,51 @@
+name: media
+
+on:
+  push:
+    branches: [main, v2]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: media-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  isolation:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: ubuntu-24.04
+            architecture: x64
+          - runner: ubuntu-24.04-arm
+            architecture: arm64
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v7
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version-file: package.json
+      - run: bun install --frozen-lockfile
+      - name: Require native architecture
+        run: bun -e 'if (process.platform !== "linux" || process.arch !== process.env.EXPECTED_ARCH) process.exit(1)'
+        env:
+          EXPECTED_ARCH: ${{ matrix.architecture }}
+      - name: Media isolation, real decoders, faults and resource limits (V-18 / AT-30)
+        run: bun run test:media
+      - name: Complete API and worker attachment chain
+        run: bun run test:attachments
+      - name: Preserve metadata evidence (never upload instance manifests or secrets)
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: media-evidence-${{ matrix.architecture }}
+          path: |
+            .test-runs/m3/*/result.json
+            .test-runs/m3/*/business-result.json
+          if-no-files-found: warn
+          retention-days: 14

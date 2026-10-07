@@ -213,3 +213,21 @@ export async function purgeExpiredRecords(deps: Deps): Promise<MaintenanceResult
     usernameReservations: names.length,
   }
 }
+
+/** A transaction-scoped advisory lock is released even if a worker disconnects or crashes. */
+export async function runMaintenanceTask(
+  deps: Deps,
+  name: string,
+  run: () => Promise<void>,
+): Promise<void> {
+  await deps.db.transaction(async (tx) => {
+    const result = await tx.execute<{ acquired: boolean }>(
+      sql`select pg_try_advisory_xact_lock(hashtext(${'chatapp.maintenance.'} || ${name})) as acquired`,
+    )
+    if (result[0]?.acquired) {
+      // Work uses separate short transactions; keep this lock connection alive during storage I/O.
+      await tx.execute(sql`set local idle_in_transaction_session_timeout = 0`)
+      await run()
+    }
+  })
+}

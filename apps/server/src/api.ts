@@ -61,6 +61,7 @@ async function main(): Promise<void> {
       },
       product: config.product,
     },
+    blobs: createBlobStore(config.s3),
     passwords: sdkPasswords,
     log,
   }

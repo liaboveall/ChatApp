@@ -1,14 +1,17 @@
 import type { Message, ReplyTo, UserSummary } from '@chatapp/contracts'
 import { AlertCircle, CornerUpLeft, Ellipsis, History } from 'lucide-react'
 import { LinkTabIndex } from '@/components/markdown/link-context.ts'
+import { MentionContext } from '@/components/markdown/mention-context.ts'
 import { MessageBody } from '@/components/markdown/message-body.tsx'
 import { Avatar } from '@/components/ui/avatar.tsx'
 import { IconButton } from '@/components/ui/button.tsx'
 import { Icon } from '@/components/ui/icon.tsx'
 import { cx } from '@/lib/cx.ts'
+import { messageText } from '@/lib/message-text.ts'
 import type { PendingMessage } from '@/lib/sync/outbox.ts'
 import { dateTime, exactTime, separatorLabel } from '@/lib/time-format.ts'
 import { m } from '@/paraglide/messages.js'
+import { Attachments } from '../attachments/gallery.tsx'
 import { hasAny, type MessageActions } from '../message-actions/eligibility.ts'
 import type { MessageItem, PendingItem, StartItem, TimelineItem } from './items.ts'
 import { systemText } from './system-text.ts'
@@ -134,7 +137,7 @@ function QuoteBar({
       onClick={() => context.onJump(replyTo)}
     >
       <b>{nameOf(context, replyTo.senderId, m.user_member())}</b>
-      <span>{replyTo.excerpt ?? ''}</span>
+      <span>{messageText(replyTo.excerpt, context.users, replyTo.attachmentKind)}</span>
     </button>
   )
 }
@@ -209,6 +212,7 @@ function MessageRow({ item, context }: { item: MessageItem; context: RowContext 
             {item.showAvatar ? (
               <Avatar
                 name={sender}
+                src={user?.avatarUrl}
                 seed={message.senderId ?? message.id}
                 size={28}
                 bot={user?.isBot === true}
@@ -230,8 +234,13 @@ function MessageRow({ item, context }: { item: MessageItem; context: RowContext 
               <QuoteBar replyTo={message.replyTo} context={context} tabbable={current} />
             ) : null}
             <LinkTabIndex value={current ? undefined : -1}>
-              <MessageBody text={message.body ?? ''} />
+              <MentionContext
+                value={{ users: context.users, meId: context.meId, valid: message.mentions }}
+              >
+                <MessageBody text={message.body ?? ''} />
+              </MentionContext>
             </LinkTabIndex>
+            {message.attachments.length ? <Attachments files={message.attachments} /> : null}
             {message.editedAt ? (
               <span
                 className="bubble__edited"
@@ -309,10 +318,11 @@ function PendingRow({ item, context }: { item: PendingItem; context: RowContext 
             {quote ? (
               <div className="bubble__quote" data-hidden="true">
                 <b>{nameOf(context, quote.senderId, m.user_member())}</b>
-                <span>{quote.excerpt ?? ''}</span>
+                <span>{messageText(quote.excerpt, context.users, quote.attachmentKind)}</span>
               </div>
             ) : null}
             <MessageBody text={pending.body} />
+            {pending.attachments?.length ? <Attachments files={pending.attachments} /> : null}
           </div>
         </div>
       </div>

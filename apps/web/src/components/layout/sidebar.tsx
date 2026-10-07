@@ -70,7 +70,7 @@ export function Sidebar({ me, onOpenPalette, onOpenSettings, onCreate }: Sidebar
           aria-label={m.shell_user_menu({ name: me.displayName })}
           onClick={() => onOpenSettings('account')}
         >
-          <Avatar name={me.displayName} seed={me.id} size={34} />
+          <Avatar src={me.avatarUrl} name={me.displayName} seed={me.id} size={34} />
           <div>
             <div className="sidebar__user-name">{me.displayName}</div>
             <div className="sidebar__user-status">@{me.username}</div>

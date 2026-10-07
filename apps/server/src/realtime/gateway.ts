@@ -390,6 +390,16 @@ export class Gateway {
           },
         })
         return
+      case 'attachment.updated':
+        this.#tellUser(event.userId, {
+          type: 'attachment.updated',
+          data: {
+            attachmentId: event.attachmentId,
+            generation: event.generation,
+            version: event.version,
+          },
+        })
+        return
       case 'user.changed': {
         this.#tellUser(event.userId, {
           type: 'user.changed',

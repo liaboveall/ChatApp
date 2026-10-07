@@ -57,7 +57,7 @@ export const delegationStatusSchema = z.enum(DELEGATION_STATUSES)
 export type DelegationStatus = z.infer<typeof delegationStatusSchema>
 
 /** Durable work intents; later milestones append kinds (media, push, agent, ...). */
-export const WORK_KINDS = ['realtime', 'email'] as const
+export const WORK_KINDS = ['realtime', 'email', 'media'] as const
 export const workKindSchema = z.enum(WORK_KINDS)
 export type WorkKind = z.infer<typeof workKindSchema>
 

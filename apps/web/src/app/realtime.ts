@@ -10,6 +10,7 @@ import { ActivityReporter } from '@/lib/sync/activity.ts'
 import { applyPresence, PresenceWatch } from '@/lib/sync/presence.ts'
 import { registerStoreReset } from '@/lib/sync/stores.ts'
 import { applyTyping } from '@/lib/sync/typing.ts'
+import { attachmentHint } from '@/lib/sync/upload-hints.ts'
 
 /**
  * The server closes a connection with 4401 whenever the identity it was opened with is no longer current. That includes
@@ -60,6 +61,7 @@ export const realtime: RealtimeClient = new RealtimeClient({
   onEvent: (message) => {
     // Hints only raise what the engine has heard of; it decides what to read and when (docs/05 section 4.5, D-150).
     engine.onEvent(message)
+    if (message.type === 'attachment.updated') attachmentHint(message.data.attachmentId)
     // Typing and presence are transient and live in their own small stores.
     if (message.type === 'typing') {
       applyTyping(message.data, engine.scope?.userId, Date.now())

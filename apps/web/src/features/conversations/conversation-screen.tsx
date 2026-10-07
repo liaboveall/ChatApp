@@ -81,6 +81,7 @@ function NotMember({
     <div className="convo-state">
       <Avatar
         name={name}
+        src={conversation.avatarUrl}
         seed={conversation.id}
         size={64}
         glyph={conversation.kind === 'channel' ? 'hash' : undefined}

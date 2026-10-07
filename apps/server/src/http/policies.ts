@@ -43,5 +43,6 @@ export const POLICIES = {
   userSearchUser: { name: 'user-search.user', limit: 60, windowMs: minutes(1) },
   /** Read positions move often (every scroll to the bottom), so this is the loosest of them. */
   readUser: { name: 'read.user', limit: 300, windowMs: minutes(1) },
+  uploadUser: { name: 'upload.user', limit: 20, windowMs: minutes(1) },
   profileUpdateUser: { name: 'profile-update.user', limit: 20, windowMs: minutes(10) },
 } as const satisfies Record<string, LimitPolicy>

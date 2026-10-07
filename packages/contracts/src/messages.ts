@@ -23,6 +23,7 @@ export const attachmentSchema = z.object({
   width: count.nullable(),
   height: count.nullable(),
   durationMs: count.nullable(),
+  metadataCleared: z.boolean().nullable().optional(),
   thumbhash: z.string().nullable(),
   status: z.enum(['processing', 'ready', 'failed']),
   urls: z.object({
@@ -85,6 +86,7 @@ export const replyToSchema = z.union([
     seq: count,
     senderId: z.uuid().nullable(),
     excerpt: z.string().nullable(),
+    attachmentKind: z.enum(['image', 'video', 'audio', 'file']).nullable().optional(),
     state: replyStateSchema,
   }),
 ])

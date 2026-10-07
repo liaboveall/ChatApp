@@ -18,7 +18,8 @@ import type { SessionPrincipal } from './principal.ts'
 export type SummaryRow = Pick<
   typeof users.$inferSelect,
   'id' | 'profileVersion' | 'username' | 'name' | 'isBot' | 'deletedAt'
->
+> &
+  Partial<Pick<typeof users.$inferSelect, 'avatarAttachmentId'>>
 
 /** `avatarUrl` stays null until uploads exist (M3). */
 export function toUserSummary(row: SummaryRow): UserSummary {
@@ -27,7 +28,10 @@ export function toUserSummary(row: SummaryRow): UserSummary {
     profileVersion: row.profileVersion,
     username: row.username,
     displayName: row.name,
-    avatarUrl: null,
+    avatarUrl:
+      !row.deletedAt && row.avatarAttachmentId
+        ? `/api/attachments/${row.avatarAttachmentId}/original`
+        : null,
     isBot: row.isBot,
     deleted: row.deletedAt !== null,
   }
@@ -36,6 +40,7 @@ export function toUserSummary(row: SummaryRow): UserSummary {
 const summaryColumns = {
   id: users.id,
   profileVersion: users.profileVersion,
+  avatarAttachmentId: users.avatarAttachmentId,
   username: users.username,
   name: users.name,
   isBot: users.isBot,

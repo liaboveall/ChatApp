@@ -15,11 +15,13 @@ export type Authenticated =
 export async function authenticateSession(
   services: { auth: Auth; deps: Deps },
   sdkRequestHeaders: Headers,
+  options: { readOnly?: boolean } = {},
 ): Promise<Authenticated> {
   if (!sdkRequestHeaders.get('cookie')) return { principal: null, staleCookie: false }
   const result = await services.auth.api.getSession({
     headers: sdkRequestHeaders,
     returnHeaders: true,
+    ...(options.readOnly ? { query: { disableRefresh: true } } : {}),
   })
   const found = result.response
   if (!found) return { principal: null, staleCookie: true }

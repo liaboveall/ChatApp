@@ -70,8 +70,129 @@ services:
       timeout: 3s
       retries: 40
 
+  # Opt-in V-18/AT-30 slice. startInstance() still starts only the four services above.
+  # The test runner supplies fresh instance credentials, pins image IDs and verifies every extra resource.
+  media:
+    profiles: [media]
+    image: ${TEST_MEDIA_IMAGE:-chatapp-media:dev}
+    build:
+      context: ..
+      dockerfile: infra/Dockerfile.media
+      target: ${TEST_MEDIA_TARGET:-runtime}
+    user: "10001:10001"
+    network_mode: none
+    ipc: private
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    init: true
+    pids_limit: 64
+    mem_limit: 512m
+    memswap_limit: 512m
+    tmpfs:
+      - /tmp:size=268435456,mode=1777,nosuid,nodev,noexec
+    volumes:
+      - type: volume
+        source: media-test-socket
+        target: /run/chatapp-media
+    labels:
+      chatapp.test.run-id: ${TEST_RUN_ID:?use bun run test:infra:up}
+      chatapp.test.owner: ${TEST_MEDIA_OWNER:-unset}
+      chatapp.test.kind: media
+      chatapp.test.image-kind: ${TEST_MEDIA_TARGET:-runtime}
+    healthcheck:
+      # Do not make a second IPC connection while a task is active.
+      # A native one-PID check does not consume another Bun thread pool at the 64-PID hard limit.
+      # The runner separately checks directory/socket uid, gid and mode against the extra manifest.
+      test: ["CMD", "/usr/bin/test", "-S", "/run/chatapp-media/media.sock"]
+      interval: 2s
+      timeout: 2s
+      retries: 20
+    restart: "no"
+
+  worker:
+    profiles: [media]
+    image: ${TEST_WORKER_IMAGE:-chatapp-worker:dev}
+    user: "10001:10001"
+    command: ["bun", "--no-env-file", "/app/apps/server/src/worker.ts"]
+    ipc: private
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    init: true
+    pids_limit: 256
+    mem_limit: 1536m
+    memswap_limit: 1536m
+    tmpfs:
+      - /tmp:size=268435456,mode=1777,nosuid,nodev,noexec
+    environment: &media-test-business-env
+      APP_ENV: test
+      NODE_ENV: test
+      APP_ORIGIN: ${TEST_MEDIA_ORIGIN:-http://localhost:5173}
+      APP_TIMEZONE: Asia/Shanghai
+      API_HOST: 0.0.0.0
+      API_PORT: "3100"
+      DATABASE_URL: ${TEST_MEDIA_DATABASE_URL:-unused}
+      DATABASE_URL_TEST: ${TEST_MEDIA_DATABASE_URL:-unused}
+      VALKEY_URL: ${TEST_MEDIA_VALKEY_URL:-unused}
+      VALKEY_URL_TEST: ${TEST_MEDIA_VALKEY_URL_TEST:-unused}
+      GARAGE_METRICS_ENDPOINT: http://garage:3903/metrics
+      GARAGE_METRICS_TOKEN: ${TEST_MEDIA_METRICS_TOKEN:-}
+      S3_ENDPOINT: http://garage:3900
+      S3_REGION: garage
+      S3_BUCKET: chatapp-unused
+      S3_BUCKET_TEST: chatapp-test
+      S3_ACCESS_KEY_ID: ${TEST_MEDIA_S3_ACCESS_KEY_ID:-unused}
+      S3_SECRET_ACCESS_KEY: ${TEST_MEDIA_S3_SECRET_ACCESS_KEY:-unused}
+      BETTER_AUTH_SECRET: ${TEST_MEDIA_AUTH_SECRET:-unused}
+      AUTH_TOKEN_ENCRYPTION_KEY: ${TEST_MEDIA_TOKEN_KEY:-unused}
+      RESTORE_EPOCH: ${TEST_MEDIA_RESTORE_EPOCH:-unused}
+      SMTP_HOST: mailpit
+      SMTP_PORT: "1025"
+      MAIL_FROM: ChatApp Test <media@example.test>
+      LOG_LEVEL: warn
+    volumes:
+      - type: volume
+        source: media-test-socket
+        target: /run/chatapp-media
+        read_only: true
+    labels:
+      chatapp.test.run-id: ${TEST_RUN_ID:?use bun run test:infra:up}
+      chatapp.test.owner: ${TEST_MEDIA_OWNER:-unset}
+      chatapp.test.kind: worker
+      chatapp.test.image-kind: runtime
+    restart: "no"
+
+  api:
+    profiles: [media]
+    image: ${TEST_WORKER_IMAGE:-chatapp-worker:dev}
+    user: "10001:10001"
+    command: ["bun", "--no-env-file", "/app/apps/server/src/api.ts"]
+    ipc: private
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    init: true
+    pids_limit: 256
+    mem_limit: 1024m
+    memswap_limit: 1024m
+    tmpfs:
+      - /tmp:size=268435456,mode=1777,nosuid,nodev,noexec
+    environment: *media-test-business-env
+    labels:
+      chatapp.test.run-id: ${TEST_RUN_ID:?use bun run test:infra:up}
+      chatapp.test.owner: ${TEST_MEDIA_OWNER:-unset}
+      chatapp.test.kind: api
+      chatapp.test.image-kind: runtime
+    restart: "no"
+
 volumes:
   pg:
   valkey:
   garage-meta:
   garage-data:
+  media-test-socket:
+    labels:
+      chatapp.test.run-id: ${TEST_RUN_ID:?use bun run test:infra:up}
+      chatapp.test.owner: ${TEST_MEDIA_OWNER:-unset}
+      chatapp.test.kind: media-socket

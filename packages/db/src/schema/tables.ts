@@ -87,7 +87,7 @@ export const users = pgTable(
     changeLogFloor: counter(),
     profileVersion: bigint({ mode: 'number' }).notNull().default(1),
     meVersion: bigint({ mode: 'number' }).notNull().default(1),
-    avatarAttachmentId: uuid(),
+    avatarAttachmentId: uuid().references((): AnyPgColumn => attachments.id),
     isBot: boolean().notNull().default(false),
     bio: text(),
     inviteQuota: integer().notNull().default(5),
@@ -518,7 +518,7 @@ export const conversations = pgTable(
     name: text(),
     description: text(),
     /** Plain id until attachments exist (M3, D-091). */
-    avatarAttachmentId: uuid(),
+    avatarAttachmentId: uuid().references((): AnyPgColumn => attachments.id),
     /** Owner of a channel or group (and, for an archived one, who may restore it); the Agent's owner in M4. */
     ownerId: uuid().references(() => users.id, { onDelete: 'set null' }),
     settings: jsonbValue<ConversationSettings>().notNull().default({}),
@@ -844,5 +844,168 @@ export const messageHidden = pgTable(
   (t) => [
     primaryKey({ columns: [t.userId, t.messageId] }),
     index('message_hidden_message_idx').on(t.messageId),
+  ],
+)
+
+// M3: durable reservations and immutable object intents, including failed generations.
+export const attachments = pgTable(
+  'attachments',
+  {
+    id: id(),
+    uploaderId: uuid()
+      .notNull()
+      .references(() => users.id),
+    conversationId: uuid().references(() => conversations.id),
+    messageId: uuid().references(() => messages.id),
+    deletedMessageId: uuid(),
+    purpose: text().$type<'message' | 'avatar' | 'conversation_avatar'>().notNull(),
+    kind: text().$type<'image' | 'video' | 'audio' | 'file'>().notNull().default('file'),
+    mime: text().notNull().default('application/octet-stream'),
+    originalName: text().notNull(),
+    rawSizeBytes: counter(),
+    sizeBytes: counter(),
+    chargedBytes: counter(),
+    sha256: text(),
+    generation: bigint({ mode: 'number' }).notNull().default(1),
+    version: bigint({ mode: 'number' }).notNull().default(1),
+    privacyClass: privacyClass().notNull().default('standard'),
+    width: integer(),
+    height: integer(),
+    durationMs: integer(),
+    metadataCleared: boolean(),
+    storageKey: text().unique(),
+    variants: jsonbValue<
+      Record<string, { key: string; w: number | null; h: number | null; mime: string }>
+    >()
+      .notNull()
+      .default({}),
+    thumbhash: text(),
+    status: text()
+      .$type<'uploading' | 'processing' | 'ready' | 'failed' | 'deleting'>()
+      .notNull()
+      .default('uploading'),
+    position: smallint(),
+    createdAt: createdAt(),
+    deletedAt: ts(),
+  },
+  (t) => [
+    index('attachments_message_idx').on(t.messageId),
+    index('attachments_uploader_idx').on(t.uploaderId, t.createdAt),
+    index('attachments_status_idx').on(t.status, t.createdAt),
+    check(
+      'attachments_nonneg',
+      sql`${t.rawSizeBytes} >= 0 and ${t.sizeBytes} >= 0 and ${t.chargedBytes} >= 0 and ${t.generation} >= 1 and ${t.version} >= 1`,
+    ),
+    check('attachments_purpose', sql`${t.purpose} in ('message','avatar','conversation_avatar')`),
+    check('attachments_kind', sql`${t.kind} in ('image','video','audio','file')`),
+    check(
+      'attachments_status',
+      sql`${t.status} in ('uploading','processing','ready','failed','deleting')`,
+    ),
+    check(
+      'attachments_ready',
+      sql`${t.status} <> 'ready' or (${t.storageKey} is not null and ${t.sha256} ~ '^[0-9a-f]{64}$' and ${t.sizeBytes} > 0 and ${t.chargedBytes} = ${t.sizeBytes})`,
+    ),
+  ],
+)
+export const uploadReservations = pgTable(
+  'upload_reservations',
+  {
+    id: id(),
+    attachmentId: uuid()
+      .notNull()
+      .unique()
+      .references(() => attachments.id),
+    userId: uuid()
+      .notNull()
+      .references(() => users.id),
+    idempotencyKey: text().notNull(),
+    requestHash: text().notNull(),
+    reservedBytes: counter(),
+    siteReservedBytes: counter(),
+    maxBytes: bigint({ mode: 'number' }).notNull(),
+    status: text()
+      .$type<'reserved' | 'uploaded' | 'processing' | 'settled' | 'released'>()
+      .notNull()
+      .default('reserved'),
+    leaseEpoch: counter(),
+    expiresAt: ts().notNull(),
+    createdAt: createdAt(),
+  },
+  (t) => [
+    uniqueIndex('upload_reservations_user_key').on(t.userId, t.idempotencyKey),
+    index('upload_reservations_expiry_idx').on(t.status, t.expiresAt),
+    check(
+      'upload_reservations_nonneg',
+      sql`${t.reservedBytes} >= 0 and ${t.siteReservedBytes} >= 0 and ${t.maxBytes} > 0 and ${t.leaseEpoch} >= 0`,
+    ),
+    check(
+      'upload_reservations_status',
+      sql`${t.status} in ('reserved','uploaded','processing','settled','released')`,
+    ),
+  ],
+)
+export const attachmentObjects = pgTable(
+  'attachment_objects',
+  {
+    id: id(),
+    attachmentId: uuid()
+      .notNull()
+      .references(() => attachments.id),
+    generation: bigint({ mode: 'number' }).notNull(),
+    variant: text().notNull(),
+    storageKey: text().notNull().unique(),
+    sizeBytes: counter(),
+    sha256: text(),
+    status: text()
+      .$type<'staging' | 'live' | 'deleting' | 'deleted'>()
+      .notNull()
+      .default('staging'),
+    accounted: boolean().notNull().default(false),
+    deleteAfter: ts(),
+    deletedAt: ts(),
+    createdAt: createdAt(),
+  },
+  (t) => [
+    uniqueIndex('attachment_objects_generation_variant').on(
+      t.attachmentId,
+      t.generation,
+      t.variant,
+    ),
+    index('attachment_objects_delete_idx').on(t.status, t.deleteAfter),
+    check('attachment_objects_nonneg', sql`${t.sizeBytes} >= 0 and ${t.generation} >= 1`),
+    check('attachment_objects_status', sql`${t.status} in ('staging','live','deleting','deleted')`),
+  ],
+)
+export const siteStorage = pgTable(
+  'site_storage',
+  {
+    id: integer().primaryKey().default(1),
+    usedBytes: counter(),
+    reservedBytes: counter(),
+    budgetBytes: bigint({ mode: 'number' }).notNull().default(53687091200),
+    uploadsBlocked: boolean().notNull().default(false),
+  },
+  (t) => [
+    check('site_storage_single', sql`${t.id} = 1`),
+    check(
+      'site_storage_nonneg',
+      sql`${t.usedBytes} >= 0 and ${t.reservedBytes} >= 0 and ${t.budgetBytes} >= 0`,
+    ),
+  ],
+)
+export const messageMentions = pgTable(
+  'message_mentions',
+  {
+    messageId: uuid()
+      .notNull()
+      .references(() => messages.id, { onDelete: 'cascade' }),
+    userId: uuid()
+      .notNull()
+      .references(() => users.id),
+  },
+  (t) => [
+    primaryKey({ columns: [t.messageId, t.userId] }),
+    index('message_mentions_user_idx').on(t.userId),
   ],
 )

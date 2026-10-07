@@ -361,3 +361,108 @@ describe('the session a request belongs to', () => {
     expect(alone.aborted).toBe(true)
   })
 })
+
+describe('binary upload requests belong to the login session', () => {
+  class ControlledUpload {
+    static last: ControlledUpload
+    upload: {
+      onprogress?: (event: { lengthComputable: boolean; loaded: number; total: number }) => void
+    } = {}
+    onload?: () => void
+    onerror?: () => void
+    onabort?: () => void
+    responseType = ''
+    withCredentials = false
+    status = 200
+    response = new ArrayBuffer(0)
+    headers = new Headers()
+    body?: Blob
+    aborted = false
+    constructor() {
+      ControlledUpload.last = this
+    }
+    open = vi.fn()
+    setRequestHeader(key: string, value: string) {
+      this.headers.set(key, value)
+    }
+    getAllResponseHeaders() {
+      return 'content-type: application/json\r\n'
+    }
+    send(body: Blob) {
+      this.body = body
+    }
+    abort() {
+      this.aborted = true
+      this.onabort?.()
+    }
+    complete(status: number, body: unknown) {
+      this.status = status
+      this.response = new TextEncoder().encode(JSON.stringify(body)).buffer
+      this.onload?.()
+    }
+  }
+  test('reports real progress, sends octet-stream and validates the returned JSON', async () => {
+    vi.stubGlobal('XMLHttpRequest', ControlledUpload)
+    const progress = vi.fn(),
+      blob = new Blob(['binary'])
+    const pending = api('/api/uploads/id/content', {
+      method: 'PUT',
+      body: blob,
+      onUploadProgress: progress,
+      schema: z.object({ ok: z.literal(true) }),
+    })
+    const xhr = ControlledUpload.last
+    expect(xhr.open).toHaveBeenCalledWith('PUT', '/api/uploads/id/content')
+    expect(xhr.headers.get('content-type')).toBe('application/octet-stream')
+    expect(xhr.body).toBe(blob)
+    expect(xhr.withCredentials).toBe(true)
+    xhr.upload.onprogress?.({ lengthComputable: true, loaded: 5, total: 10 })
+    expect(progress).toHaveBeenCalledWith(50)
+    xhr.complete(200, { ok: true })
+    await expect(pending).resolves.toEqual({ ok: true })
+  })
+  test('account switch aborts the browser upload and drops its late 401 and progress', async () => {
+    vi.stubGlobal('XMLHttpRequest', ControlledUpload)
+    const progress = vi.fn(),
+      unauthenticated = vi.fn()
+    setUnauthenticatedHandler(unauthenticated)
+    const pending = api('/api/uploads/id/content', {
+      method: 'PUT',
+      body: new Blob(['x']),
+      onUploadProgress: progress,
+    })
+    const caught = pending.catch((error) => error)
+    const xhr = ControlledUpload.last
+    cancelSessionRequests()
+    expect(xhr.aborted).toBe(true)
+    xhr.upload.onprogress?.({ lengthComputable: true, loaded: 10, total: 10 })
+    xhr.complete(401, { error: { code: 'UNAUTHENTICATED', message: 'old session' } })
+    expect(await caught).toMatchObject({ name: 'AbortError' })
+    expect(progress).not.toHaveBeenCalled()
+    expect(unauthenticated).not.toHaveBeenCalled()
+  })
+  test('cancelling an individual upload preserves other requests in the same session', async () => {
+    vi.stubGlobal('XMLHttpRequest', ControlledUpload)
+    const controller = new AbortController()
+    const first = api('/api/uploads/first/content', {
+      method: 'PUT',
+      body: new Blob(['1']),
+      signal: controller.signal,
+      onUploadProgress: () => undefined,
+    }).catch((error) => error)
+    const old = ControlledUpload.last
+    const second = api('/api/uploads/second/content', {
+      method: 'PUT',
+      body: new Blob(['2']),
+      onUploadProgress: () => undefined,
+      schema: z.object({ ok: z.literal(true) }),
+    })
+    const current = ControlledUpload.last
+    controller.abort()
+    expect(old.aborted).toBe(true)
+    expect(current.aborted).toBe(false)
+    current.complete(200, { ok: true })
+    await expect(second).resolves.toEqual({ ok: true })
+    expect(await first).toMatchObject({ name: 'AbortError' })
+  })
+})

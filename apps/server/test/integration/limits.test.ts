@@ -213,8 +213,8 @@ describe('handing over and restoring', () => {
   })
 })
 
-describe('messages before attachments exist', () => {
-  test('naming an attachment is refused, as not available yet, and nothing is written', async () => {
+describe('unavailable message attachments', () => {
+  test('an unknown attachment is refused and the entire message transaction rolls back', async () => {
     const alice = await person(app, 'alice')
     const group = await createConversation(alice, { kind: 'group', name: 'text only' })
     const reply = await alice.post(`/api/conversations/${group.id}/messages`, {
@@ -223,7 +223,9 @@ describe('messages before attachments exist', () => {
       attachmentIds: [crypto.randomUUID()],
     })
     expect(reply.status).toBe(422)
-    expect(errorReason(reply)).toBe('not_available')
+    expect((reply.body as { error: { details: { field: string } } }).error.details.field).toBe(
+      'attachmentIds',
+    )
     const listed = await alice.get<MessagesResponse>(`/api/conversations/${group.id}/messages`)
     expect(listed.body.messages.filter((m) => m.kind === 'user')).toEqual([])
   })
