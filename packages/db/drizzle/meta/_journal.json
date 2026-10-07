@@ -29,6 +29,27 @@
       "when": 1790970828946,
       "tag": "0003_m2a_conversations",
       "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1791292233855,
+      "tag": "0004_m3_attachments",
+      "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1791294646005,
+      "tag": "0005_m3_object_ledger_guards",
+      "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1791330628107,
+      "tag": "0006_m3_metadata_status",
+      "breakpoints": true
     }
   ]
 }

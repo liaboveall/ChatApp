@@ -65,6 +65,8 @@ const invite = (
 })
 
 const api = (mine: Member['role']) => ({
+  [`GET /api/conversations/${groupId}/attachments`]: { body: { items: [], nextCursor: null } },
+  [`GET /api/conversations/${uuid(21)}/attachments`]: { body: { items: [], nextCursor: null } },
   [`GET /api/conversations/${groupId}/members`]: {
     body: { members: members(mine), membershipVersion: 4, nextCursor: null },
   },
@@ -89,7 +91,7 @@ const api = (mine: Member['role']) => ({
 })
 
 /** The visual test photographs the four panel stories in a frame this tall (`visual/stories.spec.ts`). */
-const PANEL_HEIGHT = 1480
+const PANEL_HEIGHT = 1680
 /** The surface under it: the panel and the padding of the wallpaper box. */
 const SURFACE_HEIGHT = PANEL_HEIGHT + 48
 

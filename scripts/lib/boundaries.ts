@@ -19,6 +19,9 @@ const BUN_ALLOWED: RegExp[] = [
   /^apps\/server\/src\/storage\//,
   /^apps\/server\/src\/(api|worker|cli)\.ts$/,
   /^apps\/server\/(test|scripts)\//,
+  /^apps\/media\/src\/runtime\//,
+  /^apps\/media\/src\/server\.ts$/,
+  /^apps\/media\/test\//,
   /^scripts\//,
   /\.test\.ts$/,
 ]
@@ -47,6 +50,27 @@ const LAYERS: Layer[] = [
     owns: (p) => p.startsWith('apps/web/src/'),
     forbidden: [/^@chatapp\/(db|server)/, /^drizzle-orm/, /^node:/, /^bun(:|$)/],
     why: 'browser code must not import packages/db, apps/server, or Node and Bun modules',
+  },
+  {
+    name: 'isolated media',
+    owns: (p) => p.startsWith('apps/media/src/'),
+    forbidden: [
+      /^@chatapp\/(db|server)/,
+      /^drizzle-orm/,
+      /^better-auth/,
+      /^@better-auth\//,
+      /^bullmq$/,
+      /^ioredis$/,
+      /^ai$/,
+      /^@ai-sdk\//,
+    ],
+    why: 'apps/media has no business database, credentials, queue or model access (D-081, D-176)',
+  },
+  {
+    name: 'server media boundary',
+    owns: (p) => p.startsWith(SERVER),
+    forbidden: [/^sharp(?:\/|$)/, /^thumbhash(?:\/|$)/, /^@chatapp\/media(?:\/|$)/],
+    why: 'media decoding belongs exclusively to the isolated media container (D-081)',
   },
   {
     // Vite, Storybook and Playwright configuration, test specs and build tools run in Node and may use it.

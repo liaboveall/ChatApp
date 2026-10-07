@@ -126,6 +126,7 @@ async function startInstanceOnce(): Promise<{ manifestPath: string; manifest: Fa
     s3KeyId: `GK${hex(12)}`,
     s3Secret: hex(32),
     bucket: 'chatapp-test',
+    metricsToken: token(32),
   }
   const markers = { postgres: hex(12), valkey: hex(12), garage: hex(12) }
 
@@ -137,7 +138,7 @@ async function startInstanceOnce(): Promise<{ manifestPath: string; manifest: Fa
     template
       .replaceAll('{{GARAGE_RPC_SECRET}}', hex(32))
       .replaceAll('{{GARAGE_ADMIN_TOKEN}}', token(32))
-      .replaceAll('{{GARAGE_METRICS_TOKEN}}', token(32)),
+      .replaceAll('{{GARAGE_METRICS_TOKEN}}', secrets.metricsToken),
     { mode: 0o600 },
   )
   const envFor = (chosen: Ports) =>
@@ -271,6 +272,7 @@ async function startInstanceOnce(): Promise<{ manifestPath: string; manifest: Fa
         s3Bucket: secrets.bucket,
         s3AccessKeyId: secrets.s3KeyId,
         s3SecretAccessKey: secrets.s3Secret,
+        garageMetricsToken: secrets.metricsToken,
         smtpPort: ports.smtp,
         mailpitUiPort: ports.mailpitUi,
       },

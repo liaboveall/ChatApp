@@ -36,19 +36,36 @@ export function mergeMessage(current: Message | undefined, incoming: Message): M
   return current
 }
 
+// Keep complete mention sources in the cache; the plain-text outlet resolves names before its 100-code-point limit.
 const excerptOf = (body: string | null): string | null =>
-  body === null ? null : truncateCodePoints(body, LIMITS.excerptMaxCodePoints)
+  body === null
+    ? null
+    : /<@user:/i.test(body)
+      ? body
+      : truncateCodePoints(body, LIMITS.excerptMaxCodePoints)
 
 /** What a reply's quote of `source` shows now, the way the server's projection words it. */
 function quoteOf(replyTo: Extract<ReplyTo, { id: string }>, source: Message): ReplyTo {
-  if (source.deletedAt !== null) return { ...replyTo, state: 'deleted', excerpt: null }
-  if (source.recalledAt !== null) return { ...replyTo, state: 'recalled', excerpt: null }
-  return { ...replyTo, state: 'ok', excerpt: excerptOf(source.body), senderId: source.senderId }
+  if (source.deletedAt !== null)
+    return { ...replyTo, state: 'deleted', excerpt: null, attachmentKind: null }
+  if (source.recalledAt !== null)
+    return { ...replyTo, state: 'recalled', excerpt: null, attachmentKind: null }
+  return {
+    ...replyTo,
+    state: 'ok',
+    excerpt: excerptOf(source.body),
+    senderId: source.senderId,
+    attachmentKind: source.attachments[0]?.kind ?? null,
+  }
 }
 
 const sameQuote = (a: ReplyTo, b: ReplyTo): boolean =>
   'id' in a && 'id' in b
-    ? a.id === b.id && a.state === b.state && a.excerpt === b.excerpt && a.senderId === b.senderId
+    ? a.id === b.id &&
+      a.state === b.state &&
+      a.excerpt === b.excerpt &&
+      a.senderId === b.senderId &&
+      (a.attachmentKind ?? null) === (b.attachmentKind ?? null)
     : !('id' in a) && !('id' in b)
 
 /**
@@ -173,6 +190,9 @@ export function previewOf(message: Message): LastMessagePreview {
   return {
     senderId: message.senderId,
     text: state === 'ok' && message.kind !== 'system' ? excerptOf(message.body) : null,
+    ...(state === 'ok' && message.attachments[0]
+      ? { attachmentKind: message.attachments[0].kind }
+      : {}),
     kind: message.kind,
     state,
   }

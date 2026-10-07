@@ -26,7 +26,7 @@ export const WORK_LIMITS = {
   /** Lease while the item waits in the queue, and while a consumer runs it. */
   dispatchLeaseMs: 60_000,
   runLeaseMs: 120_000,
-  maxAttempts: { realtime: 5, email: 5 } as Record<WorkKind, number>,
+  maxAttempts: { realtime: 5, email: 5, media: 5 } as Record<WorkKind, number>,
   finishedRetentionDays: 7,
 } as const
 

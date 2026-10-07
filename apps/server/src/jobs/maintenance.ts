@@ -1,9 +1,11 @@
 /** Periodic scans straight from Postgres (docs/03 section 7): reconcile every minute, cleanup every ten. None depends on the queue. */
+import { cleanupAttachments, reconcileStorage } from '../domain/attachment-processing.ts'
 import type { Deps } from '../domain/deps.ts'
 import {
   purgeExpiredRecords,
   purgeSessionsAndOrigins,
   purgeSyncLogs,
+  runMaintenanceTask,
 } from '../domain/maintenance.ts'
 import { reconcileRegistrations } from '../domain/registration.ts'
 import { purgeFinishedWork, recoverExpiredWork, workBacklog } from '../domain/work-queue.ts'
@@ -14,6 +16,8 @@ export type Maintenance = {
   stop(): Promise<void>
   reconcile(): Promise<void>
   cleanup(): Promise<void>
+  attachmentCleanup(): Promise<void>
+  storageReconcile(): Promise<void>
 }
 
 export function createMaintenance(parts: {
@@ -21,17 +25,25 @@ export function createMaintenance(parts: {
   log: Logger
   reconcileMs?: number
   cleanupMs?: number
+  attachmentCleanupMs?: number
+  storageReconcileMs?: number
 }): Maintenance {
   const { deps, log } = parts
   const timers: ReturnType<typeof setInterval>[] = []
   const inFlight = new Set<Promise<void>>()
 
+  const running = new Map<string, Promise<void>>()
   const guarded = (name: string, run: () => Promise<void>) => async () => {
-    const job = run().catch((error) =>
+    if (running.has(name)) return
+    const job = runMaintenanceTask(deps, name, run).catch((error) =>
       log.error(`maintenance.${name}_failed`, describeError(error)),
     )
+    running.set(name, job)
     inFlight.add(job)
-    await job.finally(() => inFlight.delete(job))
+    await job.finally(() => {
+      inFlight.delete(job)
+      running.delete(name)
+    })
   }
 
   const reconcile = guarded('reconcile', async () => {
@@ -48,6 +60,16 @@ export function createMaintenance(parts: {
     if (backlog.dead > 0) log.warn('work.dead_letters', { count: backlog.dead })
   })
 
+  const attachmentCleanup = guarded('attachment_cleanup', async () => {
+    if (deps.blobs) await cleanupAttachments(deps)
+  })
+  let nextStorageReconcileAt = 0
+  const storageReconcile = guarded('storage_reconcile', async () => {
+    nextStorageReconcileAt = deps.clock.now().getTime() + 15 * 60_000
+    if (deps.blobs) await reconcileStorage(deps)
+    nextStorageReconcileAt =
+      deps.clock.now().getTime() + (parts.storageReconcileMs ?? 6 * 60 * 60_000)
+  })
   const cleanup = guarded('cleanup', async () => {
     const finished = await purgeFinishedWork(deps)
     const sessions = await purgeSessionsAndOrigins(deps)
@@ -65,7 +87,18 @@ export function createMaintenance(parts: {
     start() {
       timers.push(setInterval(() => void reconcile(), parts.reconcileMs ?? 60_000))
       timers.push(setInterval(() => void cleanup(), parts.cleanupMs ?? 600_000))
+      timers.push(setInterval(() => void attachmentCleanup(), parts.attachmentCleanupMs ?? 60_000))
+      timers.push(
+        setInterval(
+          () => {
+            if (deps.clock.now().getTime() >= nextStorageReconcileAt) void storageReconcile()
+          },
+          Math.min(parts.storageReconcileMs ?? 60_000, 60_000),
+        ),
+      )
       void reconcile()
+      void attachmentCleanup()
+      void storageReconcile()
     },
     async stop() {
       for (const timer of timers) clearInterval(timer)
@@ -74,5 +107,7 @@ export function createMaintenance(parts: {
     },
     reconcile,
     cleanup,
+    attachmentCleanup,
+    storageReconcile,
   }
 }

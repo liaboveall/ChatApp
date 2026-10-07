@@ -12,21 +12,28 @@ import {
   type MessageEnvelope,
   type MessagesQuery,
   type MessagesResponse,
+  mentionIds,
+  plainMessageText,
   type ReplyTo,
   type SendMessageRequest,
   type SystemEvent,
+  truncateCodePoints,
   type UsersDictionary,
 } from '@chatapp/contracts'
 import {
+  attachments,
   conversationMembers,
   conversations,
   type DbOrTx,
   messageHidden,
+  messageMentions,
   messages,
   type Tx,
+  users,
 } from '@chatapp/db'
 import { and, asc, desc, eq, gt, inArray, lt, notExists, sql } from 'drizzle-orm'
 import { fingerprint } from '../lib/crypto.ts'
+import { attachmentDto, lockStorage } from './attachment-common.ts'
 import { writeAudit } from './audit.ts'
 import { enforce, loadAccess, type MemberRow } from './authorize.ts'
 import {
@@ -40,6 +47,7 @@ import type { Deps } from './deps.ts'
 import type { SessionPrincipal } from './principal.ts'
 import { lockAndRevalidate, lockUsers } from './sessions.ts'
 import { inTransaction } from './tx.ts'
+import { retireAttachment } from './uploads.ts'
 import { usersDictionary } from './users.ts'
 
 export type MessageRow = typeof messages.$inferSelect
@@ -114,6 +122,7 @@ export async function projectMessages(
       senderId: string | null
       kind: MessageRow['kind']
       excerpt: string | null
+      attachmentKind: Message['attachments'][number]['kind'] | null
       recalledAt: Date | null
       deletedAt: Date | null
     }
@@ -127,7 +136,10 @@ export async function projectMessages(
         seq: messages.seq,
         senderId: messages.senderId,
         kind: messages.kind,
-        excerpt: sql<string | null>`left(${messages.body}, ${LIMITS.excerptMaxCodePoints})`,
+        excerpt: messages.body,
+        attachmentKind: sql<
+          'image' | 'video' | 'audio' | 'file' | null
+        >`(select a.kind from ${attachments} a where a.message_id = "messages"."id" and a.status = 'ready' and a.privacy_class = 'standard' order by a.position limit 1)`,
         recalledAt: messages.recalledAt,
         deletedAt: messages.deletedAt,
       })
@@ -143,6 +155,21 @@ export async function projectMessages(
     for (const mark of marks) hidden.add(mark.messageId)
   }
 
+  // Resolve only visible, live reply targets; hidden history cannot add people to the response.
+  const replyPeople = new Set<string>()
+  for (const target of targets.values()) {
+    if (
+      rows.some(
+        (row) => row.replyToId === target.id && row.conversationId === target.conversationId,
+      ) &&
+      target.seq > viewer.visibleFromSeq &&
+      !hidden.has(target.id) &&
+      !target.recalledAt &&
+      !target.deletedAt
+    )
+      for (const id of mentionIds(target.excerpt ?? '')) replyPeople.add(id)
+  }
+  const replyUsers = await usersDictionary(db, replyPeople)
   const replyOf = (row: MessageRow): ReplyTo | null => {
     if (row.replyToId === null) return null
     const target = targets.get(row.replyToId)
@@ -159,11 +186,40 @@ export async function projectMessages(
       id: target.id,
       seq: target.seq,
       senderId: target.senderId,
-      excerpt: state === 'ok' ? target.excerpt : null,
+      excerpt:
+        state === 'ok' && (target.excerpt !== null || target.attachmentKind !== null)
+          ? truncateCodePoints(
+              plainMessageText(
+                target.excerpt,
+                (id) => replyUsers[id]?.displayName,
+                target.attachmentKind,
+              ),
+              LIMITS.excerptMaxCodePoints,
+            )
+          : null,
+      ...(state === 'ok' && target.attachmentKind ? { attachmentKind: target.attachmentKind } : {}),
       state,
     }
   }
 
+  const rowIds = rows.filter((row) => !row.recalledAt && !row.deletedAt).map((row) => row.id)
+  const [files, mentioned] = rowIds.length
+    ? await Promise.all([
+        db
+          .select()
+          .from(attachments)
+          .where(
+            and(
+              inArray(attachments.messageId, rowIds),
+              eq(attachments.status, 'ready'),
+              eq(attachments.purpose, 'message'),
+              eq(attachments.privacyClass, 'standard'),
+            ),
+          )
+          .orderBy(asc(attachments.position)),
+        db.select().from(messageMentions).where(inArray(messageMentions.messageId, rowIds)),
+      ])
+    : [[], []]
   const projected: Message[] = rows.map((row) => {
     const gone = row.recalledAt !== null || row.deletedAt !== null
     return {
@@ -176,8 +232,12 @@ export async function projectMessages(
       senderId: row.senderId,
       body: gone ? null : row.body,
       replyTo: replyOf(row),
-      attachments: [],
-      mentions: [],
+      attachments: gone ? [] : files.filter((file) => file.messageId === row.id).map(attachmentDto),
+      mentions: gone
+        ? []
+        : mentioned
+            .filter((mention) => mention.messageId === row.id)
+            .map((mention) => mention.userId),
       streamRevision: row.streamRevision,
       editedAt: row.editedAt?.toISOString() ?? null,
       recalledAt: row.recalledAt?.toISOString() ?? null,
@@ -187,7 +247,7 @@ export async function projectMessages(
     }
   })
 
-  const people = new Set<string | null>()
+  const people = new Set<string | null>(mentioned.map((mention) => mention.userId))
   for (const row of rows) {
     people.add(row.senderId)
     for (const id of systemUserIds(row.meta.system)) people.add(id)
@@ -361,13 +421,11 @@ export async function sendMessage(
   conversationId: string,
   input: SendMessageRequest,
 ): Promise<{ envelope: MessageEnvelope; created: boolean }> {
-  if ((input.attachmentIds?.length ?? 0) > 0) {
-    throw new AppError('VALIDATION_FAILED', 'Attachments are not available yet', {
-      details: { field: 'attachmentIds', reason: 'not_available' },
-    })
-  }
+  const attachmentIds = input.attachmentIds ?? []
+  if (new Set(attachmentIds).size !== attachmentIds.length)
+    throw new AppError('VALIDATION_FAILED', 'Duplicate attachment')
   const body = normalizeBody(input.body ?? '')
-  if (body.length === 0) {
+  if (body.length === 0 && attachmentIds.length === 0) {
     throw new AppError('VALIDATION_FAILED', 'A message needs a body', {
       details: { field: 'body' },
     })
@@ -377,7 +435,7 @@ export async function sendMessage(
     conversationId,
     body,
     replyToId: input.replyToId ?? null,
-    attachments: [],
+    attachments: attachmentIds,
   })
 
   // A direct message changes the other person's view too (it brings the conversation out of hiding), so both are locked.
@@ -473,6 +531,30 @@ export async function sendMessage(
       })
       .returning()
     if (!row) throw new Error('message was not created')
+    for (const [position, attachmentId] of attachmentIds.entries()) {
+      const [file] = await tx
+        .select()
+        .from(attachments)
+        .where(eq(attachments.id, attachmentId))
+        .for('update')
+      if (
+        !file ||
+        file.uploaderId !== principal.userId ||
+        file.purpose !== 'message' ||
+        file.status !== 'ready' ||
+        file.messageId !== null ||
+        file.privacyClass !== 'standard' ||
+        (file.conversationId !== null && file.conversationId !== conversationId)
+      )
+        throw new AppError('VALIDATION_FAILED', 'Attachment unavailable', {
+          details: { field: 'attachmentIds' },
+        })
+      await tx
+        .update(attachments)
+        .set({ messageId: id, conversationId, position, version: sql`${attachments.version} + 1` })
+        .where(eq(attachments.id, attachmentId))
+    }
+    await replaceMentions(tx, id, conversationId, body)
     await recordMessageChange(tx, deps, {
       conversationId,
       messageId: id,
@@ -587,7 +669,13 @@ async function withMessage<T>(
   const head = await messageHead(deps, messageId)
   return await inTransaction(deps.db, async (tx) => {
     const now = deps.clock.now()
-    const user = await lockAndRevalidate(tx, deps, principal)
+    const attachmentOwners = await tx
+      .select({ id: attachments.uploaderId })
+      .from(attachments)
+      .where(eq(attachments.messageId, messageId))
+    const user = await lockAndRevalidate(tx, deps, principal, {
+      alsoLock: attachmentOwners.map((owner) => owner.id),
+    })
     const actor = { userId: principal.userId, siteRole: user.role }
     const access = await loadAccess(tx, principal.userId, head.conversationId, { lock: true })
     enforceView(access, actor, now)
@@ -665,6 +753,7 @@ export async function editMessage(
       if (body === row.body) return await envelopeOf(tx, viewer, conversationId, messageId)
 
       const changeSeq = await allocateChangeSeq(tx, deps, conversationId)
+      await replaceMentions(tx, messageId, conversationId, body)
       await tx
         .update(messages)
         .set({
@@ -718,6 +807,7 @@ export async function recallMessage(
         })
       }
       const changeSeq = await allocateChangeSeq(tx, deps, conversationId)
+      await withdrawAttachments(tx, deps, messageId)
       await tx
         .update(messages)
         .set({
@@ -761,6 +851,7 @@ export async function deleteMessageAsModerator(
       }
       if (row.recalledAt !== null || row.deletedAt !== null) return
       const changeSeq = await allocateChangeSeq(tx, deps, conversationId)
+      await withdrawAttachments(tx, deps, messageId)
       await tx
         .update(messages)
         .set({
@@ -832,4 +923,42 @@ export async function hideMessage(
       state: member.hiddenAt ? 'hidden' : 'active',
     })
   })
+}
+
+/** Mentions never create notification intents on edits; M6 consumes message creation separately. */
+async function replaceMentions(
+  tx: DbOrTx,
+  messageId: string,
+  conversationId: string,
+  body: string,
+) {
+  await tx.delete(messageMentions).where(eq(messageMentions.messageId, messageId))
+  const ids = mentionIds(body)
+  if (!ids.length) return
+  const members = await tx
+    .select({ id: conversationMembers.userId })
+    .from(conversationMembers)
+    .where(
+      and(
+        eq(conversationMembers.conversationId, conversationId),
+        inArray(conversationMembers.userId, ids),
+      ),
+    )
+  const bots = await tx
+    .select({ id: users.id })
+    .from(users)
+    .where(and(eq(users.isBot, true), inArray(users.id, ids)))
+  const accepted = [...new Set([...members, ...bots].map((row) => row.id))]
+  if (accepted.length)
+    await tx.insert(messageMentions).values(accepted.map((userId) => ({ messageId, userId })))
+}
+async function withdrawAttachments(tx: DbOrTx, deps: Deps, messageId: string) {
+  await tx.delete(messageMentions).where(eq(messageMentions.messageId, messageId))
+  const files = await tx
+    .select({ id: attachments.id })
+    .from(attachments)
+    .where(eq(attachments.messageId, messageId))
+  if (!files.length) return
+  await lockStorage(tx)
+  for (const file of files) await retireAttachment(tx, deps, file.id)
 }

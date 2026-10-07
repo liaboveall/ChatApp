@@ -69,6 +69,10 @@ export const wsMemberChangedSchema = envelope(
   z.object({ conversationId: z.uuid(), membershipVersion: count }),
 )
 /** My own log has news: my conversations, my settings, my read position, messages I hid. */
+export const wsAttachmentUpdatedSchema = envelope(
+  'attachment.updated',
+  z.object({ attachmentId: z.uuid(), generation: count, version: count }),
+)
 export const wsUserChangedSchema = envelope('user.changed', z.object({ userChangeSeq: count }))
 /** My membership in a conversation ended; the cache is cleared once a newer removal tombstone is confirmed. */
 export const wsConversationRemovedSchema = envelope(
@@ -106,6 +110,7 @@ export const wsServerMessageSchema = z.discriminatedUnion('type', [
   wsConversationChangedSchema,
   wsMemberChangedSchema,
   wsUserChangedSchema,
+  wsAttachmentUpdatedSchema,
   wsConversationRemovedSchema,
   wsTypingSchema,
   wsPresenceSchema,

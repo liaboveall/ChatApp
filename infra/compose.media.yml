@@ -1,0 +1,134 @@
+# Fixed local media topology (D-081 / V-18). Use scripts/media.ts, not a blanket compose down.
+# The development dependencies are owned by compose.dev.yml and are never started or stopped here.
+name: chatapp-media
+
+services:
+  media:
+    image: chatapp-media:dev
+    build:
+      context: ..
+      dockerfile: infra/Dockerfile.media
+      target: runtime
+    user: "10001:10001"
+    command: ["bun", "--no-env-file", "/app/apps/media/src/server.ts"]
+    network_mode: none
+    ipc: private
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"] # Docker's default seccomp stays enabled.
+    init: true
+    pids_limit: 64
+    mem_limit: 512m
+    memswap_limit: 512m
+    tmpfs:
+      - /tmp:size=268435456,mode=1777,nosuid,nodev,noexec
+    volumes:
+      - type: volume
+        source: media-socket
+        target: /run/chatapp-media
+    labels:
+      chatapp.media.policy: "1"
+      chatapp.media.repository: ${MEDIA_REPOSITORY:?use scripts/media.ts}
+      chatapp.media.owner: ${MEDIA_OWNER:?use scripts/media.ts}
+      chatapp.media.mode: ${MEDIA_MODE:?use scripts/media.ts}
+    healthcheck:
+      # One native PID; a second Bun runtime can exhaust pids.max during decoding.
+      # Socket ownership is enforced at server startup; busy tasks must not be probed over IPC.
+      test: ["CMD", "/usr/bin/test", "-S", "/run/chatapp-media/media.sock"]
+      interval: 5s
+      timeout: 2s
+      retries: 12
+      start_period: 10s
+    restart: unless-stopped
+
+  worker:
+    image: chatapp-worker:dev
+    build:
+      context: ..
+      dockerfile: infra/Dockerfile.worker
+      target: runtime
+    user: "10001:10001"
+    command: ["bun", "--no-env-file", "--watch", "/app/apps/server/src/worker.ts"]
+    depends_on:
+      media:
+        condition: service_healthy
+    networks: [dev]
+    ipc: private
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    init: true
+    pids_limit: 256
+    mem_limit: 1536m
+    memswap_limit: 1536m
+    tmpfs:
+      - /tmp:size=268435456,mode=1777,nosuid,nodev,noexec
+    environment:
+      APP_ENV: development
+      NODE_ENV: development
+      MEDIA_SOCKET_PATH: /run/chatapp-media/media.sock
+      APP_ORIGIN: ${WORKER_APP_ORIGIN:?use scripts/media.ts}
+      APP_TIMEZONE: ${WORKER_APP_TIMEZONE:?use scripts/media.ts}
+      DATABASE_URL: ${WORKER_DATABASE_URL:?use scripts/media.ts}
+      VALKEY_URL: ${WORKER_VALKEY_URL:?use scripts/media.ts}
+      S3_ENDPOINT: ${WORKER_S3_ENDPOINT:?use scripts/media.ts}
+      GARAGE_METRICS_ENDPOINT: http://garage:3903/metrics
+      GARAGE_METRICS_TOKEN: ${WORKER_GARAGE_METRICS_TOKEN:-}
+      S3_REGION: ${WORKER_S3_REGION:?use scripts/media.ts}
+      S3_BUCKET: ${WORKER_S3_BUCKET:?use scripts/media.ts}
+      S3_ACCESS_KEY_ID: ${WORKER_S3_ACCESS_KEY_ID:?use scripts/media.ts}
+      S3_SECRET_ACCESS_KEY: ${WORKER_S3_SECRET_ACCESS_KEY:?use scripts/media.ts}
+      BETTER_AUTH_SECRET: ${WORKER_BETTER_AUTH_SECRET:?use scripts/media.ts}
+      AUTH_TOKEN_ENCRYPTION_KEY: ${WORKER_AUTH_TOKEN_ENCRYPTION_KEY:?use scripts/media.ts}
+      RESTORE_EPOCH: ${WORKER_RESTORE_EPOCH:?use scripts/media.ts}
+      SMTP_HOST: mailpit
+      SMTP_PORT: "1025"
+      SMTP_USER: ${WORKER_SMTP_USER:-}
+      SMTP_PASS: ${WORKER_SMTP_PASS:-}
+      MAIL_FROM: ${WORKER_MAIL_FROM:?use scripts/media.ts}
+      PRODUCT_NAME: ${WORKER_PRODUCT_NAME:?use scripts/media.ts}
+      AGENT_DISPLAY_NAME: ${WORKER_AGENT_DISPLAY_NAME:?use scripts/media.ts}
+      AGENT_USERNAME: ${WORKER_AGENT_USERNAME:?use scripts/media.ts}
+      LOG_LEVEL: ${WORKER_LOG_LEVEL:?use scripts/media.ts}
+    volumes:
+      # A read-only mount can connect to a Unix socket but cannot create files in its directory.
+      - type: volume
+        source: media-socket
+        target: /run/chatapp-media
+        read_only: true
+      # Only source directories, never the repository root, .env files or host node_modules.
+      - type: bind
+        source: ../apps/server/src
+        target: /app/apps/server/src
+        read_only: true
+        bind:
+          create_host_path: false
+      - type: bind
+        source: ../packages/contracts/src
+        target: /app/packages/contracts/src
+        read_only: true
+        bind:
+          create_host_path: false
+      - type: bind
+        source: ../packages/db/src
+        target: /app/packages/db/src
+        read_only: true
+        bind:
+          create_host_path: false
+    labels:
+      chatapp.media.policy: "1"
+      chatapp.media.repository: ${MEDIA_REPOSITORY:?use scripts/media.ts}
+      chatapp.media.owner: ${MEDIA_OWNER:?use scripts/media.ts}
+      chatapp.media.mode: ${MEDIA_MODE:?use scripts/media.ts}
+    restart: unless-stopped
+
+volumes:
+  media-socket:
+    labels:
+      chatapp.media.policy: "1"
+      chatapp.media.repository: ${MEDIA_REPOSITORY:?use scripts/media.ts}
+
+networks:
+  dev:
+    external: true
+    name: chatapp-dev_default

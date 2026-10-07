@@ -157,3 +157,35 @@ export function softBreaks(): (tree: MdNode) => void {
   }
   return (tree) => visit(tree)
 }
+
+/** References become React-rendered names, never HTML. Code spans/blocks and link destinations are untouched. */
+export function mentionTokens(): (tree: MdNode) => void {
+  const visit = (node: MdNode): void => {
+    if (!node.children || node.type === 'link') return
+    const children: MdNode[] = []
+    for (const child of node.children) {
+      if (child.type !== 'text' || !child.value) {
+        visit(child)
+        children.push(child)
+        continue
+      }
+      let offset = 0
+      for (const match of child.value.matchAll(
+        /<@user:([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})>/gi,
+      )) {
+        if (match.index > offset)
+          children.push({ type: 'text', value: child.value.slice(offset, match.index) })
+        children.push({
+          type: 'link',
+          url: `#chatapp-mention-${match[1]?.toLowerCase()}`,
+          children: [{ type: 'text', value: match[0] }],
+        })
+        offset = match.index + match[0].length
+      }
+      if (offset < child.value.length)
+        children.push({ type: 'text', value: child.value.slice(offset) })
+    }
+    node.children = children
+  }
+  return visit
+}

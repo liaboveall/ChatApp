@@ -5,6 +5,8 @@
 import type { Db } from '@chatapp/db'
 import type { Clock } from '../lib/clock.ts'
 import type { Logger } from '../lib/logger.ts'
+import type { MediaClient } from '../runtime/media.ts'
+import type { BlobStore } from '../storage/port.ts'
 
 export type DomainConfig = {
   /** Site origin used in links sent by email. */
@@ -34,4 +36,7 @@ export type Deps = {
   config: DomainConfig
   passwords: PasswordHasher
   log: Logger
+  blobs?: BlobStore
+  /** Only the worker composition root installs IPC; the API never runs a decoder. */
+  media?: MediaClient
 }

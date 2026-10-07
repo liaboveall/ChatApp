@@ -1,0 +1,10 @@
+.git
+.env*
+.test-runs
+**/node_modules
+coverage
+apps/web
+design
+docs
+scripts
+**/*.log

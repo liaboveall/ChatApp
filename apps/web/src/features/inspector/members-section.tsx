@@ -201,7 +201,13 @@ export function MembersSection({ conversation, meId, actor, facts, permissions }
               const name = nameOf(member.user)
               return (
                 <li key={member.user.id} className="member">
-                  <Avatar name={name} seed={member.user.id} size={32} bot={member.user.isBot} />
+                  <Avatar
+                    src={member.user.avatarUrl}
+                    name={name}
+                    seed={member.user.id}
+                    size={32}
+                    bot={member.user.isBot}
+                  />
                   <div className="member__body">
                     <span className="member__name">
                       <span className="member__name-text">{name}</span>

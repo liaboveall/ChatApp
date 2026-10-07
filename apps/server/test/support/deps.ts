@@ -7,6 +7,7 @@ import { ManualClock } from '../../src/lib/clock.ts'
 import { open } from '../../src/lib/crypto.ts'
 import { silentLogger } from '../../src/lib/logger.ts'
 import { uuidv7 } from '../../src/runtime/ids.ts'
+import { createBlobStore } from '../../src/storage/s3.ts'
 import { testConfig } from './env.ts'
 
 export const TEST_ORIGIN = 'http://localhost:5173'
@@ -31,6 +32,7 @@ export function makeDeps(
       },
       product: config.product,
     },
+    blobs: createBlobStore(config.s3),
     passwords: sdkPasswords,
     log: silentLogger,
     ...overrides,

@@ -17,6 +17,7 @@ import { dateTime } from '@/lib/time-format.ts'
 import { showToast } from '@/lib/toast.ts'
 import { useTime } from '@/lib/use-time.ts'
 import { m } from '@/paraglide/messages.js'
+import { AvatarEditor } from '../attachments/avatar-editor.tsx'
 
 type Problems = { displayName?: string; username?: string; general?: string }
 
@@ -75,6 +76,7 @@ function Form({ me, onClose }: { me: Me; onClose: () => void }) {
         void submit()
       }}
     >
+      <AvatarEditor me={me} />
       {problems.general !== undefined ? <Banner tone="danger">{problems.general}</Banner> : null}
       <TextField
         label={m.settings_profile_name()}

@@ -66,7 +66,7 @@ Me           UserSummary & { meVersion, authEpoch, restoreEpoch, email, role: 'u
                aiKey: { provider: 'deepseek', last4, status: 'active'|'invalid' }|null }        // aiKey from M5
 Conversation { id, kind: 'channel'|'group'|'dm'|'agent', name|null, description|null, avatarUrl|null,
                metadataVersion, membershipVersion, viewerVersion, memberCount, lastSeq, lastChangeSeq, lastMessageAt|null,
-               lastMessagePreview: { senderId|null, text|null, kind, state: 'ok'|'recalled'|'deleted' }|null,
+               lastMessagePreview: { senderId|null, text|null, attachmentKind?: 'image'|'video'|'audio'|'file'|null, kind, state: 'ok'|'recalled'|'deleted' }|null,
                dmPeer: UserSummary|null, settings: { whoCanInvite?, agentEnabled? },
                panelForConversationId|null, archivedAt|null,
                previewVersion: { lastChangeSeq, viewerVersion },
@@ -75,12 +75,12 @@ Conversation { id, kind: 'channel'|'group'|'dm'|'agent', name|null, description|
 Member       { user: UserSummary, membershipVersion, role, membershipId, joinedAt, silencedUntil|null }
 Message      { id, conversationId, seq, changeSeq, kind: 'user'|'system'|'agent', status: 'sent'|'streaming'|'failed',
                senderId|null, body|null,
-               replyTo: { state: 'unavailable' }|{ id, seq, senderId|null, excerpt|null, state: 'ok'|'recalled'|'deleted' }|null,
+               replyTo: { state: 'unavailable' }|{ id, seq, senderId|null, excerpt|null, attachmentKind?: 'image'|'video'|'audio'|'file'|null, state: 'ok'|'recalled'|'deleted' }|null,
                attachments: Attachment[], mentions: string[], streamRevision,
                editedAt|null, recalledAt|null, deletedAt|null, createdAt,
                meta: { system?: {...}, agent?: { runId, mode, keySource, streamIndex? }, viaAgent?: { runId } } }
 Attachment   { id, version, generation, kind: 'image'|'video'|'audio'|'file', mime, name, sizeBytes, width|null, height|null,
-               durationMs|null, thumbhash|null, status: 'processing'|'ready'|'failed',
+               durationMs|null, metadataCleared?: boolean|null, thumbhash|null, status: 'processing'|'ready'|'failed',
                urls: { original, thumb|null, preview|null } }
 AgentRun     { id, trigger, conversationId|null, status, mode, model|null, keySource: 'site'|'user', readScope,
                stepCount, usage: { inputTokens, outputTokens, cachedTokens, costUsd }, createdAt, finishedAt|null,
@@ -89,6 +89,7 @@ Notification { id, version, type, data, readAt|null, createdAt }                
 Page<T>      { items: T[], nextCursor|null }  // message lists instead return { messages, users: Record<id, UserSummary>, hasMoreBefore, hasMoreAfter } (D-128)
 ```
 
+- 纯文本摘要统一经 `plainMessageText`：先把完整提及标记解析为当前显示名，再按码点截断；未知名字用中性占位，不显示 UUID。纯附件摘要携带 `attachmentKind` 并有 `[image]` 等兜底，客户端按当前语言显示 `[图片]` 等。正文与草稿继续使用稳定的 `<@user:id>` 格式。
 - 消息列表的响应附带一个 `users` 字典，消息里只放 `senderId`，避免每条消息都重复带上用户资料。
 - 普通实时事件不携带消息或 sender；HTTP 响应按当前请求者投影，再合并 users 字典。
 - `lastMessagePreview.text` 在撤回或删除后为 null，界面文字（"撤回了一条消息"等）由客户端按 `state` 生成。
@@ -129,7 +130,7 @@ Page<T>      { items: T[], nextCursor|null }  // message lists instead return { 
 | `POST /api/auth/password/request-reset` / `POST /api/auth/password/consume-reset` | 前者请求找回（通用响应）；后者`{token,newPassword}`，消费/改密/撤销会话和委托同事务 | M1 |
 | `POST /api/invites/check` | `{code}`，注册页用它校验邀请码是否可用；按 IP 限流 | M1 |
 | `GET /api/me` / `PATCH /api/me` | 查看或修改自己的资料和设置：用户名（检查冷却期、保留名）、显示名（检查保留名）、简介、时区、偏好设置。strict 请求体 `{expectedMeVersion, timezone?, settings?: {timezoneAuto?}, displayName?, username?, bio?}`，至少改一项；`timezone` 是 IANA 名；`settings` 按键合并；条件是 `meVersion` 等于 `expectedMeVersion`，过期返回 409 `VERSION_CONFLICT`；响应是新的 Me。条件写入本身防重复，不带 `Idempotency-Key`（D-118）。**M2a ✅**：显示名不能是保留词（422 `reserved`）；用户名 30 天内只能改一次（422 `cooldown`，`details.availableAt`），放弃的旧名保留 30 天、别人取不到（409）；简介最长 200 字符，空白即清除；只有显示名或用户名变化才推进 `profileVersion`；每次修改都在本人日志里写一条 `me`；限流每人每 10 分钟 20 次（D-133）。外观偏好是设备级的，不在这里（D-117） | M1b ✅ / M2a ✅ |
-| `POST /api/me/avatar` | `{attachmentId}`，把一个 `purpose=avatar` 的附件设为头像 | M3 |
+| `POST /api/me/avatar` | `{attachmentId: uuid|null, expectedVersion: meVersion}`，把一个 `purpose=avatar` 的附件设为头像 | M3 |
 | `PUT /api/me/ai-key` / `DELETE /api/me/ai-key` | `{provider: 'deepseek', apiKey}`：保存自带 key，保存前先调用模型列表接口验证。只返回末 4 位 | M5 |
 | `DELETE /api/me` | 注销账号，需要再次输入密码或验证 Passkey | M7 |
 
@@ -186,7 +187,7 @@ Page<T>      { items: T[], nextCursor|null }  // message lists instead return { 
 | `GET /api/conversations/:id/changes?after=&cursor=&limit=` | 固定上界日志补发；`after` 仅第一页使用，之后仅 `cursor`，两者都给或都不给 422；`limit` 最多 100；协议见 4.5。权限同读消息 | M2a ✅ |
 | `GET /api/sync/heads` / `GET /api/me/changes?after=&cursor=&limit=` | 轻量会话与个人版本清单 / 个人日志，覆盖成员移除、隐藏、已读和设置 | M2a ✅ |
 | `GET /api/messages/:id` | 按当前权限获取单条消息及流式持久快照；不可见引用脱敏。看不到的消息（私有会话里的、加入之前的、我隐藏的）与不存在的消息回答完全相同：404 `Message not found` | M2a ✅ |
-| `POST /api/conversations/:id/messages` | `{clientId, body?, attachmentIds?, replyToId?}`，正文和附件至少要有一个（M3 之前只有正文，带附件 422）；新建返回 201，重复提交返回 200（仍在当前可见范围内时；重新加入之后对水位以前的旧消息重放是 404，见上文幂等条，D-138）；正文最长 5000 个字符，规范化后不能是空白；限流每会话每 10 秒 10 条、每人每分钟 60 条；被禁言 403、已归档 409；发送者以会话里的身份写入，请求体里的 `senderId`、`username` 等一律 422（L-09） | M2a ✅（附件在 M3） |
+| `POST /api/conversations/:id/messages` | `{clientId, body?, attachmentIds?, replyToId?}`，正文和附件至少要有一个（M3 起最多 10 个本人已 ready、未绑定附件；空正文仅在有附件时可用）；新建返回 201，重复提交返回 200（仍在当前可见范围内时；重新加入之后对水位以前的旧消息重放是 404，见上文幂等条，D-138）；正文最长 5000 个字符，规范化后不能是空白；限流每会话每 10 秒 10 条、每人每分钟 60 条；被禁言 403、已归档 409；发送者以会话里的身份写入，请求体里的 `senderId`、`username` 等一律 422（L-09） | M2a ✅（附件在 M3） |
 | `POST /api/conversations/:id/messages/replay` | 离线队列恢复，字段同发送并带队列登记时间；同一幂等键，≤24小时，服务端固定offline_replay，不推进已读。常规发送端点仅供本人明确交互使用 | M6 |
 | `PATCH /api/messages/:id` | `{body, expectedChangeSeq}`，编辑（仅发送者，24 小时内，超时 403 `WINDOW_EXPIRED`，版本不符 409）。不会触发 Agent，也不产生新的通知；每人每分钟 30 次 | M2a ✅ |
 | `POST /api/messages/:id/recall` | 撤回（仅发送者，2 分钟内，服务端留 5 秒宽限，超时 403 `WINDOW_EXPIRED`）；同一事务清除正文，重复请求得到同一个终态 | M2a ✅ |
@@ -198,8 +199,10 @@ Page<T>      { items: T[], nextCursor|null }  // message lists instead return { 
 ### 3.5 附件
 | 方法和路径 | 说明 | 里程碑 |
 |---|---|---|
-| `POST /api/uploads/reservations` | `{purpose, declaredSize?, name, conversationId?}`，Idempotency-Key；返回 `{uploadId, expiresAt, maxBytes, status}`，原子预占配额 | M3 |
+| `POST /api/uploads/reservations` | `{purpose, declaredSize?, name, conversationId?}`，Idempotency-Key；返回 `{uploadId, attachmentId, expiresAt, maxBytes, status, attachment}`（ready 前 attachment=null）；attachmentId 只用于匹配 WS 提示并查询有权访问的 upload 状态，不从提示直接更新状态，原子预占用户主文件和站点峰值；每人每分钟预占/接收共 20 次；Garage 容量指标不可用或无法解释的对象差额时 503 | M3 |
 | `PUT /api/uploads/:id/content` / `GET /api/uploads/:id` / `DELETE /api/uploads/:id` | 单文件流 / 查询状态与 Attachment / 取消未绑定上传；同一 uploadId 可恢复查询，失败重传需新预占 | M3 |
+| `POST /api/conversations/:id/avatar` | `{attachmentId: uuid|null, expectedVersion: metadataVersion}`；当前 owner/admin 或允许管理的站点管理员，DM 不适用；409 后重新读取会话 | M3 |
+| `GET /api/conversations/:id/mentions?query=` | 当前成员与站点机器人，最多 10 项，按用户名稳定排序；不依赖机器人配置名，不返回会话外用户 | M3 |
 | `GET /api/conversations/:id/attachments?cursor=&kind=` | 共享文件，按 message.seq 和 attachment.id 稳定排序，过滤历史水位/撤回/隐藏，返回 Page<Attachment> 与所属可见消息 id | M3 |
 | `GET /api/attachments/:id/:variant` | `variant` 取 `original`、`thumb` 或 `preview`。<br>• 鉴权按 `purpose` 区分（INV-09）<br>• 支持 Range（断点续传和拖动播放）<br>• 响应头见 07 的 SEC-08<br>• 带 `ETag`；所有私有变体与原文件 `Cache-Control: private, no-store`；ETag 仅用于本次 Range/条件验证，不授权跨会话缓存 | M3 |
 
@@ -323,3 +326,7 @@ Page<T>      { items: T[], nextCursor|null }  // message lists instead return { 
 | 上传状态和取消 | reservations/content/status/delete / reservation+object ledger | attachment.updated / M3 AT-10 |
 
 以上每行的 UI 都必须有 loading、空、权限失效、错误/重试和终态；前端不得凭自己推断未写出的服务器语义。
+
+M3：下载先检查当前权限，再处理 ETag、单段 Range、If-Range；非法/多段范围为 416，私有资源未知与无权限都为同一 404。文件名经控制字符、路径、双向控制符和孤立代理项清理，所有变体 `private, no-store`、nosniff、sandbox。附件更新提示只发给上传者，只有 attachmentId、generation、version；上传页面每 500 ms 查询一次有身份约束的状态，漏掉提示也会收敛。撤回/隐藏后的共享文件列表由 message.changed / 用户日志重新查询。
+
+原生媒体 GET/HEAD（D-179）不刷新或删除认证 Cookie，仍完整校验当前会话与附件权限；身份失效的 Cookie 清理由普通身份接口与显式退出负责。上传内容的成功重放验证实际大小/hash 后返回当前状态，409 不覆盖或取消已接受文件。

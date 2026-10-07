@@ -1,6 +1,6 @@
 # 09 本地开发环境
 
-> 基础设施和工具链已在 2026-09-30 的"开发准备"中搭好并验证通过（验证方式：`bun run doctor`）。M1a 的后端脚本（`db:*`、`dev:api`、`dev:worker`、`admin:*`、`test`、`test:integration`、`test:infra:*`、`test:fault`）和 M1b 的前端脚本（`dev`、`dev:web`、`build`、`storybook`、`test:e2e`、`test:visual`、`web:messages`）都已可用，见第 7 节；M2b 起还有 `edge:up`、`edge:down`、`test:edge`（本地网关，见第 2 节和第 7 节）；`media:*`、`eval` 要到对应里程碑才会创建，**创建之前不要假定它们存在**。
+> 基础设施和工具链已在 2026-09-30 的"开发准备"中搭好并验证通过（验证方式：`bun run doctor`）。M1a 的后端脚本（`db:*`、`dev:api`、`dev:worker`、`admin:*`、`test`、`test:integration`、`test:infra:*`、`test:fault`）和 M1b 的前端脚本（`dev`、`dev:web`、`build`、`storybook`、`test:e2e`、`test:visual`、`web:messages`）都已可用，见第 7 节；M2b 起还有 `edge:up`、`edge:down`、`test:edge`（本地网关，见第 2 节和第 7 节）；M3 的 `media:*`、`test:media`、`test:attachments`、`test:m3:e2e`、`test:m3:edge` 已创建；`eval` 仍待后续里程碑。
 > 开发环境：自 2026-10-01 起在 **WSL（Ubuntu 26.04）** 中进行（D-093）。仓库在 `/home/mars/projects/ChatApp`，命令都在 WSL 的 bash 里运行；Docker 用 Docker Desktop 的 WSL 集成。Windows 上的 `D:\ChatApp` 已停用。
 
 ## 1. 前置条件
@@ -112,6 +112,21 @@ bun run doctor                 # end-to-end checks; add --ai to also test the De
 - 不使用 `docker system prune` / `volume prune` 或按名字前缀删除；不继承开发 compose 的 name、container_name、卷或 bind 挂载。
 - M3 启用媒体时，本地开发的 worker 也运行在 Linux 容器内，经内部网络访问开发依赖，与 media 共享私有 Unix socket；不能假定宿主机 Bun 可访问 Docker 内 Unix socket。故障套件使用同样的 worker/media 拓扑，凭据和卷仍隔离。纯后端热重载在 M1a 阶段继续在宿主机运行。
 - M7 本地删除 journal 使用第二套独立存储服务模拟故障；V-19 最终证据仍须真实异地服务及原主机不可访问场景。只开本机第二桶不能证明灾难独立性。
+
+### M3 富消息开发与验证（D-176–D-180）
+
+- 首次使用 M3 先 `bun run db:migrate`（新增 0004/0005，不重置开发数据）；API 在宿主机，worker/media 由容器入口启动。`bun run dev` 启动全部服务，上传与头像须有 worker/media。
+- `bun run media:configtest`：以合成配置核对 Compose、网络、挂载、资源上限和 worker 环境白名单，不启动服务，不输出业务密钥。
+- `bun run media:up` / `bun run media:down`：启动固定 worker/media 栈，或只停止当前所有权凭据里的容器；保留 socket 卷和开发基础设施。`dev:worker` 与 `dev` 的 worker 从此走相同容器入口。先运行 `infra:up` 与 `infra:bootstrap`；已有健康栈会被复用，前台 Ctrl+C 不停止借用的容器。
+- `bun run test:media`：每次创建并核验独立 `compose.test` 实例，从当前 checkout 构建 worker、runtime media、fault media 镜像；跑真实 sharp/ffmpeg、IPC、隔离、PID/tmpfs/OOM、进程组与恢复测试后只拆除本轮目标。不依赖开发镜像，不读取 `.env.local`；可用 `--phase runtime|fault` 和 `--case <pattern>` 选择用例。
+- `bun run test:attachments`：独立真实 API → HTTP 上传 → Postgres work → BullMQ worker → 隔离 media → Garage → 受权限约束下载，结果在 `.test-runs/m3/<runId>/business-result.json`。
+- `bun run test:m3:edge`：同一真实媒体业务链经本地 TLS/Nginx 网关执行，独立 API 为 26402；包括实际 100 MiB 上传、超限拒绝与 S3 尾部 Range。拒绝覆盖已有 `chatapp-edge`，结束后核验回收媒体实例并停止本轮网关。此命令使用 Docker Desktop 的 `host.docker.internal`，不计作原生 ARM 准入。
+- `bun run test:m3:e2e`：独立媒体测试栈的浏览器场景 6（Chromium / WebKit），API 只发布到本机 26401，预览 4174；由外层 runner 在浏览器退出后核验回收实例。夹具账号仅在 `.test-runs/e2e-media/accounts.json`（0600），浏览器证据在该目录的 results，不能提交。
+- `test:coverage` 与 `test:e2e` 共用测试库，必须顺序执行；原生媒体和 M3 浏览器各自创建隔离实例，但两套浏览器构建仍须顺序运行，防止覆盖同一 dist。
+- Garage 的 `/metrics` 使用 `GARAGE_METRICS_TOKEN`，API 默认从本地 S3 endpoint 推导 3903；容器固定用 `http://garage:3903/metrics`。无需向业务进程传管理 token。新上传须有数据盘/元数据盘各至少 256 MiB 的余量，并扣除已预占处理峰值；逻辑站点预算默认 50 GiB，用户默认 5 GiB。
+- 运行结果在 `.test-runs/m3/<runId>/result.json`：只含元数据、逐例结果、未执行项、cgroup 资源和清理状态。实例 manifest 含随机凭据，只留本机，不上传或提交。镜像构建上下文通过 `.dockerignore` 排除 env、Git、运行证据和宿主依赖。
+- `.github/workflows/media.yml` 在原生 x64 与 ARM Linux 上分别执行相同套件，只上传 `result.json`。主机与 Docker 引擎架构必须一致，QEMU 结果不算 ARM 准入；新工作流尚未运行时，不能写 V-18 已通过。
+- M3 已接入上传、数据库 generation fencing、对象账本、头像与附件界面；V-18 的本地证据和原生 ARM 剩余门槛见 `PROGRESS.md`，全量混合负载属于 M7。
 
 ### 命令状态
 

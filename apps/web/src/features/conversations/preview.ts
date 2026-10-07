@@ -4,6 +4,7 @@
  * directly, in both languages.
  */
 import type { Conversation, UserSummary } from '@chatapp/contracts'
+import { messageText } from '@/lib/message-text.ts'
 
 export type PreviewWords = {
   /** "You" as the start of "You: hello". */
@@ -26,7 +27,7 @@ export function previewLine(
   if (preview.state === 'recalled') return words.recalled
   if (preview.state === 'deleted') return words.deleted
   if (preview.kind === 'system' || preview.text === null) return words.system
-  const text = preview.text.replace(/\s+/g, ' ').trim()
+  const text = messageText(preview.text, users, preview.attachmentKind)
   if (preview.senderId === meId) return words.withSender(words.you, text)
   if (conversation.kind === 'dm' || preview.senderId === null) return text
   const sender = users[preview.senderId]

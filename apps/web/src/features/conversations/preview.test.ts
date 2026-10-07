@@ -58,3 +58,14 @@ describe('previewLine', () => {
     expect(line({ lastMessagePreview: preview(null, null, 'ok', 'system') })).toBe('System message')
   })
 })
+
+test('mention previews use the current dictionary and an unknown person never exposes an id', () => {
+  expect(
+    line({ kind: 'dm', lastMessagePreview: preview(`hi <@user:${uuid(2)}> <@user:${uuid(99)}>`) }),
+  ).toBe('hi @Bea @某位成员')
+})
+test('an attachment-only preview has a localized label', () => {
+  expect(
+    line({ kind: 'dm', lastMessagePreview: { ...preview(''), attachmentKind: 'image' } }),
+  ).toBe('[图片]')
+})

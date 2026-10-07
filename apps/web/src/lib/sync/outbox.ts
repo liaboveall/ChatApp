@@ -6,7 +6,7 @@
  * with a conversation's line when the membership the messages were written under ends (D-171); what a request that was
  * still out brings back after that is dropped.
  */
-import type { MessageEnvelope, ReplyTo, SendMessageRequest } from '@chatapp/contracts'
+import type { Attachment, MessageEnvelope, ReplyTo, SendMessageRequest } from '@chatapp/contracts'
 import { create } from 'zustand'
 import { ApiError } from '../api.ts'
 import { registerConversationReset, registerStoreReset } from './stores.ts'
@@ -20,6 +20,7 @@ export type PendingMessage = {
   /** The membership the message was written under: after leaving and re-joining it is not sent on its own. */
   membershipId: string
   body: string
+  attachments?: Attachment[]
   replyToId: string | null
   /** The quote shown in the pending bubble (a copy of what the quoted message showed when the person chose it). */
   quote: Extract<ReplyTo, { id: string }> | null
@@ -58,6 +59,7 @@ export type EnqueueInput = {
   conversationId: string
   membershipId: string
   body: string
+  attachments?: Attachment[]
   replyToId: string | null
   quote: PendingMessage['quote']
 }
@@ -90,6 +92,7 @@ export class Outbox {
       conversationId: input.conversationId,
       membershipId: input.membershipId,
       body: input.body,
+      attachments: input.attachments,
       replyToId: input.replyToId,
       quote: input.quote,
       createdAt: new Date(this.#deps.now()).toISOString(),
@@ -155,7 +158,10 @@ export class Outbox {
     try {
       const envelope = await this.#deps.send(conversationId, {
         clientId: next.clientId,
-        body: next.body,
+        ...(next.body.trim() ? { body: next.body } : {}),
+        ...((next.attachments?.length ?? 0)
+          ? { attachmentIds: next.attachments?.map((file) => file.id) }
+          : {}),
         ...(next.replyToId === null ? {} : { replyToId: next.replyToId }),
       })
       if (!this.#inFlight(conversationId, next.clientId)) return

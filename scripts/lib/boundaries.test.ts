@@ -120,6 +120,50 @@ describe('layer import rules (docs/03 section 3)', () => {
   })
 })
 
+describe('isolated media boundary (D-081, D-176)', () => {
+  test('media cannot acquire a business dependency', () => {
+    for (const dependency of [
+      '@chatapp/db',
+      '@chatapp/server',
+      'drizzle-orm',
+      'better-auth',
+      'bullmq',
+      'ioredis',
+      'ai',
+      '@ai-sdk/deepseek',
+    ]) {
+      expect(
+        checkFile('apps/media/src/process.ts', `import x from '${dependency}'\n`),
+      ).toHaveLength(1)
+    }
+    expect(checkFile('apps/media/src/process.ts', "import x from 'sharp'\n")).toEqual([])
+    expect(checkFile('apps/media/src/process.ts', "import x from '@chatapp/contracts'\n")).toEqual(
+      [],
+    )
+  })
+
+  test('server must use IPC, not import the decoders or the media workspace', () => {
+    for (const dependency of ['sharp', 'thumbhash', '@chatapp/media']) {
+      expect(
+        checkFile('apps/server/src/storage/media.ts', `import x from '${dependency}'\n`),
+      ).toHaveLength(1)
+    }
+  })
+
+  test('only media entrypoints, runtime adapters and tests have Bun-specific APIs', () => {
+    for (const path of [
+      'apps/media/src/server.ts',
+      'apps/media/src/runtime/io.ts',
+      'apps/media/test/fault-server.ts',
+    ]) {
+      expect(checkFile(path, 'const stream = Bun.file(path).stream()\n')).toEqual([])
+    }
+    expect(
+      checkFile('apps/media/src/process.ts', 'const stream = Bun.file(path).stream()\n'),
+    ).toHaveLength(1)
+  })
+})
+
 describe('jsonb columns (D-107)', () => {
   test("Drizzle's jsonb() is refused, jsonbValue is the way", () => {
     const schema = 'packages/db/src/schema/tables.ts'

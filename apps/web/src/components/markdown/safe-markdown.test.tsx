@@ -1,5 +1,6 @@
 import { renderToStaticMarkup } from 'react-dom/server'
 import { describe, expect, test } from 'vitest'
+import { MentionContext } from './mention-context.ts'
 import { SafeMarkdown } from './safe-markdown.tsx'
 import { opensInNewTab, safeUrl } from './safe-url.ts'
 import { SAMPLES } from './samples.ts'
@@ -57,5 +58,33 @@ describe('safeUrl', () => {
   test('web links open in a new tab, mail links do not', () => {
     expect(opensInNewTab('https://example.com')).toBe(true)
     expect(opensInNewTab('mailto:a@example.com')).toBe(false)
+  })
+})
+
+describe('mentions use the server projection and current names', () => {
+  const id = '10000000-0000-4000-8000-000000000001'
+  const user = {
+    id,
+    profileVersion: 2,
+    username: 'bobby',
+    displayName: 'Bob renamed',
+    avatarUrl: null,
+    isBot: false,
+    deleted: false,
+  }
+  test('only accepted text mentions are linked, highlighted and renamed; inline code stays literal', () => {
+    const html = renderToStaticMarkup(
+      <MentionContext.Provider value={{ users: { [id]: user }, valid: [id], meId: id }}>
+        <SafeMarkdown>{`Hello <@user:${id}> and \`<@user:${id}>\``}</SafeMarkdown>
+      </MentionContext.Provider>,
+    )
+    expect(html).toContain('data-self="true"')
+    expect(html).toContain('@Bob renamed')
+    expect(html.match(/class="mention"/g)).toHaveLength(1)
+    expect(html).toContain('&lt;@user:')
+  })
+  test('an unknown or rejected token remains literal', () => {
+    expect(render(`<@user:${id}>`)).toContain('&lt;@user:')
+    expect(render(`<@user:${id}>`)).not.toContain('class="mention"')
   })
 })

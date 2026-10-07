@@ -12,6 +12,7 @@ import { requestContext } from './middleware/request-context.ts'
 import { securityHeaders } from './middleware/security-headers.ts'
 import { wakeOnWrite } from './middleware/wake-on-write.ts'
 import { createErrorHandler, errorResponse } from './responses.ts'
+import { attachmentRoutes } from './routes/attachments.ts'
 import { authRoutes } from './routes/auth.ts'
 import { conversationRoutes } from './routes/conversations.ts'
 import { healthRoutes } from './routes/health.ts'
@@ -67,6 +68,7 @@ export function createApp(services: Services, options: AppOptions = {}): OpenAPI
   conversationRoutes(app, services)
   memberRoutes(app, services)
   messageRoutes(app, services)
+  attachmentRoutes(app, services)
 
   const clock = services.deps.clock
   if (services.config.env === 'test') {

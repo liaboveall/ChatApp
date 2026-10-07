@@ -19,6 +19,7 @@ import {
   registerAccount,
   revokeRegistration,
 } from '../../src/domain/registration.ts'
+import { createMaintenance } from '../../src/jobs/maintenance.ts'
 import { openTestDatabases, type TestDatabases, truncateAll } from '../support/db.ts'
 import {
   createActiveUser,
@@ -523,6 +524,39 @@ describe('registration cleanup and recovery (D-059 rules 4-6)', () => {
     return { ...ctx, registrationId, accountId }
   }
 
+  test('R3: storage failure does not prevent expired registration recovery', async () => {
+    const { deps, registrationId } = await stuckRegistration('reserved', false)
+    if (!deps.blobs) throw new Error('store missing')
+    const errors: string[] = []
+    const log = {
+      ...deps.log,
+      error: (event: string) => {
+        errors.push(event)
+      },
+    }
+    const maintenance = createMaintenance({
+      deps: {
+        ...deps,
+        log,
+        blobs: {
+          ...deps.blobs,
+          list: async () => {
+            throw new Error('garage unavailable')
+          },
+        },
+      },
+      log,
+    })
+    await maintenance.storageReconcile()
+    expect(errors).toContain('maintenance.storage_reconcile_failed')
+    await maintenance.reconcile()
+    const [row] = await deps.db
+      .select()
+      .from(registrationInviteUses)
+      .where(eq(registrationInviteUses.id, registrationId))
+    expect(row?.status).toBe('released')
+    await maintenance.stop()
+  })
   test('a reserved registration with no account is released and its slot refunded once', async () => {
     const { deps, inviter, registrationId } = await stuckRegistration('reserved', false)
     expect(await reconcileRegistrations(deps)).toMatchObject({ released: 1 })

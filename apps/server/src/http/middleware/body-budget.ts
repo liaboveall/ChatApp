@@ -3,7 +3,7 @@
  * read time, idle time, content type, content encoding and framing. The body is read once here; Hono's cache is
  * primed with the already-bounded text, so validators and handlers never touch the raw stream again.
  */
-import { AppError, LIMITS } from '@chatapp/contracts'
+import { AppError, LIMITS, UPLOAD_LIMITS } from '@chatapp/contracts'
 import type { MiddlewareHandler } from 'hono'
 import type { HttpEnv } from '../context.ts'
 
@@ -69,6 +69,8 @@ export function bodyBudget(budget: BodyBudget = JSON_BUDGET): MiddlewareHandler<
     const method = c.req.method
     if (method === 'GET' || method === 'HEAD' || method === 'OPTIONS') return next()
 
+    const upload = method === 'PUT' && /^\/api\/uploads\/[0-9a-f-]+\/content$/.test(c.req.path)
+    const maxBytes = upload ? UPLOAD_LIMITS.fileBytes : budget.maxBytes
     const headers = c.req.raw.headers
     const encoding = headers.get('content-encoding')
     if (encoding !== null && encoding.trim().toLowerCase() !== 'identity') {
@@ -88,11 +90,16 @@ export function bodyBudget(budget: BodyBudget = JSON_BUDGET): MiddlewareHandler<
         throw new AppError('INVALID_REQUEST_FRAMING', 'Invalid Content-Length')
       }
       declared = Number(lengthHeader.trim())
-      if (declared > budget.maxBytes) {
-        throw new AppError('PAYLOAD_TOO_LARGE', `Request body exceeds ${budget.maxBytes} bytes`)
+      if (declared > maxBytes) {
+        throw new AppError('PAYLOAD_TOO_LARGE', `Request body exceeds ${maxBytes} bytes`)
       }
     }
 
+    if (upload) {
+      if ((headers.get('content-type') ?? '').toLowerCase() !== 'application/octet-stream')
+        throw new AppError('UNSUPPORTED_MEDIA_TYPE', 'Upload requires application/octet-stream')
+      return next() // authenticated domain receiver owns the bounded stream, before any parser
+    }
     const stream = c.req.raw.body
     if (stream === null || declared === 0) return next() // no body: no Content-Type needed
 

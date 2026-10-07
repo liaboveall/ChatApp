@@ -128,6 +128,7 @@ Events: api/worker ──publish──▶ Valkey channel "events:{APP_ENV}" ─�
 │  │  ├─ tools/                  contrast check, colour maths, CSP, token plugin, message generator
 │  │  ├─ e2e/ · visual/          Playwright specs (visual baselines are generated in the Linux container)
 │  │  └─ .storybook/
+│  ├─ media/                     (M3) 无网络/无业务凭据的独立媒体运行时；仅依赖 contracts 与解码库
 │  └─ server/
 │     ├─ src/api.ts              entry: Hono app + Bun.serve (HTTP + WS)
 │     ├─ src/worker.ts           entry: BullMQ workers + schedulers
@@ -172,6 +173,7 @@ Events: api/worker ──publish──▶ Valkey channel "events:{APP_ENV}" ─�
 ### 依赖规则（在 CI 中检查）
 - `packages/contracts` 不依赖任何其他包；`apps/web` 和 `apps/server` 都依赖它。
 - `apps/web` **不得**导入 `packages/db` 和 `apps/server` 的任何代码。
+- `apps/media` 只能使用 `packages/contracts`、媒体库和运行时适配器，不能导入 server/db、认证、队列或模型 SDK；server 不导入解码库，只有 IPC 客户端。media 的 Bun 专有 API 只放在 `runtime/` 和 `server.ts` 入口，测试单列例外（D-176）。
 - 在 `apps/server` 内部：
   - `http/`、`realtime/`、`agent/tools/`、`jobs/` 只能调用 `domain/`，不能直接操作数据库表（查询也通过 domain 里的函数）。
   - `domain/` 不知道 HTTP 和 WebSocket 的存在，只接收服务端构造的 Principal 和参数（第5.9节），在事务中写业务、日志和工作意图后返回结果，或抛出领域错误；不接受裸 userId 冒充授权。
@@ -221,16 +223,20 @@ Events: api/worker ──publish──▶ Valkey channel "events:{APP_ENV}" ─�
 - M7 发布前接入D-084：删除/撤回先准备并冻结目标，异地 journal 确认后才执行上述清空事务并返回成功；超时返回202操作状态，UI不假装删除完成。journaled 的删除不因session失效丢弃；清理和恢复复用同一幂等操作。已确认的删除不能被备份屏障拖回可读状态。
 
 ### 5.4 上传与对象恢复
-1. 客户端先 POST /uploads/reservations，带 purpose、声明大小和 Idempotency-Key；无可靠长度时预占该类型上限。事务插入 attachments(uploading)、upload_reservations 和临时 object 记录。用户预占主文件上限，站点另外预占处理峰值（原始输入 + 输出上限 + 衍生图上限，衍生图默认合计不超过 10 MiB），不能把一份用户计费空间当成原始与处理后对象同时存在的磁盘空间。没有持久身份不接收大流。
+1. 客户端先 POST /uploads/reservations，带 purpose、声明大小和 Idempotency-Key；无可靠长度时预占该类型上限。事务插入 attachments(uploading) 与 upload_reservations；实际接收前另插入 input 对象意图行。用户预占主文件上限且不少于 20 MiB，站点另外预占处理峰值（原始输入 + 输出上限 + 衍生图上限，衍生图默认合计不超过 10 MiB），不能把一份用户计费空间当成原始与处理后对象同时存在的磁盘空间。没有持久身份不接收大流。
 2. PUT /uploads/:id/content 接收单文件流，令牌/归属、实际字节、魔数、截止时间均校验。实际接收不得超过 reservation.maxBytes/已预占字节，声明偏小则中止，不能继续写入未预占空间；续租和写入代次也必须有效。写随机且不可覆盖的 staging key；中断、取消、重复请求都定位到同一 reservation。重复已完整上传直接返回状态，内容哈希不同返回 409。
 3. 完成后条件更新 uploaded → processing，并同事务写 media 工作。worker 读取固定 generation，经私有IPC交给独立 media 容器处理；输出写入该 generation 的新 key，校验成功后才在事务内切换附件对象引用为 ready。旧 generation 不能发布。
-4. 记录 raw_size_bytes、size_bytes（处理后主文件）、charged_bytes（等于主文件大小）、各衍生对象大小/hash。输出增大需补占配额，失败则失败清理；成功把 reserved 转为 used。衍生文件不计用户额度，但计全站实际容量。
+4. 记录 raw_size_bytes、size_bytes（处理后主文件）、charged_bytes（等于主文件大小）、各衍生对象大小/hash。输出必须落在既有用户/站点预占内（图片已预占至少 20 MiB）；重试仍有旧输出时先额外预占该代峰值，失败则失败清理；成功把 reserved 转为 used。衍生文件不计用户额度，但计全站实际容量。
 5. 绑定前检查 ready、用途、上传者和未被占用；头像必须在所属用户/会话字段中成为当前有效绑定。消息删除不会把附件变成“未发送、上传者又可读”，deleting 状态优先拒绝。
-6. 独立对账扫描过期 reservation、对象账本、失败 generation 和未完成删除；物理删除成功后才释放全站实际字节。未知孤儿 key 经两次清单扫描和 24 小时宽限删除，备份屏障期间暂停。不能以数据库回滚代替对象补偿。
+6. 独立对账扫描过期 reservation、对象账本、失败 generation 和未完成删除；物理删除成功后才释放全站实际字节。未知 key 或活对象差额只告警并停止新上传，不自动删除无法解释的证据；已知未绑定 ready 项 24 小时后退休，已知输出按墓碑和 HEAD 删除确认释放容量。生产的备份/journal 屏障仍属 M7/M8 的独立验收。不能以数据库回滚代替对象补偿。
 
-媒体默认并发 1；静态图最多 40MP、单边 16384px；动画最多 200 帧且累计 100MP；音视频元数据解析最多 30 分钟时长；每任务 60 秒、子进程内存 512 MiB、输出主文件仍受该类型上限。无网络、非 root、临时目录 256 MiB，超时/OOM 杀进程且失败回收，不无限重试恶意样例。视频元数据清理失败不内嵌，下载时明确“元数据未清理”。参数在 M3 的真实样例和 ARM 实验中收紧或有据调整。
+媒体默认并发 1；静态图最多 40MP、单边 16384px；动画最多 200 帧且累计 100MP；音视频元数据解析最多 30 分钟时长；每任务 60 秒、子进程内存 512 MiB、输出主文件仍受该类型上限。无网络、非 root、临时目录 256 MiB，超时/OOM 杀进程且失败回收，不无限重试恶意样例。视频元数据清理失败不内嵌，下载时明确“元数据未清理”；包括重新封装输出超过预占上限的情况，只在原始字节不超预占时保留原件并标记 metadataCleared=false，否则拒绝。结果由 attachments.metadata_cleared 持久化。参数在 M3 的真实样例和 ARM 实验中收紧或有据调整。
 
 **隔离实施（D-081、V-18）**：media 固定容器 network_mode=none、非root、只读根文件系统、cap_drop=ALL、no-new-privileges、默认seccomp、pids_limit=64、mem_limit=memswap_limit=512MiB。唯一可写数据区为合计256MiB的tmpfs（计入512MiB）；只共享Unix socket目录，不共享文件对象/主机路径/业务密钥。worker以白名单协议传jobId、generation、nonce、操作枚举、大小受限字节，media返回有上限的元数据/文件；不接受shell命令、URL或路径。
+
+**IPC 实施（D-176）**：每连接一任务，4 字节大端帧头长度 + 最多 8 KiB 严格白名单 JSON + 有上限的文件字节 + EOF；回复同样是帧头及有限变体。两端验证实际长度/hash/nonce/generation；只允许图片、头像、视频枚举，不接受文件名、命令、URL 或路径。每任务单独进程组、单并发，整个连接受 60 秒截止限制；故障任务只在独立测试镜像，不在生产协议里增加开关。数据库里的 generation fencing 另由上传处理事务复核，IPC 检查不等于发布授权。
+
+**运行时线程（D-177）**：media 镜像及任务子进程固定 UV/libvips/OpenMP 并发为 1，Bun 1.4.2 的 JSC GC、DFG/FTL 与 worklist 线程配置同样固定为 1（仅这些技术字段进入环境白名单）。不能让多核开发机自动扩张线程池，撞上容器的 64-PID 硬限。健康探针只运行一个原生 `test -S`，不创建第二个 Bun 运行时或 IPC 连接；启动时检查 socket 权限，生命周期脚本核验实际探针配置。
 
 media单任务执行，60秒到期终止整个进程组；OOM/重启由generation租约恢复，结果必须经worker核对nonce、大小、hash、允许变体和当前generation。每任务清除临时文件；故障后未清理成功不得接下一任务。ffmpeg输入协议仅file/pipe，媒体进程环境只有必要的locale/临时目录变量；任何业务API key/DB/S3密码都不传入。worker=1536MiB加media=512MiB仍是后台2GiB总预算，媒体tmpfs也计入；向量任务仅在足够余量时准入。不得给worker挂Docker socket来创建任意容器；独立Compose编排负责启动固定服务。
 
@@ -311,6 +317,7 @@ work_items 唯一 dedupe_key 与业务事务关联；payload 只存 id、版本�
 
 - 正常路径在提交后 best-effort 唤醒 dispatcher，立即领取和派发；唤醒不保存业务事实，丢失时由每秒扫描兜底，不能让正常收发固定等待一秒。dispatcher 用 FOR UPDATE SKIP LOCKED 领取短租约；BullMQ jobId 为 workId-deliverySeq（无冒号）。派发不等于完成，消费者提交业务状态后才标 done。入队后崩溃可重复投递。
 - 独立 worker 定时循环每分钟直接扫描 Postgres，修复过期租约、丢队列任务、过期注册/审批和到期调度；每次重投增加 delivery_seq，避免已保留的 completed job 阻止新投递。业务去重依靠表约束，而不是 BullMQ 的保留时间。
+- 存储清理独立每分钟运行；完整存储对账独立每 6 小时运行（启动时一轮，失败后 15 分钟再试），异常不阻止租约、注册恢复和死信告警。每个维护任务有进程内排重及 Postgres 事务 advisory lock，避免多个 worker 同任务并发；LIST 每页一次批量读账本、live HEAD 每批 100，只有用户计数不一致才锁用户修复，不逐用户争抢 site_storage。全站计数仍在一次短事务内锁 site_storage 后核算；异常继续停止新上传而不删除未知对象。
 - 暂时故障最多按类型退避重试，达到上限进入 dead 并告警；人工重投保留原业务标识。运行结果未知的外部调用进入 uncertain，不无限重试。
 - 准入上限初值：未执行 Agent 工作 100、媒体 1000、所有未完成 work_items 50000；达到类型上限拒绝该类新任务（503/Retry-After），达到总上限拒绝会新增可靠工作的写操作，读取、注销和清理仍保留。M7 用积压/恢复实测调整，不能任队列无限增长。
 - Valkey 设置 noeviction、AOF；80% 内存告警。限流数据丢失时临时收紧准入，不能声称历史限流计数可精确恢复。业务任务、预算、权限均能从 Postgres 恢复。

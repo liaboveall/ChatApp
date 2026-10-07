@@ -13,7 +13,8 @@ import { defaultRehypePlugins, Streamdown, type StreamdownProps } from 'streamdo
 import { m } from '@/paraglide/messages.js'
 import { createCodePlugin } from './code-plugin.ts'
 import { LinkTabIndex } from './link-context.ts'
-import { cjkAutolinkBoundary, restrictToSubset, softBreaks } from './plugins.ts'
+import { MentionContext } from './mention-context.ts'
+import { cjkAutolinkBoundary, mentionTokens, restrictToSubset, softBreaks } from './plugins.ts'
 import { opensInNewTab, safeUrl } from './safe-url.ts'
 
 const cssVariablesTheme = createCssVariablesTheme({
@@ -37,6 +38,7 @@ const plugins = {
       ...cjk.remarkPluginsAfter,
       cjkAutolinkBoundary,
       restrictToSubset,
+      mentionTokens,
       softBreaks,
     ],
   },
@@ -49,6 +51,18 @@ function SafeLink({
   ...rest
 }: ComponentProps<'a'> & { node?: unknown }): ReactNode {
   const tabIndex = useContext(LinkTabIndex)
+  const mentions = useContext(MentionContext)
+  if (href?.startsWith('#chatapp-mention-')) {
+    const id = href.slice('#chatapp-mention-'.length)
+    const user = mentions.valid.includes(id) ? mentions.users[id] : undefined
+    return user ? (
+      <span className="mention" data-self={id === mentions.meId}>
+        @{user.deleted ? m.user_deleted() : user.displayName}
+      </span>
+    ) : (
+      <span>{children}</span>
+    )
+  }
   const safe = typeof href === 'string' ? safeUrl(href) : null
   if (safe === null) return <span data-md="link-dropped">{children}</span>
   return (
@@ -94,7 +108,8 @@ const controls = {
   image: false,
 } as const
 const linkSafety = { enabled: false }
-const urlTransform = (url: string): string => safeUrl(url) ?? ''
+const urlTransform = (url: string): string =>
+  /^#chatapp-mention-[0-9a-f-]{36}$/.test(url) ? url : (safeUrl(url) ?? '')
 
 /**
  * Fetches the grammar of one language and registers it, without drawing anything (a code block in a language that is new to the

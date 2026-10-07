@@ -31,6 +31,13 @@ export type RealtimeHint =
   | { event: 'conversation.changed'; conversationId: string; metadataVersion: number }
   | { event: 'member.changed'; conversationId: string; membershipVersion: number }
   /** `membership`: the person's conversations changed, so their live subscriptions must be recomputed. */
+  | {
+      event: 'attachment.updated'
+      userId: string
+      attachmentId: string
+      generation: number
+      version: number
+    }
   | { event: 'user.changed'; userId: string; userChangeSeq: number; membership: boolean }
   | { event: 'conversation.removed'; userId: string; conversationId: string; userChangeSeq: number }
 
@@ -65,6 +72,19 @@ export async function enqueueHint(
         entityId: hint.conversationId,
         entityVersion: hint.membershipVersion,
         payload: { event: hint.event },
+      })
+      return
+    case 'attachment.updated':
+      await enqueueWork(tx, deps, {
+        kind: 'realtime',
+        dedupeKey: `au:${hint.attachmentId}:${hint.version}`,
+        entityId: hint.userId,
+        entityVersion: hint.version,
+        payload: {
+          event: hint.event,
+          attachmentId: hint.attachmentId,
+          generation: hint.generation,
+        },
       })
       return
     case 'user.changed':

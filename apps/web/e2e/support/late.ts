@@ -92,7 +92,12 @@ export type RealAnswer = { status: number; error: string | undefined; setCookies
  * headers, and says what the server really answered; the answer is held again until `deliver`, as the server wrote it, so
  * that an answer that was refused, and what its cookie lines tell the browser, reach the page as they would have.
  */
-export async function holdRequest(page: Page, url: RegExp, method: string) {
+export async function holdRequest(
+  page: Page,
+  url: RegExp,
+  method: string,
+  matching?: (body: string | null) => boolean,
+) {
   let leave: () => void = () => undefined
   const sendGate = new Promise<void>((resolve) => {
     leave = resolve
@@ -116,6 +121,7 @@ export async function holdRequest(page: Page, url: RegExp, method: string) {
   let taken = false
   await page.route(url, async (route) => {
     if (taken || route.request().method() !== method) return route.continue()
+    if (matching && !matching(route.request().postData())) return route.continue()
     taken = true
     const headers = await route.request().allHeaders()
     // The cookie the browser attached: not every engine lists it among the headers of the request (WebKit does not), so it

@@ -43,6 +43,7 @@ export function ProfileBlock({ conversation }: { conversation: Conversation }) {
       <div className="details__head">
         <Avatar
           name={name}
+          src={state.status === 'ready' ? state.value.avatarUrl : peer.avatarUrl}
           seed={peer.id}
           size={64}
           bot={peer.isBot}

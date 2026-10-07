@@ -54,6 +54,7 @@ export type FaultManifest = {
     s3Bucket: string
     s3AccessKeyId: string
     s3SecretAccessKey: string
+    garageMetricsToken?: string
     smtpPort: number
     /** The instance's Mailpit web/API port, to read what the worker delivered (absent in manifests of older runs). */
     mailpitUiPort?: number

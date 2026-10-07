@@ -30,7 +30,9 @@ export async function loadMe(
     profileVersion: user.profileVersion,
     username: user.username,
     displayName: user.name,
-    avatarUrl: null,
+    avatarUrl: user.avatarAttachmentId
+      ? `/api/attachments/${user.avatarAttachmentId}/original`
+      : null,
     isBot: user.isBot,
     deleted: user.deletedAt !== null,
     meVersion: user.meVersion,

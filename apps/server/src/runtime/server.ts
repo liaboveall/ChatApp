@@ -2,7 +2,7 @@
  * Bun adapter that binds the Hono application and the WebSocket gateway to `Bun.serve` (D-090: runtime/ may use Bun).
  * Everything it serves is runtime-neutral code from http/ and realtime/; swapping the runtime means replacing this file.
  */
-import { LIMITS } from '@chatapp/contracts'
+import { LIMITS, UPLOAD_LIMITS } from '@chatapp/contracts'
 import type { Hono } from 'hono'
 import type { Services } from '../http/context.ts'
 import type { Connection, Gateway, Socket } from '../realtime/gateway.ts'
@@ -34,9 +34,9 @@ export function startServer(parts: {
   const server = Bun.serve<SocketData>({
     port: parts.port,
     hostname: parts.hostname,
-    // JSON endpoints are limited to 128 KiB by the request budget; this ceiling only bounds what Bun will buffer.
-    maxRequestBodySize: 1024 * 1024,
-    idleTimeout: 10,
+    // Route budgets still reject JSON above 128 KiB before parsing; binary uploads stream up to 100 MiB.
+    maxRequestBodySize: UPLOAD_LIMITS.fileBytes,
+    idleTimeout: UPLOAD_LIMITS.idleMs / 1000,
     async fetch(request, srv) {
       const peer = srv.requestIP(request)?.address
       if (new URL(request.url).pathname === '/ws') {

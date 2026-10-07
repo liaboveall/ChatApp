@@ -67,7 +67,13 @@ export function BansSection({
             const when = dateTime(ban.createdAt, locale, timeZone)
             return (
               <li key={ban.user.id} className="member">
-                <Avatar name={nameOf(ban.user)} seed={ban.user.id} size={32} bot={ban.user.isBot} />
+                <Avatar
+                  src={ban.user.avatarUrl}
+                  name={nameOf(ban.user)}
+                  seed={ban.user.id}
+                  size={32}
+                  bot={ban.user.isBot}
+                />
                 <div className="member__body">
                   <span className="member__name">
                     <span className="member__name-text">{nameOf(ban.user)}</span>

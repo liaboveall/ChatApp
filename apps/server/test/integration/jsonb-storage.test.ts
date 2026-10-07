@@ -1,5 +1,13 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, test } from 'bun:test'
-import { appSettings, auditLogs, conversations, messages, users, workItems } from '@chatapp/db'
+import {
+  appSettings,
+  attachments,
+  auditLogs,
+  conversations,
+  messages,
+  users,
+  workItems,
+} from '@chatapp/db'
 import { eq, sql } from 'drizzle-orm'
 import { writeAudit } from '../../src/domain/audit.ts'
 import { enqueueWork } from '../../src/domain/work.ts'
@@ -24,6 +32,7 @@ beforeEach(async () => {
 
 const COVERED = [
   'app_settings.value',
+  'attachments.variants',
   'audit_logs.metadata',
   'conversations.settings',
   'messages.meta',
@@ -48,6 +57,21 @@ describe('jsonb columns hold real JSON', () => {
     expect(rows.map((row) => row.name)).toEqual(COVERED)
   })
 
+  test('attachment variant maps are JSON objects with nested numeric dimensions', async () => {
+    const user = await createActiveUser(makeDeps(dbs.owner.db), { username: 'jsonbmedia' })
+    await dbs.owner.db.insert(attachments).values({
+      id: crypto.randomUUID(),
+      uploaderId: user.id,
+      purpose: 'message',
+      originalName: 'file',
+      storageKey: crypto.randomUUID(),
+      variants: { thumb: { key: 't', w: 30, h: 20, mime: 'image/webp' } },
+    })
+    const result = await dbs.owner.db.execute(
+      sql`select jsonb_typeof(variants) as type, jsonb_typeof(variants->'thumb'->'w') as width from attachments`,
+    )
+    expect(result).toEqual([{ type: 'object', width: 'number' }])
+  })
   test('audit metadata written by the application is an object that SQL can read', async () => {
     await writeAudit(dbs.owner.db, {
       action: 'jsonb.test',

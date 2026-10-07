@@ -1,0 +1,44 @@
+# Both multi-architecture indexes verified against Docker Hub on 2026-10-06.
+FROM oven/bun:1.4.2-slim@sha256:cb3bbbb08e13a4a2ff400f24c7a2a1d5efa83f6ef8544d52d95a519631e2fc61 AS bun
+FROM debian:trixie-slim@sha256:a29215f6a35e51e22adffa17f89e9d2ef06214e64a2bad10d765c46aea49f11f AS base
+COPY --from=bun /usr/local/bin/bun /usr/local/bin/bun
+# Debian 13 is the current stable release; this ffmpeg version was checked on packages.debian.org.
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends ca-certificates libstdc++6 ffmpeg=7:7.1.5-0+deb13u1 \
+    && rm -rf /var/lib/apt/lists/* \
+    && groupadd --gid 10001 chatapp \
+    && useradd --uid 10001 --gid 10001 --no-create-home --no-log-init --shell /usr/sbin/nologin chatapp \
+    && install -d -m 0700 -o 10001 -g 10001 /run/chatapp-media
+ENV PATH=/usr/local/bin:/usr/bin:/bin LANG=C.UTF-8 TMPDIR=/tmp
+ENV MALLOC_ARENA_MAX=2 UV_THREADPOOL_SIZE=1 VIPS_CONCURRENCY=1 OMP_NUM_THREADS=1 \
+    BUN_JSC_numberOfGCMarkers=1 BUN_JSC_numberOfDFGCompilerThreads=1 \
+    BUN_JSC_numberOfFTLCompilerThreads=1 BUN_JSC_maxNumberOfWorklistThreads=1
+WORKDIR /app
+
+FROM base AS dependencies
+# Only lock/manifest metadata and the two media workspaces. Unselected workspaces need no source or manifests.
+COPY package.json bun.lock ./
+COPY packages/contracts/package.json packages/contracts/package.json
+COPY apps/media/package.json apps/media/package.json
+RUN bun install --frozen-lockfile --production --ignore-scripts --filter @chatapp/media
+
+FROM base AS application
+COPY --from=dependencies /app/package.json ./package.json
+COPY --from=dependencies /app/node_modules ./node_modules
+# Preserve workspace-local node_modules as well as their manifests (Bun's isolated linker).
+COPY --from=dependencies /app/packages/contracts ./packages/contracts
+COPY --from=dependencies /app/apps/media ./apps/media
+COPY packages/contracts/src ./packages/contracts/src
+COPY apps/media/src ./apps/media/src
+USER 10001:10001
+CMD ["bun", "--no-env-file", "/app/apps/media/src/server.ts"]
+
+# Explicit opt-in only, for a separately verified compose.test project. No fixture is an ancestor of runtime.
+FROM application AS fault
+COPY apps/media/test ./apps/media/test
+LABEL chatapp.media.image="fault"
+CMD ["bun", "--no-env-file", "/app/apps/media/test/fault-server.ts"]
+
+# The last/default target, and compose.media.yml's target, contain runtime code only.
+FROM application AS runtime
+LABEL chatapp.media.image="runtime"

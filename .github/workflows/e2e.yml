@@ -46,6 +46,10 @@ jobs:
         run: bun run test:e2e
         env:
           CI: "true"
+      - name: Rich messages with the real isolated decoder (M3 scenario 6)
+        run: bun run test:m3:e2e
+        env:
+          CI: "true"
       - name: Report and traces
         if: ${{ !cancelled() }}
         uses: actions/upload-artifact@v7

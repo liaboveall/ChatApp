@@ -77,10 +77,23 @@ switch (command) {
       await $`bun run --cwd ${join(ROOT, 'apps', 'web')} build`.quiet()
     await certificate()
     webroot()
+    if (flags.includes('--m3')) {
+      // The M3 driver owns an independent API on a high loopback port; the normal edge still uses 3104.
+      writeFileSync(
+        join(EDGE, 'm3-upstream.conf'),
+        'upstream chatapp_api { server host.docker.internal:26402; keepalive 8; }\n',
+      )
+      const override = join(EDGE, 'm3.compose.yml')
+      writeFileSync(
+        override,
+        `services:\n  nginx:\n    volumes:\n      - ${join(EDGE, 'm3-upstream.conf')}:/etc/nginx/chatapp/env-http.conf:ro\n`,
+      )
+      compose.push('-f', override)
+    }
     await $`${compose} up -d --wait --force-recreate`.quiet()
     await $`${compose} exec -T nginx nginx -t`.quiet()
     console.log(
-      'edge: https://chat.localhost:8443 (the API behind it: E2E_API_PORT=3104, see scripts/e2e-stack.ts)',
+      `edge: https://chat.localhost:8443 (API port ${flags.includes('--m3') ? 26402 : 3104})`,
     )
     break
   }

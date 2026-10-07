@@ -271,7 +271,9 @@ describe('sending (INV-01, INV-02, INV-28)', () => {
       attachmentIds: [crypto.randomUUID()],
     })
     expect(files.status).toBe(422)
-    expect(errorReason(files)).toBe('not_available')
+    expect(
+      (files.body as unknown as { error: { details: { field: string } } }).error.details.field,
+    ).toBe('attachmentIds')
     // 5000 characters is fine, counted as characters rather than bytes: 5000 emoji are 10000 UTF-16 units.
     expect((await say(alice, group.id, '😀'.repeat(5000))).status).toBe(201)
     const tidy = await say(alice, group.id, 'line one\r\nline two\r\n\n  ')
