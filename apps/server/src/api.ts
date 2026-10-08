@@ -22,6 +22,8 @@ import { createEventBus } from './realtime/bus.ts'
 import { Gateway } from './realtime/gateway.ts'
 import { createPresenceStore } from './realtime/presence.ts'
 import { connectGatewayToBus } from './realtime/wiring.ts'
+import { deepSeekKeyVerifier, mockKeyVerifier } from './runtime/ai-key-verifier.ts'
+import { createEmbeddingClient, embeddingSettings } from './runtime/embeddings.ts'
 import { uuidv7 } from './runtime/ids.ts'
 import { startServer } from './runtime/server.ts'
 import { assertDatabaseReady, createWaker } from './startup.ts'
@@ -63,10 +65,16 @@ async function main(): Promise<void> {
       },
       product: config.product,
       ai: aiPolicy,
+      aiKeyEncryptionKey: config.aiKeyEncryptionKey,
     },
     blobs: createBlobStore(config.s3),
     passwords: sdkPasswords,
     log,
+    // Tests never reach a provider; elsewhere the free model list verifies a member's own key before it is stored.
+    aiKeyVerifier: config.env === 'test' ? mockKeyVerifier : deepSeekKeyVerifier(),
+    ...(embeddingSettings(process.env).enabled
+      ? { embeddings: createEmbeddingClient(embeddingSettings(process.env)) }
+      : {}),
   }
   const gateway = new Gateway(
     deps,

@@ -231,6 +231,9 @@ function MessageRow({ item, context }: { item: MessageItem; context: RowContext 
               item.last && 'bubble--tail',
             )}
           >
+            {message.meta.reminder ? (
+              <span className="bubble__reminder">{m.message_reminder()}</span>
+            ) : null}
             {message.replyTo ? (
               <QuoteBar replyTo={message.replyTo} context={context} tabbable={current} />
             ) : null}
@@ -248,7 +251,15 @@ function MessageRow({ item, context }: { item: MessageItem; context: RowContext 
               </MentionContext>
             </LinkTabIndex>
             {message.attachments.length ? <Attachments files={message.attachments} /> : null}
-            {message.kind === 'agent' ? <AgentRunCard message={message} /> : null}
+            {message.meta.viaAgent ? (
+              <span className="bubble__via">{m.message_via_agent()}</span>
+            ) : null}
+            {message.kind === 'agent' ? (
+              <AgentRunCard
+                message={message}
+                nameOf={(userId) => context.users[userId]?.displayName}
+              />
+            ) : null}
             {message.editedAt ? (
               <span
                 className="bubble__edited"

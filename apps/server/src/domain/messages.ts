@@ -7,9 +7,11 @@
 import {
   AppError,
   type EditMessageRequest,
+  type ExecutionSource,
   LIMITS,
   type Message,
   type MessageEnvelope,
+  type MessageMeta,
   type MessagesQuery,
   type MessagesResponse,
   mentionIds,
@@ -18,6 +20,7 @@ import {
   type SendMessageRequest,
   type SystemEvent,
   truncateCodePoints,
+  type UserRole,
   type UsersDictionary,
 } from '@chatapp/contracts'
 import {
@@ -37,7 +40,7 @@ import { fingerprint } from '../lib/crypto.ts'
 import { enqueueRunForSource } from './agent-runs.ts'
 import { attachmentDto, lockStorage } from './attachment-common.ts'
 import { writeAudit } from './audit.ts'
-import { enforce, loadAccess, type MemberRow } from './authorize.ts'
+import { type ConversationRow, enforce, loadAccess, type MemberRow } from './authorize.ts'
 import {
   allocateChangeSeq,
   allocateMessageSeq,
@@ -47,7 +50,7 @@ import {
 } from './changes.ts'
 import type { Deps } from './deps.ts'
 import type { SessionPrincipal } from './principal.ts'
-import { lockAndRevalidate, lockUsers } from './sessions.ts'
+import { lockAndRevalidate } from './sessions.ts'
 import { inTransaction } from './tx.ts'
 import { retireAttachment } from './uploads.ts'
 import { usersDictionary } from './users.ts'
@@ -225,6 +228,7 @@ export async function projectMessages(
   const projected: Message[] = rows.map((row) => {
     const gone = row.recalledAt !== null || row.deletedAt !== null
     return {
+      contextEpoch: row.contextEpoch,
       id: row.id,
       conversationId: row.conversationId,
       seq: row.seq,
@@ -411,22 +415,68 @@ export async function getMessage(
 
 // ───────── sending ─────────
 
-/**
- * Sends a message as an interactive act of the signed-in person. The whole of it commits or none of it does: the
- * sequence numbers, the message, the sync log, the sender's read position and the realtime hints (docs/03 section 5.1).
- * The same `clientId` with the same request returns the same message; with another request, or for another
- * conversation, it is a conflict (INV-03, D-066).
- */
-export async function sendMessage(
-  deps: Deps,
-  principal: SessionPrincipal,
+/** Who a message is written for: their rights decide, whatever authority (session or delegation) was checked first. */
+export type MessageActor = { userId: string; role: UserRole }
+
+export type WriteMessageInput = {
+  clientId: string
+  body: string
+  replyToId?: string | null
+  attachmentIds?: readonly string[]
+}
+
+export type WriteMessageOptions = {
+  /** Set by the trusted entry point, never by a request (INV-28). Only `interactive` moves the sender's read position. */
+  executionSource: Extract<ExecutionSource, 'interactive' | 'agent_effect' | 'scheduled'>
+  meta?: MessageMeta
+}
+
+export type WrittenMessage = {
+  row: MessageRow
+  created: boolean
+  conversation: ConversationRow
+  member: MemberRow
+  viewer: Viewer
+  userRole: UserRole
+}
+
+/** The other member of a direct message, or null; locked with the sender because writing changes their view too. */
+export async function directPeerOf(
+  db: DbOrTx,
+  senderId: string,
   conversationId: string,
-  input: SendMessageRequest,
-): Promise<{ envelope: MessageEnvelope; created: boolean }> {
-  const attachmentIds = input.attachmentIds ?? []
+): Promise<string | null> {
+  const members = await db
+    .select({ userId: conversationMembers.userId })
+    .from(conversationMembers)
+    .innerJoin(conversations, eq(conversations.id, conversationMembers.conversationId))
+    .where(
+      and(eq(conversationMembers.conversationId, conversationId), eq(conversations.kind, 'dm')),
+    )
+  return members.some((row) => row.userId === senderId)
+    ? (members.find((row) => row.userId !== senderId)?.userId ?? null)
+    : null
+}
+
+/**
+ * The transaction body of every user message, whichever way it arrives: typed by the person, sent by the assistant after
+ * their approval, or delivered by a scheduled task. The caller has locked the sender (and the peer of a direct message)
+ * and re-checked the authority it acts under; this checks the conversation rights and writes everything at once: the
+ * sequence numbers, the message, its attachments and mentions, the sync log and the realtime hints (docs/03 section 5.1).
+ * The same `clientId` with the same request returns the stored message; with another request it is a conflict.
+ */
+export async function writeMessage(
+  tx: Tx,
+  deps: Deps,
+  actor: MessageActor,
+  conversationId: string,
+  input: WriteMessageInput,
+  options: WriteMessageOptions,
+): Promise<WrittenMessage> {
+  const attachmentIds = [...(input.attachmentIds ?? [])]
   if (new Set(attachmentIds).size !== attachmentIds.length)
     throw new AppError('VALIDATION_FAILED', 'Duplicate attachment')
-  const body = normalizeBody(input.body ?? '')
+  const body = normalizeBody(input.body)
   if (body.length === 0 && attachmentIds.length === 0) {
     throw new AppError('VALIDATION_FAILED', 'A message needs a body', {
       details: { field: 'body' },
@@ -439,177 +489,204 @@ export async function sendMessage(
     replyToId: input.replyToId ?? null,
     attachments: attachmentIds,
   })
+  const now = deps.clock.now()
+  const rights = { userId: actor.userId, siteRole: actor.role }
+  const access = await loadAccess(tx, actor.userId, conversationId, { lock: true })
+  enforce(access, rights, 'view', now)
+  enforce(access, rights, 'read_messages', now)
+  const member = access.member
+  if (!member) throw new AppError('NOT_FOUND', 'Conversation not found')
+  const conversation = access.conversation
+  const viewer: Viewer = { userId: actor.userId, visibleFromSeq: member.visibleFromSeq }
 
-  // A direct message changes the other person's view too (it brings the conversation out of hiding), so both are locked.
-  const members = await deps.db
-    .select({ userId: conversationMembers.userId })
-    .from(conversationMembers)
-    .innerJoin(conversations, eq(conversations.id, conversationMembers.conversationId))
-    .where(
-      and(eq(conversationMembers.conversationId, conversationId), eq(conversations.kind, 'dm')),
-    )
-  const peerId = members.some((row) => row.userId === principal.userId)
-    ? (members.find((row) => row.userId !== principal.userId)?.userId ?? null)
-    : null
+  const [existing] = await tx
+    .select()
+    .from(messages)
+    .where(and(eq(messages.senderId, actor.userId), eq(messages.clientId, input.clientId)))
+  if (existing) {
+    if (existing.conversationId !== conversationId || existing.requestHash !== requestHash) {
+      throw new AppError('IDEMPOTENCY_CONFLICT', 'The clientId was used for a different message')
+    }
+    // A retry is answered with the stored message only while it is still the sender's to see. Somebody who left and
+    // came back has a new boundary, and what was said before it is no longer theirs, not even their own words
+    // (D-035, INV-09): the retry is judged against the membership they have now.
+    if (existing.seq <= member.visibleFromSeq) throw new AppError('NOT_FOUND', 'Message not found')
+    return { row: existing, created: false, conversation, member, viewer, userRole: actor.role }
+  }
 
-  return await inTransaction(deps.db, async (tx) => {
-    const now = deps.clock.now()
-    const user = await lockAndRevalidate(tx, deps, principal, { alsoLock: peerId ? [peerId] : [] })
-    const actor = { userId: principal.userId, siteRole: user.role }
-    const access = await loadAccess(tx, principal.userId, conversationId, { lock: true })
-    enforce(access, actor, 'view', now)
-    enforce(access, actor, 'read_messages', now)
-    const member = access.member
-    if (!member) throw new AppError('NOT_FOUND', 'Conversation not found')
-    const conversation = access.conversation
-    const viewer: Viewer = { userId: principal.userId, visibleFromSeq: member.visibleFromSeq }
+  enforce(access, rights, 'send_message', now)
+  const peerId =
+    conversation.kind === 'dm' ? await directPeerOf(tx, actor.userId, conversationId) : null
+  if (conversation.kind === 'dm') {
+    const [peer] = peerId ? await tx.select().from(users).where(eq(users.id, peerId)) : []
+    if (!peer || peer.deletedAt !== null) {
+      throw new AppError('FORBIDDEN', 'The other person can no longer receive messages', {
+        details: { reason: 'peer_unavailable' },
+      })
+    }
+  }
 
-    const [existing] = await tx
+  let replyToId: string | null = null
+  if (input.replyToId) {
+    const unavailable = () =>
+      new AppError('VALIDATION_FAILED', 'That message cannot be replied to', {
+        details: { field: 'replyToId', reason: 'unavailable' },
+      })
+    const [target] = await tx
       .select()
       .from(messages)
-      .where(and(eq(messages.senderId, principal.userId), eq(messages.clientId, input.clientId)))
-    if (existing) {
-      if (existing.conversationId !== conversationId || existing.requestHash !== requestHash) {
-        throw new AppError('IDEMPOTENCY_CONFLICT', 'The clientId was used for a different message')
-      }
-      // A retry is answered with the stored message only while it is still the sender's to see. Somebody who left and
-      // came back has a new boundary, and what was said before it is no longer theirs, not even their own words
-      // (D-035, INV-09): the retry is judged against the membership they have now.
-      if (existing.seq <= member.visibleFromSeq)
-        throw new AppError('NOT_FOUND', 'Message not found')
-      const projected = await projectMessages(tx, viewer, [existing])
-      const message = projected.messages[0]
-      if (!message) throw new AppError('NOT_FOUND', 'Message not found')
-      return { envelope: { message, users: projected.users }, created: false }
-    }
+      .where(and(eq(messages.id, input.replyToId), visibleTo(tx, viewer, conversationId)))
+    // Not found, from another conversation, before the boundary, hidden, a system line or already withdrawn: all the
+    // same answer, so a quote cannot be used to probe for messages (docs/05 section 2).
+    if (!target || target.kind === 'system' || target.recalledAt || target.deletedAt)
+      throw unavailable()
+    replyToId = target.id
+  }
 
-    enforce(access, actor, 'send_message', now)
-    if (conversation.kind === 'dm') {
-      const [peer] = peerId ? await lockUsers(tx, [peerId]) : []
-      if (!peer || peer.deletedAt !== null) {
-        throw new AppError('FORBIDDEN', 'The other person can no longer receive messages', {
-          details: { reason: 'peer_unavailable' },
-        })
-      }
-    }
-
-    let replyToId: string | null = null
-    if (input.replyToId) {
-      const unavailable = () =>
-        new AppError('VALIDATION_FAILED', 'That message cannot be replied to', {
-          details: { field: 'replyToId', reason: 'unavailable' },
-        })
-      const [target] = await tx
-        .select()
-        .from(messages)
-        .where(and(eq(messages.id, input.replyToId), visibleTo(tx, viewer, conversationId)))
-      // Not found, from another conversation, before the boundary, hidden, a system line or already withdrawn: all the
-      // same answer, so a quote cannot be used to probe for messages (docs/05 section 2).
-      if (!target || target.kind === 'system' || target.recalledAt || target.deletedAt)
-        throw unavailable()
-      replyToId = target.id
-    }
-
-    const { seq, changeSeq } = await allocateMessageSeq(tx, deps, conversationId)
-    const id = deps.newId()
-    const [row] = await tx
-      .insert(messages)
-      .values({
-        id,
-        conversationId,
-        seq,
-        changeSeq,
-        senderId: principal.userId,
-        kind: 'user',
-        status: 'sent',
-        body,
-        replyToId,
-        clientId: input.clientId,
-        requestHash,
-        // Set here, by the trusted entry point, never taken from the request (INV-28).
-        executionSource: 'interactive',
-        meta: {},
-        createdAt: now,
-      })
-      .returning()
-    if (!row) throw new Error('message was not created')
-    for (const [position, attachmentId] of attachmentIds.entries()) {
-      const [file] = await tx
-        .select()
-        .from(attachments)
-        .where(eq(attachments.id, attachmentId))
-        .for('update')
-      if (
-        !file ||
-        file.uploaderId !== principal.userId ||
-        file.purpose !== 'message' ||
-        file.status !== 'ready' ||
-        file.messageId !== null ||
-        file.privacyClass !== 'standard' ||
-        (file.conversationId !== null && file.conversationId !== conversationId)
-      )
-        throw new AppError('VALIDATION_FAILED', 'Attachment unavailable', {
-          details: { field: 'attachmentIds' },
-        })
-      await tx
-        .update(attachments)
-        .set({ messageId: id, conversationId, position, version: sql`${attachments.version} + 1` })
-        .where(eq(attachments.id, attachmentId))
-    }
-    await replaceMentions(tx, id, conversationId, body)
-    await recordMessageChange(tx, deps, {
+  const { seq, changeSeq } = await allocateMessageSeq(tx, deps, conversationId)
+  const id = deps.newId()
+  const [row] = await tx
+    .insert(messages)
+    .values({
+      id,
       conversationId,
-      messageId: id,
+      seq,
       changeSeq,
-      kind: 'message_created',
+      senderId: actor.userId,
+      kind: 'user',
+      status: 'sent',
+      body,
+      replyToId,
+      clientId: input.clientId,
+      requestHash,
+      executionSource: options.executionSource,
+      meta: options.meta ?? {},
+      createdAt: now,
     })
+    .returning()
+  if (!row) throw new Error('message was not created')
+  for (const [position, attachmentId] of attachmentIds.entries()) {
+    const [file] = await tx
+      .select()
+      .from(attachments)
+      .where(eq(attachments.id, attachmentId))
+      .for('update')
+    if (
+      !file ||
+      file.uploaderId !== actor.userId ||
+      file.purpose !== 'message' ||
+      file.status !== 'ready' ||
+      file.messageId !== null ||
+      file.privacyClass !== 'standard' ||
+      (file.conversationId !== null && file.conversationId !== conversationId)
+    )
+      throw new AppError('VALIDATION_FAILED', 'Attachment unavailable', {
+        details: { field: 'attachmentIds' },
+      })
+    await tx
+      .update(attachments)
+      .set({ messageId: id, conversationId, position, version: sql`${attachments.version} + 1` })
+      .where(eq(attachments.id, attachmentId))
+  }
+  await replaceMentions(tx, id, conversationId, body)
+  await recordMessageChange(tx, deps, {
+    conversationId,
+    messageId: id,
+    changeSeq,
+    kind: 'message_created',
+  })
 
-    // The sender has seen their own message, and a hidden direct message they write into is hidden no more.
+  // Only the person's own interactive send says they have seen everything up to it (INV-28, AT-32); any message they
+  // write brings a direct message they had hidden back into view.
+  const interactive = options.executionSource === 'interactive'
+  if (interactive || member.hiddenAt) {
     await tx
       .update(conversationMembers)
       .set({
-        lastReadSeq: sql`greatest(${conversationMembers.lastReadSeq}, ${seq})`,
+        ...(interactive
+          ? { lastReadSeq: sql`greatest(${conversationMembers.lastReadSeq}, ${seq})` }
+          : {}),
         ...(member.hiddenAt ? { hiddenAt: null } : {}),
       })
       .where(
         and(
           eq(conversationMembers.conversationId, conversationId),
-          eq(conversationMembers.userId, principal.userId),
+          eq(conversationMembers.userId, actor.userId),
         ),
       )
     await recordViewerChange(tx, deps, {
-      userId: principal.userId,
+      userId: actor.userId,
       conversationId,
       membershipId: member.membershipId,
       state: 'active',
     })
-    if (conversation.kind === 'dm' && peerId) {
-      const [peerMember] = await tx
-        .select()
-        .from(conversationMembers)
+  }
+  if (conversation.kind === 'dm' && peerId) {
+    const [peerMember] = await tx
+      .select()
+      .from(conversationMembers)
+      .where(
+        and(
+          eq(conversationMembers.conversationId, conversationId),
+          eq(conversationMembers.userId, peerId),
+        ),
+      )
+    if (peerMember?.hiddenAt) {
+      await tx
+        .update(conversationMembers)
+        .set({ hiddenAt: null })
         .where(
           and(
             eq(conversationMembers.conversationId, conversationId),
             eq(conversationMembers.userId, peerId),
           ),
         )
-      if (peerMember?.hiddenAt) {
-        await tx
-          .update(conversationMembers)
-          .set({ hiddenAt: null })
-          .where(
-            and(
-              eq(conversationMembers.conversationId, conversationId),
-              eq(conversationMembers.userId, peerId),
-            ),
-          )
-        await recordViewerChange(tx, deps, {
-          userId: peerId,
-          conversationId,
-          membershipId: peerMember.membershipId,
-          state: 'active',
-        })
-      }
+      await recordViewerChange(tx, deps, {
+        userId: peerId,
+        conversationId,
+        membershipId: peerMember.membershipId,
+        state: 'active',
+      })
+    }
+  }
+  return { row, created: true, conversation, member, viewer, userRole: actor.role }
+}
+
+/**
+ * Sends a message as an interactive act of the signed-in person. The whole of it commits or none of it does: the
+ * sequence numbers, the message, the sync log, the sender's read position and the realtime hints (docs/03 section 5.1).
+ * The same `clientId` with the same request returns the same message; with another request, or for another
+ * conversation, it is a conflict (INV-03, D-066).
+ */
+export async function sendMessage(
+  deps: Deps,
+  principal: SessionPrincipal,
+  conversationId: string,
+  input: SendMessageRequest,
+): Promise<{ envelope: MessageEnvelope; created: boolean }> {
+  // A direct message changes the other person's view too (it brings the conversation out of hiding), so both are locked.
+  const peerId = await directPeerOf(deps.db, principal.userId, conversationId)
+  return await inTransaction(deps.db, async (tx) => {
+    const user = await lockAndRevalidate(tx, deps, principal, { alsoLock: peerId ? [peerId] : [] })
+    const written = await writeMessage(
+      tx,
+      deps,
+      { userId: principal.userId, role: user.role },
+      conversationId,
+      {
+        clientId: input.clientId,
+        body: input.body ?? '',
+        replyToId: input.replyToId,
+        attachmentIds: input.attachmentIds,
+      },
+      { executionSource: 'interactive' },
+    )
+    const { row, conversation, viewer } = written
+    if (!written.created) {
+      const projected = await projectMessages(tx, viewer, [row])
+      const message = projected.messages[0]
+      if (!message) throw new AppError('NOT_FOUND', 'Message not found')
+      return { envelope: { message, users: projected.users }, created: false }
     }
 
     if (conversation.kind === 'agent') {
@@ -634,7 +711,7 @@ export async function sendMessage(
         .select({ id: users.id })
         .from(users)
         .where(and(eq(users.username, deps.config.product.agentUsername), eq(users.isBot, true)))
-      if (bot && mentionIds(body).includes(bot.id))
+      if (bot && mentionIds(row.body ?? '').includes(bot.id))
         await enqueueRunForSource(tx, deps, principal, row, {
           trigger: 'mention',
           mode: 'fast',

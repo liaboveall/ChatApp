@@ -328,11 +328,12 @@ V-13 必须验证 adapter 创建事务可以实施上述锁和关联；否则先
 
 ## 7. Agent（M4 / M5）
 
-M4 实际迁移为 0007–0010（D-183）；未来审批、BYOK 和记忆表继续按 M5 分期。货币账本统一整数微美元，HTTP 展示的 costUsd 由该整数格式化。
+M4 实际迁移为 0007–0010（D-183）；M5 的审批/BYOK/记忆/向量与上下文版本由 0012–0015 增量迁移实现，证据见 24。货币账本统一整数微美元，HTTP 展示的 costUsd 由该整数格式化。
 
 ### `agent_contexts`（M4）
 
 - conversation_id 主键/FK（删除级联）、context_epoch、read_scope、key_source、privacy_class、key_revision、updated_at。记录私有 Agent 会话/面板当前输入世代；切换范围创建新 epoch，旧世代历史不注入新运行。
+- M5 增加 `state_version`（单调权威响应版本）和 `history_from_seq`（显示历史的 key 边界）。前者拒绝迟到响应恢复旧状态；后者只在切换 key 来源/revision 时推进，scope 改变仍可按权限浏览同 key 旧历史，但模型上下文始终重新构建。
 
 ### `agent_runs`（M4）
 | 列 | 类型 | 说明 |

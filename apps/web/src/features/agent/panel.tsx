@@ -14,7 +14,8 @@ import { registerConversationReset } from '@/lib/sync/stores.ts'
 import { showToast } from '@/lib/toast.ts'
 import { m } from '@/paraglide/messages.js'
 import { startRun, stopRun } from './api.ts'
-import { AgentChatControls, AgentMode, AgentScope } from './controls.tsx'
+import { segmentWindow, useAgentContext } from './context.ts'
+import { AgentChatControls, AgentKeySource, AgentMode, AgentScope } from './controls.tsx'
 import { AgentRunCard } from './run-card.tsx'
 import { useAgent } from './store.ts'
 
@@ -64,6 +65,8 @@ function PanelSession({
   const draftKey = `agent-panel:${id}:${panelId ?? 'new'}`
   const preferenceId = panelId ?? id
   const window = useTimelineWindow(panelId ?? '')
+  const segment = useAgentContext(panelId)
+  const shown = window && segment ? segmentWindow(window, segment) : undefined
   const { data: me } = useQuery(meQuery)
   const scope = useAgent((s) => s.scopes[preferenceId] ?? 'current')
   const mode =
@@ -177,6 +180,7 @@ function PanelSession({
       <p className="agent-panel__private">{m.agent_panel_private()}</p>
       <AgentScope id={preferenceId} />
       <AgentMode id={preferenceId} />
+      <AgentKeySource conversationId={panelId} />
       <div className="agent-controls agent-panel__quick">
         <Button
           kind="tinted"
@@ -204,7 +208,7 @@ function PanelSession({
         </Button>
       </div>
       <div ref={messages} className="agent-panel__messages scroll">
-        {window?.hasMoreBefore && panelId ? (
+        {shown?.hasMoreBefore && panelId ? (
           <Button
             kind="plain"
             size="sm"
@@ -233,7 +237,7 @@ function PanelSession({
             <p>{m.agent_empty_text()}</p>
           </div>
         ) : null}
-        {window?.messages
+        {shown?.messages
           .filter((msg) => msg.kind !== 'system')
           .map((msg) => (
             <div key={msg.id} className="agent-panel__message" data-kind={msg.kind}>

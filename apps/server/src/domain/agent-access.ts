@@ -1,6 +1,9 @@
 import { type AgentDelta, type AgentSource, AppError } from '@chatapp/contracts'
 import {
+  agentApprovals,
   agentContexts,
+  agentConversationState,
+  agentMemories,
   agentRuns,
   attachments,
   authorizationOrigins,
@@ -10,6 +13,7 @@ import {
   messageHidden,
   messages,
   type Tx,
+  userAiKeys,
   users,
 } from '@chatapp/db'
 import { and, asc, eq, inArray, sql } from 'drizzle-orm'
@@ -33,8 +37,12 @@ export async function lockDelegation(
   tx: Tx,
   deps: Pick<Deps, 'clock' | 'config'>,
   run: AgentRunRow,
+  alsoLockUsers: readonly string[] = [],
 ): Promise<DelegatedPrincipal> {
-  const [user] = await lockUsers(tx, [run.userId])
+  // Everyone an effect changes is locked with the caller, in id order, before any other row (docs/03 section 5.1).
+  const user = (await lockUsers(tx, [run.userId, ...alsoLockUsers])).find(
+    (u) => u.id === run.userId,
+  )
   const [reference] = await tx
     .select({ originId: executionDelegations.originId })
     .from(executionDelegations)
@@ -104,18 +112,32 @@ export async function lockSourceConversations(
       .for('update')
 }
 
+/** Only a private own-key run may read private own-key content; site runs and shared replies read standard only. */
+export const readablePrivacy = (run: Pick<AgentRunRow, 'privacyClass'>) =>
+  run.privacyClass === 'byok_private'
+    ? (['standard', 'byok_private'] as const)
+    : (['standard'] as const)
+
 export async function validateAgentSources(
   tx: DbOrTx,
   deps: Pick<Deps, 'clock' | 'config'>,
   run: AgentRunRow,
+  depth = 0,
 ): Promise<void> {
-  if (
-    !run.conversationId ||
-    run.keySource !== 'site' ||
-    run.keyRevision !== null ||
-    run.privacyClass !== 'standard'
-  )
+  if (depth > 8) throw contextChanged()
+  if (!run.conversationId) throw contextChanged()
+  if (run.keySource === 'site' && (run.keyRevision !== null || run.privacyClass !== 'standard'))
     throw contextChanged()
+  if (run.keySource === 'user') {
+    // A replaced, removed or rejected key ends the runs pinned to it (D-080); they never continue on another key.
+    const [key] = await tx
+      .select({ revision: userAiKeys.revision, status: userAiKeys.status })
+      .from(userAiKeys)
+      .where(eq(userAiKeys.userId, run.userId))
+    if (key?.status !== 'active' || key.revision !== run.keyRevision) throw contextChanged()
+    if (run.trigger === 'mention' && run.privacyClass !== 'standard') throw contextChanged()
+  }
+  const allowed: readonly string[] = readablePrivacy(run)
   const [context] = await tx
     .select()
     .from(agentContexts)
@@ -125,6 +147,8 @@ export async function validateAgentSources(
     (!context ||
       context.contextEpoch !== run.contextEpoch ||
       context.keySource !== run.keySource ||
+      (context.keyRevision ?? null) !== run.keyRevision ||
+      context.privacyClass !== run.privacyClass ||
       context.readScope !== run.readScope)
   )
     throw contextChanged()
@@ -172,8 +196,8 @@ export async function validateAgentSources(
         current.contentVersion !== source.contentVersion ||
         current.recalledAt ||
         current.deletedAt ||
-        current.privacyClass !== 'standard' ||
-        source.privacyClass !== 'standard' ||
+        !allowed.includes(current.privacyClass) ||
+        !allowed.includes(source.privacyClass) ||
         current.seq <= membership.visibleFromSeq ||
         (run.trigger === 'mention' && current.seq <= run.sharedVisibleFromSeq)
       )
@@ -182,6 +206,46 @@ export async function validateAgentSources(
       const [user] = await tx.select().from(users).where(eq(users.id, source.id))
       if (!user || user.deletedAt || user.profileVersion !== source.profileVersion)
         throw contextChanged()
+    } else if (source.type === 'summary') {
+      const [summary] = await tx
+        .select()
+        .from(agentConversationState)
+        .where(eq(agentConversationState.conversationId, source.id))
+      if (
+        !summary?.summary ||
+        summary.contextEpoch !== source.contextEpoch ||
+        summary.summarizedThroughSeq !== source.summarizedThroughSeq ||
+        summary.expiresAt.toISOString() !== source.expiresAt ||
+        summary.expiresAt <= deps.clock.now() ||
+        !allowed.includes(summary.privacyClass) ||
+        !allowed.includes(source.privacyClass)
+      )
+        throw contextChanged()
+      await validateAgentSources(
+        tx,
+        deps,
+        { ...run, contextManifest: summary.sourceManifest },
+        depth + 1,
+      )
+    } else if (source.type === 'memory') {
+      const [memory] = await tx.select().from(agentMemories).where(eq(agentMemories.id, source.id))
+      if (
+        run.readScope !== 'all_accessible' ||
+        !memory ||
+        memory.userId !== run.userId ||
+        memory.deletedAt ||
+        !memory.content ||
+        memory.contentVersion !== source.contentVersion ||
+        !allowed.includes(memory.privacyClass) ||
+        !allowed.includes(source.privacyClass)
+      )
+        throw contextChanged()
+      await validateAgentSources(
+        tx,
+        deps,
+        { ...run, contextManifest: memory.sourceManifest },
+        depth + 1,
+      )
     } else {
       const [current] = await tx.select().from(attachments).where(eq(attachments.id, source.id))
       if (
@@ -190,8 +254,8 @@ export async function validateAgentSources(
         current.version !== source.version ||
         current.generation !== source.generation ||
         current.status !== 'ready' ||
-        current.privacyClass !== 'standard' ||
-        source.privacyClass !== 'standard'
+        !allowed.includes(current.privacyClass) ||
+        !allowed.includes(source.privacyClass)
       )
         throw contextChanged()
     }
@@ -204,12 +268,18 @@ export async function withAgentLease<T>(
   lease: AgentLease,
   apply: (tx: Tx, run: AgentRunRow, principal: DelegatedPrincipal) => Promise<T>,
   extras: readonly string[] = [],
+  alsoLockUsers: readonly string[] = [],
+  additionalConversations?: (tx: Tx, run: AgentRunRow) => Promise<readonly string[]>,
 ): Promise<T> {
   const [peek] = await deps.db.select().from(agentRuns).where(eq(agentRuns.id, lease.id))
   if (!peek) throw staleLease()
   return await inTransaction(deps.db, async (tx) => {
-    const principal = await lockDelegation(tx, deps, peek)
-    await lockSourceConversations(tx, peek, extras)
+    const principal = await lockDelegation(tx, deps, peek, alsoLockUsers)
+    // The owner lock serializes context additions; use its latest manifest before acquiring conversation locks.
+    const [current] = await tx.select().from(agentRuns).where(eq(agentRuns.id, lease.id))
+    if (!current) throw staleLease()
+    const additional = additionalConversations ? await additionalConversations(tx, current) : []
+    await lockSourceConversations(tx, current, [...extras, ...additional])
     const [run] = await tx.select().from(agentRuns).where(eq(agentRuns.id, lease.id)).for('update')
     if (
       run?.status !== 'running' ||
@@ -245,7 +315,7 @@ export async function authorizeAgentDelta(
         !message ||
         message.recalledAt ||
         message.deletedAt ||
-        message.privacyClass !== 'standard' ||
+        !(readablePrivacy(run) as readonly string[]).includes(message.privacyClass) ||
         message.meta.agent?.runId !== run.id ||
         message.meta.agent.resumeSeq !== delta.resumeSeq
       )
@@ -287,8 +357,15 @@ export async function invalidateConversationRuns(
   tx: DbOrTx,
   deps: Pick<Deps, 'clock'>,
   conversationId: string,
+  exceptRunId?: string,
 ): Promise<void> {
   await tx
+    .update(agentConversationState)
+    .set({ summary: null, sourceManifest: [] })
+    .where(
+      sql`(${agentConversationState.conversationId} = ${conversationId}::uuid or ${agentConversationState.sourceManifest} @> ${JSON.stringify([{ type: 'conversation', id: conversationId }])}::text::jsonb)`,
+    )
+  const cancelled = await tx
     .update(agentRuns)
     .set({
       status: 'cancelled',
@@ -304,6 +381,35 @@ export async function invalidateConversationRuns(
       and(
         inArray(agentRuns.status, ['queued', 'running', 'awaiting_approval']),
         sql`(${agentRuns.conversationId} = ${conversationId}::uuid or ${agentRuns.contextManifest} @> ${JSON.stringify([{ type: 'conversation', id: conversationId }])}::text::jsonb)`,
+        exceptRunId ? sql`${agentRuns.id} <> ${exceptRunId}::uuid` : undefined,
       ),
     )
+    .returning({ id: agentRuns.id })
+  await closePendingApprovals(
+    tx,
+    deps,
+    cancelled.map((run) => run.id),
+    'context_changed',
+  )
+}
+
+/**
+ * Pending decisions of runs that just ended can no longer be taken (docs/04: cancelling turns pending into rejected with
+ * a reason). Called in the transaction that ended the runs.
+ */
+export async function closePendingApprovals(
+  tx: DbOrTx,
+  deps: Pick<Deps, 'clock'>,
+  runIds: readonly string[],
+  reason: 'cancelled' | 'context_changed' | 'unauthenticated' | 'expired' | 'failed',
+): Promise<void> {
+  if (runIds.length === 0) return
+  await tx
+    .update(agentApprovals)
+    .set({
+      status: reason === 'expired' ? 'expired' : 'rejected',
+      reason,
+      decidedAt: deps.clock.now(),
+    })
+    .where(and(inArray(agentApprovals.runId, [...runIds]), eq(agentApprovals.status, 'pending')))
 }

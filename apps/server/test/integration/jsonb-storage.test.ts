@@ -1,5 +1,7 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, test } from 'bun:test'
 import {
+  agentConversationState,
+  agentMemories,
   appSettings,
   attachments,
   auditLogs,
@@ -11,8 +13,11 @@ import {
 import { runBootstrap } from '@chatapp/db/bootstrap'
 import { eq, sql } from 'drizzle-orm'
 import { loadAiConfig } from '../../src/config/ai.ts'
-import { createAgentRun } from '../../src/domain/agent-runs.ts'
+import { decideApproval } from '../../src/domain/agent-approvals.ts'
+import { createAgentRun, getAgentRun } from '../../src/domain/agent-runs.ts'
 import { writeAudit } from '../../src/domain/audit.ts'
+import { createConversation } from '../../src/domain/conversations.ts'
+import { addMemory } from '../../src/domain/memories.ts'
 import { enqueueWork } from '../../src/domain/work.ts'
 import { executeAgentRun } from '../../src/runtime/agent.ts'
 import { openTestDatabases, type TestDatabases, truncateAll } from '../support/db.ts'
@@ -35,6 +40,12 @@ beforeEach(async () => {
 })
 
 const COVERED = [
+  'agent_approvals.args',
+  'agent_approvals.edited_args',
+  'agent_approvals.final_args',
+  'agent_conversation_state.source_manifest',
+  'agent_effects.result',
+  'agent_memories.source_manifest',
   'agent_run_states.messages',
   'agent_runs.context_manifest',
   'agent_steps.payload',
@@ -92,6 +103,109 @@ describe('jsonb columns hold real JSON', () => {
     const steps = await deps.db.execute(sql`select jsonb_typeof(payload) as root,
       jsonb_typeof(payload->'arguments') as args from agent_steps where type = 'tool_call'`)
     expect(steps).toEqual([{ root: 'object', args: 'object' }])
+  })
+
+  test('approval arguments, frozen arguments and effect results are objects, and appended history stays an array', async () => {
+    const deps = makeDeps(dbs.app.db)
+    await runBootstrap(deps.db, { ...deps.config.product, productName: deps.config.product.name })
+    const owner = await makePrincipal(
+      deps,
+      await createActiveUser(deps, { username: 'jsonbowner' }),
+    )
+    const peer = await createActiveUser(deps, { username: 'jsonbpeer' })
+    const [profile] = await deps.db.select().from(users).where(eq(users.id, owner.userId))
+    const { conversation } = await createConversation(
+      deps,
+      owner,
+      { kind: 'group', name: 'jsonb', memberIds: [peer.id] },
+      deps.newId(),
+    )
+    const run = await createAgentRun(
+      deps,
+      owner,
+      {
+        trigger: 'panel',
+        contextConversationId: conversation.id,
+        prompt: '代发：jsonb 原文',
+        mode: 'fast',
+        attachmentIds: [],
+        timezone: profile?.timezone ?? 'Asia/Shanghai',
+      },
+      deps.newId(),
+    )
+    const config = loadAiConfig({ APP_ENV: 'test' })
+    await executeAgentRun({ deps, config }, run.id)
+    const [approval] = (await getAgentRun(deps, owner, run.id)).approvals
+    if (!approval) throw new Error('no approval')
+    await decideApproval(deps, owner, approval.id, {
+      decision: 'approve',
+      editedArgs: { body: 'jsonb 修改' },
+      expectedStateVersion: approval.stateVersion,
+    })
+    await executeAgentRun({ deps, config }, run.id)
+    const approvals = await deps.db.execute(sql`select jsonb_typeof(args) as args,
+      jsonb_typeof(edited_args) as edited, jsonb_typeof(final_args) as final, final_args->>'body' as body
+      from agent_approvals`)
+    expect(approvals).toEqual([
+      { args: 'object', edited: 'object', final: 'object', body: 'jsonb 修改' },
+    ])
+    const effects = await deps.db.execute(
+      sql`select jsonb_typeof(result) as type, result->>'status' as status from agent_effects`,
+    )
+    expect(effects).toEqual([{ type: 'object', status: 'sent' }])
+    const state = await deps.db.execute(sql`select jsonb_typeof(messages) as root,
+      jsonb_typeof(messages->-1) as last from agent_run_states where run_id = ${run.id}`)
+    expect(state).toEqual([{ root: 'array', last: 'object' }])
+  })
+  test('memory and summary provenance are JSON arrays with queryable source objects', async () => {
+    const deps = makeDeps(dbs.app.db)
+    await runBootstrap(deps.db, { ...deps.config.product, productName: deps.config.product.name })
+    const owner = await makePrincipal(
+      deps,
+      await createActiveUser(deps, { username: 'jsonbmemory' }),
+    )
+    const run = await createAgentRun(
+      deps,
+      owner,
+      {
+        trigger: 'agent_chat',
+        prompt: '记住：我的偏好',
+        mode: 'fast',
+        attachmentIds: [],
+        timezone: 'Asia/Shanghai',
+      },
+      deps.newId(),
+    )
+    await executeAgentRun({ deps, config: loadAiConfig({ APP_ENV: 'test' }) }, run.id)
+    const manifest = await deps.db.execute(sql`select jsonb_typeof(source_manifest) as root,
+      jsonb_typeof(source_manifest->0) as item, source_manifest->0->>'type' as type from agent_memories`)
+    expect(manifest).toEqual([{ root: 'array', item: 'object', type: 'conversation' }])
+    const manual = await addMemory(deps, owner, { content: '手动偏好', allowSite: false })
+    expect(
+      await deps.db.execute(
+        sql`select jsonb_typeof(source_manifest) as root from agent_memories where id=${manual.id}`,
+      ),
+    ).toEqual([{ root: 'array' }])
+    const [saved] = await deps.db
+      .select()
+      .from(agentMemories)
+      .where(eq(agentMemories.createdByRunId, run.id))
+    if (!saved || !run.conversationId) throw new Error('missing memory')
+    await deps.db.insert(agentConversationState).values({
+      conversationId: run.conversationId,
+      contextEpoch: run.contextEpoch,
+      keySource: 'site',
+      privacyClass: 'standard',
+      summary: '摘要',
+      sourceManifest: saved.sourceManifest,
+      summarizedThroughSeq: 1,
+      expiresAt: new Date(deps.clock.now().getTime() + 1000),
+      updatedAt: deps.clock.now(),
+    })
+    expect(
+      await deps.db.execute(sql`select jsonb_typeof(source_manifest) as root,
+      jsonb_typeof(source_manifest->0) as item, source_manifest->0->>'type' as type from agent_conversation_state`),
+    ).toEqual([{ root: 'array', item: 'object', type: 'conversation' }])
   })
 
   test('attachment variant maps are JSON objects with nested numeric dimensions', async () => {

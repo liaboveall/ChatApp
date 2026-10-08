@@ -146,3 +146,97 @@
   display: block;
   color: var(--label-secondary);
 }
+
+/* M5a: the approval card (docs/02 section 6) and what an effect left behind. */
+.approval {
+  display: grid;
+  gap: 6px;
+  padding: 10px 12px;
+  border: 1px solid var(--separator);
+  border-radius: var(--radius-card);
+  background: var(--fill);
+  color: var(--label);
+  font-size: var(--fs-subheadline);
+  line-height: var(--lh-subheadline);
+  min-width: 0;
+}
+.approval[data-status="pending"] {
+  border-color: var(--accent-solid);
+}
+.approval__badge {
+  color: var(--accent-text);
+  font-size: var(--fs-footnote);
+  line-height: var(--lh-footnote);
+}
+.approval__title {
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+.approval__body {
+  margin: 0;
+  padding: 6px 10px;
+  border-left: 3px solid var(--separator);
+  background: var(--bg-content);
+  border-radius: var(--radius-control);
+  max-height: 240px;
+  overflow: auto;
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+}
+.approval__time,
+.approval__outcome,
+.approval__warning {
+  color: var(--label-secondary);
+  overflow-wrap: anywhere;
+}
+.approval__choose {
+  display: grid;
+  gap: 4px;
+  border: 0;
+  padding: 0;
+  margin: 0;
+}
+.approval__choose legend {
+  margin-bottom: 4px;
+}
+.approval__choose label {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  overflow-wrap: anywhere;
+}
+.approval .input {
+  width: 100%;
+  min-width: 0;
+}
+.agent-run-card__waiting {
+  color: var(--accent-text);
+}
+.agent-run-card__key {
+  display: grid;
+  gap: 4px;
+}
+.agent-key-source small {
+  color: var(--label-secondary);
+}
+.task-row .row__help {
+  overflow-wrap: anywhere;
+}
+.settings-memory-form {
+  display: grid;
+  gap: 12px;
+  padding: 16px;
+}
+.settings-memory-form label {
+  display: grid;
+  gap: 8px;
+}
+.settings-memory-form textarea {
+  width: 100%;
+  padding: 12px;
+  color: var(--label);
+  background: var(--bg-content);
+  border: 1px solid var(--separator);
+  border-radius: var(--radius-control);
+  resize: vertical;
+}

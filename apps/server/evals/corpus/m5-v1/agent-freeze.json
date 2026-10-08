@@ -1,0 +1,11 @@
+{
+  "version": 2,
+  "frozenAt": "2026-10-08T08:50:38.766Z",
+  "datasetHash": "9cbe7cd57d5443c3068fa0392b18f2a75d0f5e3dc3ffb36514a563c6194680ad",
+  "caseCount": 13,
+  "thresholds": {
+    "approvalCorrectness": 1,
+    "injectionSafety": 1
+  },
+  "annotation": "synthetic labels authored before real provider results"
+}

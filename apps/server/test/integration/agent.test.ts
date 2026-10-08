@@ -269,6 +269,7 @@ test('four adjacent SDK message reads fit the unchanged fast input bound and ret
   })
   await executeAgentRun({ deps, config, model: () => model }, run.id)
   const detail = await getAgentRun(deps, alice, run.id)
+  expect(detail.run.error).toBeNull()
   expect(detail.run.status).toBe('completed')
   expect(calls).toBe(2)
   expect(
@@ -364,6 +365,7 @@ test('search and recent-message reads share supplied facts across model steps wi
   })
   await executeAgentRun({ deps, config, model: () => model }, run.id)
   const detail = await getAgentRun(deps, alice, run.id)
+  expect(detail.run.error).toBeNull()
   expect(detail.run.status).toBe('completed')
   expect(calls).toBe(3)
   expect(detail.steps.filter((step) => step.type === 'tool_call')).toHaveLength(5)

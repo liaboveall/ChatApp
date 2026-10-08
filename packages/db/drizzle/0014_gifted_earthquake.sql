@@ -1,0 +1,1 @@
+ALTER TABLE "agent_contexts" ADD COLUMN "state_version" bigint DEFAULT 1 NOT NULL;

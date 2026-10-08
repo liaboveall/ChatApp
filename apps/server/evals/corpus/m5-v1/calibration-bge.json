@@ -1,0 +1,15 @@
+{
+  "frozenAt": "2026-10-08T08:09:59.544Z",
+  "modelVersion": "bge-small-zh-q8-75c43b06",
+  "datasetHash": "4781cfd6eb85257b3b05da1603e129479ec20b56ae99c0ed13c3755a2c1617e8",
+  "thresholds": {
+    "rrfK": 60,
+    "candidates": 50,
+    "messageThreshold": 0.55,
+    "memoryThreshold": 0.5
+  },
+  "developmentRunId": "95d99297-9133-4ad5-82d7-65518f529628",
+  "developmentSourceHash": "78a3785c439243a27fbb9dad0572fa213784f0b95116b0a5c5e3f954085f0acc",
+  "qualityPass": true,
+  "reason": "Dev positives >= .616, negatives <= .358; memory threshold .5 fixed before holdout."
+}

@@ -20,6 +20,15 @@ export type AiConfig = {
   experimentMicroUsd: number
   /** The experiment reservation is subtracted, so two environments cannot each spend the same $20. */
   siteMicroUsd: number
+  /**
+   * Members' own keys (M5a): always DeepSeek at its fixed endpoint, with its own model names and prices, never the site
+   * provider's alias (docs/06 section 6). The test environment uses the mock model for them too.
+   */
+  byok: {
+    provider: 'deepseek' | 'mock'
+    models: Record<AiMode, string>
+    prices: Record<AiMode, AiPrice>
+  }
 }
 
 const money = z.string().regex(/^(0|[1-9]\d*)(?:\.\d{1,6})?$/)
@@ -31,6 +40,8 @@ const schema = z.object({
   SOCLAAS_API_KEY: z.string().optional(),
   AI_MODEL_FAST: model.optional(),
   AI_MODEL_DEEP: model.optional(),
+  AI_BYOK_MODEL_FAST: model.default('deepseek-flash'),
+  AI_BYOK_MODEL_DEEP: model.default('deepseek-flash'),
   AI_USER_DAILY_TOKENS: z.coerce
     .number()
     .int()
@@ -82,6 +93,29 @@ export function loadAiConfig(
   const experimentMicroUsd = amount('AI_EXPERIMENT_BUDGET_USD')
   if (experimentMicroUsd > monthlyMicroUsd)
     throw new ConfigError(['AI_EXPERIMENT_BUDGET_USD: exceeds total monthly budget'])
+  const byokProvider = provider === 'mock' ? ('mock' as const) : ('deepseek' as const)
+  const byokModels = {
+    fast: provider === 'mock' ? 'mock-byok' : raw.AI_BYOK_MODEL_FAST,
+    deep: provider === 'mock' ? 'mock-byok' : raw.AI_BYOK_MODEL_DEEP,
+  }
+  const byokPrices = {} as Record<AiMode, AiPrice>
+  for (const mode of ['fast', 'deep'] as const) {
+    const prefix = mode === 'fast' ? 'FAST' : 'DEEP'
+    const rates = {
+      input: amount(`AI_PRICE_${prefix}_INPUT`),
+      cachedInput: amount(`AI_PRICE_${prefix}_INPUT_CACHE_HIT`),
+      output: amount(`AI_PRICE_${prefix}_OUTPUT`),
+    }
+    byokPrices[mode] = {
+      ...rates,
+      version: createHash('sha256')
+        .update(
+          JSON.stringify({ provider: byokProvider, model: byokModels[mode], ...rates, byok: true }),
+        )
+        .digest('hex')
+        .slice(0, 16),
+    }
+  }
   const prices = {} as Record<AiMode, AiPrice>
   for (const mode of ['fast', 'deep'] as const) {
     const prefix = mode === 'fast' ? 'FAST' : 'DEEP'
@@ -112,5 +146,6 @@ export function loadAiConfig(
     monthlyMicroUsd,
     experimentMicroUsd,
     siteMicroUsd: monthlyMicroUsd - experimentMicroUsd,
+    byok: { provider: byokProvider, models: byokModels, prices: byokPrices },
   }
 }

@@ -26,6 +26,7 @@ import {
   conversations,
   type DbOrTx,
   dmPairs,
+  type Tx,
   userConversationStates,
   users,
 } from '@chatapp/db'
@@ -163,6 +164,84 @@ export async function discoverChannels(
 
 // ───────── creating ─────────
 
+export type NewConversation = {
+  kind: 'channel' | 'group' | 'agent'
+  name: string
+  description: string | null
+  memberIds: readonly string[]
+}
+
+export type InsertedConversation = {
+  id: string
+  added: string[]
+  skipped: { userId: string; reason: 'unavailable' | 'limit_reached' }[]
+}
+
+/**
+ * The transaction body of a new channel or group: the creator owns it and the people named join from the beginning.
+ * The caller has locked the creator and everyone named (sorted, docs/03 section 5.1) and re-checked the creator's
+ * authority. By default one unusable person fails the whole request; an approved assistant effect instead leaves out
+ * whoever became unavailable since and reports them (`skipUnavailable`).
+ */
+export async function insertConversation(
+  tx: Tx,
+  deps: Deps,
+  creatorId: string,
+  input: NewConversation,
+  options: { skipUnavailable?: boolean } = {},
+): Promise<InsertedConversation> {
+  const now = deps.clock.now()
+  const named = [...new Set(input.memberIds)].filter((id) => id !== creatorId).sort()
+  const skipped: InsertedConversation['skipped'] = []
+  let usable = named
+  if (named.length > 0) {
+    const people = await tx.select().from(users).where(inArray(users.id, named))
+    const allowed = new Set(people.filter((u) => accountAllowsSession(u, now)).map((u) => u.id))
+    if (!options.skipUnavailable && named.some((id) => !allowed.has(id))) {
+      throw new AppError('VALIDATION_FAILED', 'Some of the people named cannot be added', {
+        details: { field: 'memberIds', reason: 'unknown_or_unavailable' },
+      })
+    }
+    for (const id of named)
+      if (!allowed.has(id)) skipped.push({ userId: id, reason: 'unavailable' })
+    usable = named.filter((id) => allowed.has(id))
+  }
+  const counts = await countLiveMemberships(tx, [creatorId, ...usable])
+  if ((counts.get(creatorId) ?? 0) >= LIMITS.maxConversationsPerUser) {
+    throw new AppError('QUOTA_EXCEEDED', 'You are in as many conversations as allowed', {
+      details: { resource: 'conversations', limit: LIMITS.maxConversationsPerUser },
+    })
+  }
+  // People who are at their own limit are left out rather than failing the whole creation.
+  const joiners = usable.filter((id) => (counts.get(id) ?? 0) < LIMITS.maxConversationsPerUser)
+  for (const id of usable)
+    if (!joiners.includes(id)) skipped.push({ userId: id, reason: 'limit_reached' })
+
+  const id = deps.newId()
+  await tx.insert(conversations).values({
+    id,
+    kind: input.kind,
+    name: input.name,
+    description: input.description,
+    ownerId: creatorId,
+    settings: { whoCanInvite: 'all_members', agentEnabled: true },
+    createdBy: creatorId,
+    createdAt: now,
+    updatedAt: now,
+  })
+  await addMembers(
+    tx,
+    deps,
+    { id, kind: input.kind, lastSeq: 0 },
+    [
+      { userId: creatorId, role: 'owner', addedBy: null },
+      ...joiners.map((userId) => ({ userId, addedBy: creatorId })),
+    ],
+    { fromStart: true },
+  )
+  return { id, added: joiners, skipped }
+}
+
 /**
  * A new channel or group; the creator becomes its owner and the people named join from the beginning. The
  * `Idempotency-Key` makes a retry return the same conversation instead of a second one (D-066).
@@ -231,46 +310,12 @@ export async function createConversation(
         }
       }
 
-      if (named.length > 0) {
-        const people = await tx.select().from(users).where(inArray(users.id, named))
-        const usable = new Set(people.filter((u) => accountAllowsSession(u, now)).map((u) => u.id))
-        if (named.some((id) => !usable.has(id))) {
-          throw new AppError('VALIDATION_FAILED', 'Some of the people named cannot be added', {
-            details: { field: 'memberIds', reason: 'unknown_or_unavailable' },
-          })
-        }
-      }
-      const counts = await countLiveMemberships(tx, [principal.userId, ...named])
-      if ((counts.get(principal.userId) ?? 0) >= LIMITS.maxConversationsPerUser) {
-        throw new AppError('QUOTA_EXCEEDED', 'You are in as many conversations as allowed', {
-          details: { resource: 'conversations', limit: LIMITS.maxConversationsPerUser },
-        })
-      }
-      // People who are at their own limit are left out rather than failing the whole creation.
-      const joiners = named.filter((id) => (counts.get(id) ?? 0) < LIMITS.maxConversationsPerUser)
-
-      const id = deps.newId()
-      await tx.insert(conversations).values({
-        id,
+      const { id } = await insertConversation(tx, deps, principal.userId, {
         kind: input.kind,
         name: input.name,
         description: input.description ?? null,
-        ownerId: principal.userId,
-        settings: { whoCanInvite: 'all_members', agentEnabled: true },
-        createdBy: principal.userId,
-        createdAt: now,
-        updatedAt: now,
+        memberIds: named,
       })
-      await addMembers(
-        tx,
-        deps,
-        { id, kind: input.kind, lastSeq: 0 },
-        [
-          { userId: principal.userId, role: 'owner', addedBy: null },
-          ...joiners.map((userId) => ({ userId, addedBy: principal.userId })),
-        ],
-        { fromStart: true },
-      )
       await completeIdempotency(tx, claim.id, { type: 'conversation', id })
       return { conversation: await viewOrGone(tx, principal.userId, id, now), created: true }
     }),

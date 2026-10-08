@@ -21,6 +21,7 @@ import {
 import { and, eq, sql } from 'drizzle-orm'
 import { invalidateConversationRuns } from './agent-access.ts'
 import type { Deps } from './deps.ts'
+import { enqueueMessageEmbedding } from './embeddings.ts'
 import { enqueueWork } from './work.ts'
 
 /**
@@ -168,6 +169,7 @@ export async function recordMessageChange(
     kind: change.kind,
     createdAt: deps.clock.now(),
   })
+  await enqueueMessageEmbedding(tx, deps, change.messageId)
   await enqueueHint(tx, deps, {
     event: 'message.changed',
     conversationId: change.conversationId,
@@ -183,6 +185,11 @@ export type VersionBump = {
   membership?: boolean
   /** Change of the member count; implies a metadata bump, because the count is part of the shared profile. */
   memberDelta?: number
+  /**
+   * The private assistant run whose approved effect is making this change (M5a, D-197): its own reading is unchanged,
+   * so it is not cancelled with the others; the effect re-baselines its source list in the same transaction.
+   */
+  exceptRunId?: string
 }
 
 /** Moves the shared-profile and member-list versions and tells every connected member (no per-person log: D-125). */
@@ -220,7 +227,7 @@ export async function bumpConversation(
     })
   }
   if (bump.membership) {
-    await invalidateConversationRuns(tx, deps, conversationId)
+    await invalidateConversationRuns(tx, deps, conversationId, bump.exceptRunId)
     await enqueueHint(tx, deps, {
       event: 'member.changed',
       conversationId,

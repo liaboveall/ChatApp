@@ -1,4 +1,4 @@
-import type { AgentRunDetail } from '@chatapp/contracts'
+import type { AgentRunDetail, ApprovalPreview } from '@chatapp/contracts'
 import type { Meta, StoryObj } from '@storybook/react-vite'
 import { useEffect, useState } from 'react'
 import { MessageBody } from '@/components/markdown/message-body.tsx'
@@ -20,10 +20,12 @@ function Stage({
   status = 'completed',
   error = null,
   denied = false,
+  approval,
 }: {
   status?: AgentRunDetail['run']['status']
   error?: string | null
   denied?: boolean
+  approval?: ApprovalPreview
 }) {
   const id = uuid(880)
   const message = makeMessage(12, {
@@ -66,6 +68,8 @@ function Stage({
       resumeSeq: 0,
       stepCount: 2,
       regeneratedFromRunId: null,
+      hasEffects: false,
+      pendingApproval: status === 'awaiting_approval',
       usage: { inputTokens: 1800, outputTokens: 120, cachedTokens: 0, costUsd: '0.000000' },
       createdAt: ISO,
       finishedAt: status === 'running' ? null : ISO,
@@ -81,6 +85,27 @@ function Stage({
         createdAt: ISO,
       },
     ],
+    approvals: approval
+      ? [
+          {
+            id: uuid(890),
+            runId: id,
+            toolName: approval.tool,
+            status: 'pending',
+            reason: null,
+            required: true,
+            preview: approval,
+            edited: false,
+            stateVersion: 3,
+            resumeSeq: 0,
+            stepIndex: 1,
+            expiresAt: '2026-10-09T03:00:00.000Z',
+            decidedAt: null,
+            createdAt: ISO,
+          },
+        ]
+      : [],
+    effects: [],
   }
   useState(() => {
     installMockApi({
@@ -97,7 +122,7 @@ function Stage({
     [],
   )
   return (
-    <div className="agent-panel" style={{ width: 520 }}>
+    <div className="agent-panel" style={{ width: '100%', maxWidth: 520 }}>
       <p>这里的请求和回答仅你可见。</p>
       <AgentMode id={message.conversationId} />
       <AgentScope id={message.conversationId} />
@@ -114,3 +139,27 @@ export const UnknownCall: Story = {
   render: () => <Stage status="failed" error="UNKNOWN_EXECUTION" />,
 }
 export const SharedReply: Story = { render: () => <Stage denied /> }
+export const RememberApproval: Story = {
+  render: () => (
+    <Stage
+      status="awaiting_approval"
+      approval={{
+        tool: 'remember',
+        content: '我喜欢在九点开始工作，会议中安排短暂休息。',
+        privacyClass: 'byok_private',
+      }}
+    />
+  ),
+}
+export const SendApproval: Story = {
+  render: () => (
+    <Stage
+      status="awaiting_approval"
+      approval={{
+        tool: 'send_message',
+        body: '灰度验证完成，仍保留回滚窗口。',
+        conversation: { id: uuid(501), kind: 'group', name: '项目协作', peer: null },
+      }}
+    />
+  ),
+}

@@ -338,6 +338,7 @@ export function mergeConversation(
       memberCount: incoming.memberCount,
       archivedAt: incoming.archivedAt,
       panelForConversationId: incoming.panelForConversationId,
+      agentPurpose: incoming.agentPurpose,
       metadataVersion: incoming.metadataVersion,
     })
   }

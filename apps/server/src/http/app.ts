@@ -20,7 +20,9 @@ import { healthRoutes } from './routes/health.ts'
 import { inviteRoutes } from './routes/invites.ts'
 import { meRoutes } from './routes/me.ts'
 import { memberRoutes } from './routes/members.ts'
+import { memoryRoutes } from './routes/memories.ts'
 import { messageRoutes } from './routes/messages.ts'
+import { taskRoutes } from './routes/tasks.ts'
 import { testRoutes } from './routes/test.ts'
 import { userRoutes } from './routes/users.ts'
 
@@ -71,6 +73,8 @@ export function createApp(services: Services, options: AppOptions = {}): OpenAPI
   messageRoutes(app, services)
   attachmentRoutes(app, services)
   agentRoutes(app, services)
+  taskRoutes(app, services)
+  memoryRoutes(app, services)
 
   const clock = services.deps.clock
   if (services.config.env === 'test') {

@@ -120,6 +120,7 @@ const adminToken = ensure('GARAGE_ADMIN_TOKEN', () => token(32))
 const metricsToken = ensure('GARAGE_METRICS_TOKEN', () => token(32))
 ensure('BETTER_AUTH_SECRET', () => token(32))
 ensure('AUTH_TOKEN_ENCRYPTION_KEY', () => token(32))
+ensure('AI_KEY_ENCRYPTION_KEY', () => token(32)) // M5a: members' own AI keys, AES-256-GCM
 ensure('RESTORE_EPOCH', () => token(12))
 ensure('SEED_DEMO_PASSWORD', () => token(12))
 

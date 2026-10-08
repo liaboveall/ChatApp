@@ -4,6 +4,8 @@
  * redelivery) or, for realtime hints, publishes them directly. Handing over is not completion: consumers mark items
  * done after their business effect committed. If anything here fails the lease simply expires and the item is retried.
  */
+
+import type { WorkKind } from '@chatapp/contracts'
 import type { Queue } from 'bullmq'
 import type { Deps } from '../domain/deps.ts'
 import { claimReadyWork, completeWork } from '../domain/work-queue.ts'
@@ -28,9 +30,12 @@ export function createDispatcher(parts: {
   emailQueue: Queue<WorkJobData>
   mediaQueue?: Queue<WorkJobData>
   agentQueue?: Queue<WorkJobData>
+  scheduledQueue?: Queue<WorkJobData>
+  embeddingQueues?: ReadonlyMap<string, Queue<WorkJobData>>
   log: Logger
   intervalMs?: number
   batch?: number
+  kinds?: readonly WorkKind[]
 }): Dispatcher {
   const { deps, bus, emailQueue, log } = parts
   const intervalMs = parts.intervalMs ?? 1000
@@ -40,7 +45,11 @@ export function createDispatcher(parts: {
   let stopped = true
 
   async function tick(): Promise<number> {
-    const claimed = await claimReadyWork(deps, { limit: batch })
+    const claimed = await claimReadyWork(deps, {
+      limit: batch,
+      kinds: parts.kinds,
+      embeddingVersions: deps.embeddings ? [deps.embeddings.modelVersion] : [],
+    })
     for (const work of claimed) {
       try {
         if (work.kind === 'realtime') {
@@ -51,6 +60,28 @@ export function createDispatcher(parts: {
           if (!parts.agentQueue) throw new Error('agent queue unavailable')
           await parts.agentQueue.add(
             'run',
+            { workId: work.id, leaseEpoch: work.leaseEpoch },
+            { ...DEFAULT_JOB_OPTIONS, jobId: `${work.id}-${work.deliverySeq}` },
+          )
+        } else if (work.kind === 'embedding') {
+          const queue =
+            typeof work.payload.modelVersion === 'string'
+              ? parts.embeddingQueues?.get(work.payload.modelVersion)
+              : undefined
+          if (!queue) throw new Error('embedding generation unavailable')
+          await queue.add(
+            'index',
+            { workId: work.id, leaseEpoch: work.leaseEpoch },
+            {
+              ...DEFAULT_JOB_OPTIONS,
+              jobId: `${work.id}-${work.deliverySeq}`,
+              priority: work.payload.backfill ? 10 : 1,
+            },
+          )
+        } else if (work.kind === 'scheduled') {
+          if (!parts.scheduledQueue) throw new Error('scheduled queue unavailable')
+          await parts.scheduledQueue.add(
+            'deliver',
             { workId: work.id, leaseEpoch: work.leaseEpoch },
             { ...DEFAULT_JOB_OPTIONS, jobId: `${work.id}-${work.deliverySeq}` },
           )

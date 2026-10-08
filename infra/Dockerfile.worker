@@ -7,7 +7,7 @@ RUN apt-get update \
     && rm -rf /var/lib/apt/lists/* \
     && groupadd --gid 10001 chatapp \
     && useradd --uid 10001 --gid 10001 --no-create-home --no-log-init --shell /usr/sbin/nologin chatapp \
-    && install -d -m 0700 -o 10001 -g 10001 /run/chatapp-media
+    && install -d -m 0700 -o 10001 -g 10001 /run/chatapp-media /run/chatapp-embedding /var/lib/chatapp/models
 ENV PATH=/usr/local/bin:/usr/bin:/bin LANG=C.UTF-8 TMPDIR=/tmp
 WORKDIR /app
 

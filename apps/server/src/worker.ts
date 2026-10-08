@@ -12,16 +12,30 @@ import type { Deps } from './domain/deps.ts'
 import { createAgentWorker } from './jobs/agent.ts'
 import { createDispatcher } from './jobs/dispatcher.ts'
 import { createEmailWorker } from './jobs/email.ts'
+import { createEmbeddingWorker } from './jobs/embedding.ts'
 import { createMaintenance } from './jobs/maintenance.ts'
 import { createMediaWorker } from './jobs/media.ts'
 import { createPresenceSweeper } from './jobs/presence.ts'
-import { DEFAULT_JOB_OPTIONS, QUEUE, queuePrefix, type WorkJobData } from './jobs/queues.ts'
+import {
+  DEFAULT_JOB_OPTIONS,
+  embeddingQueueName,
+  QUEUE,
+  queuePrefix,
+  type WorkJobData,
+} from './jobs/queues.ts'
+import { createScheduledWorker } from './jobs/scheduled.ts'
 import { createSmtpMailer } from './jobs/smtp.ts'
 import { systemClock } from './lib/clock.ts'
 import { createLogger, describeError } from './lib/logger.ts'
 import { createBullConnection, createValkey } from './lib/valkey.ts'
 import { createEventBus } from './realtime/bus.ts'
 import { createPresenceStore } from './realtime/presence.ts'
+import { EMBEDDING_MODELS } from './runtime/embedding-catalog.ts'
+import {
+  createEmbeddingClient,
+  embeddingSettings,
+  startEmbeddingChild,
+} from './runtime/embeddings.ts'
 import { uuidv7 } from './runtime/ids.ts'
 import { createMediaClient } from './runtime/media.ts'
 import { assertDatabaseReady } from './startup.ts'
@@ -39,7 +53,15 @@ async function main(): Promise<void> {
     throw error
   }
   const log = createLogger({ level: config.logLevel, service: 'worker' })
+  // Crash injection exists only for the isolated fault suite (docs/08 section 4); anywhere else it refuses to start.
+  const pauseAt = process.env.CHATAPP_FAULT_PAUSE
+  if (pauseAt && config.env !== 'test') {
+    console.error('CHATAPP_FAULT_PAUSE is only allowed with APP_ENV=test')
+    process.exit(1)
+  }
   const ai = loadAiConfig(process.env, { requireKey: false })
+  const embeddingConfig = embeddingSettings(process.env)
+  const embeddingChild = await startEmbeddingChild(embeddingConfig)
   const { apiKey: _apiKey, ...aiPolicy } = ai
 
   const database = createDatabase(config.databaseUrl, { max: 6, applicationName: 'chatapp-worker' })
@@ -64,11 +86,23 @@ async function main(): Promise<void> {
       },
       product: config.product,
       ai: aiPolicy,
+      aiKeyEncryptionKey: config.aiKeyEncryptionKey,
     },
     blobs: createBlobStore(config.s3),
     media: createMediaClient(),
     passwords: sdkPasswords,
     log,
+    ...(embeddingConfig.enabled ? { embeddings: createEmbeddingClient(embeddingConfig) } : {}),
+    ...(pauseAt
+      ? {
+          faultPoint: async (name: string) => {
+            if (name !== pauseAt) return
+            // The suite reads this line from the process output, then kills the process while it waits here.
+            console.log(`fault-point reached: ${name}`)
+            await new Promise(() => {})
+          },
+        }
+      : {}),
   }
 
   const queueConnection = createBullConnection(config.valkeyUrl, 'worker-queue')
@@ -100,7 +134,36 @@ async function main(): Promise<void> {
     connection: consumerConnection,
     environment: config.env,
   })
-  const dispatcher = createDispatcher({ deps, bus, emailQueue, mediaQueue, agentQueue, log })
+  const scheduledQueue = new Queue<WorkJobData>(QUEUE.scheduled, {
+    connection: queueConnection,
+    prefix: queuePrefix(config.env),
+    defaultJobOptions: DEFAULT_JOB_OPTIONS,
+  })
+  const scheduledWorker = createScheduledWorker({
+    deps,
+    connection: consumerConnection,
+    environment: config.env,
+  })
+  const embeddingQueues = new Map(
+    Object.values(EMBEDDING_MODELS).map((model) => [
+      model.version,
+      new Queue<WorkJobData>(embeddingQueueName(model.version), {
+        connection: queueConnection,
+        prefix: queuePrefix(config.env),
+        defaultJobOptions: DEFAULT_JOB_OPTIONS,
+      }),
+    ]),
+  )
+  const dispatcher = createDispatcher({
+    deps,
+    bus,
+    emailQueue,
+    mediaQueue,
+    agentQueue,
+    scheduledQueue,
+    embeddingQueues,
+    log,
+  })
   const emailWorker = createEmailWorker({
     deps,
     mailer: createSmtpMailer(config.smtp),
@@ -108,6 +171,13 @@ async function main(): Promise<void> {
     connection: consumerConnection,
     environment: config.env,
   })
+  const embeddingWorker = embeddingConfig.enabled
+    ? createEmbeddingWorker({
+        deps,
+        connection: consumerConnection,
+        environment: config.env,
+      })
+    : undefined
   const maintenance = createMaintenance({ deps, log })
   const presence = createPresenceSweeper({
     deps,
@@ -134,6 +204,11 @@ async function main(): Promise<void> {
     await presence.stop()
     await agentWorker.close()
     await agentQueue.close()
+    await scheduledWorker.close()
+    await scheduledQueue.close()
+    await embeddingWorker?.close()
+    await Promise.all([...embeddingQueues.values()].map((queue) => queue.close()))
+    await embeddingChild.stop()
     await mediaWorker.close()
     await mediaQueue.close()
     await emailWorker.close()

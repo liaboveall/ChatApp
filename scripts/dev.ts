@@ -2,22 +2,32 @@
 /**
  * `bun run dev`: the API, the worker and the web dev server together, with prefixed output. Needs `bun run infra:up`.
  *
- *   bun run dev                  all three
- *   bun run dev -- api web       only the named ones (api, worker, web)
+ *   bun run dev                  API, worker, web; also embeddings when EMBEDDING_ENABLED=true
+ *   bun run dev -- api web       only the named ones (api, worker, web, embeddings)
  *
  * The worker runs through the fixed worker/media Compose topology (M3, D-081), never on the host.
  * Ctrl+C stops child processes and only the containers this invocation created; a verified existing stack is reused.
  * If one process dies the others are stopped too, and the exit code is non-zero.
  */
+import { getEnv, readEnvFile } from './lib/env-file.ts'
+
 const COMMANDS: Record<string, string[]> = {
   api: ['bun', '--env-file=.env.local', '--watch', 'apps/server/src/api.ts'],
   worker: ['bun', '--env-file=.env.local', 'scripts/media.ts', 'run'],
   web: ['bun', 'run', '--cwd', 'apps/web', 'dev'],
+  embeddings: ['bun', '--env-file=.env.local', 'apps/server/src/runtime/embedding-worker.ts'],
 }
-const COLORS: Record<string, string> = { api: '\x1b[36m', worker: '\x1b[35m', web: '\x1b[33m' }
+const COLORS: Record<string, string> = {
+  api: '\x1b[36m',
+  worker: '\x1b[35m',
+  web: '\x1b[33m',
+  embeddings: '\x1b[32m',
+}
 
 const wanted = process.argv.slice(2).filter((arg) => arg !== '--')
-const names = wanted.length > 0 ? wanted : Object.keys(COMMANDS)
+const embeddingEnabled = getEnv(await readEnvFile('.env.local'), 'EMBEDDING_ENABLED') === 'true'
+const names =
+  wanted.length > 0 ? wanted : ['api', 'worker', 'web', ...(embeddingEnabled ? ['embeddings'] : [])]
 for (const name of names) {
   if (!(name in COMMANDS)) {
     console.error(`unknown process "${name}"; choose from ${Object.keys(COMMANDS).join(', ')}`)

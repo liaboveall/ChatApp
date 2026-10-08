@@ -56,8 +56,8 @@ export const DELEGATION_STATUSES = ['active', 'revoked', 'completed', 'expired']
 export const delegationStatusSchema = z.enum(DELEGATION_STATUSES)
 export type DelegationStatus = z.infer<typeof delegationStatusSchema>
 
-/** Durable work intents; later milestones append kinds (media, push, agent, ...). */
-export const WORK_KINDS = ['realtime', 'email', 'media', 'agent'] as const
+/** Durable work intents; later milestones append kinds (media, push, agent, ...). `scheduled` delivers M5a tasks. */
+export const WORK_KINDS = ['realtime', 'email', 'media', 'agent', 'scheduled', 'embedding'] as const
 export const workKindSchema = z.enum(WORK_KINDS)
 export type WorkKind = z.infer<typeof workKindSchema>
 

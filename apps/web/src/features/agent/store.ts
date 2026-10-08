@@ -1,4 +1,4 @@
-import type { AgentRunDetail } from '@chatapp/contracts'
+import type { AgentContext, AgentRunDetail } from '@chatapp/contracts'
 import { create } from 'zustand'
 import { registerConversationReset, registerStoreReset } from '@/lib/sync/stores.ts'
 
@@ -9,7 +9,15 @@ export const useAgent = create<{
   jumps: Record<string, number>
   /** Empty string selects an unsent new session; absent selects the newest saved session. */
   panels: Record<string, string>
-}>(() => ({ details: {}, modes: {}, scopes: {}, jumps: {}, panels: {} }))
+  contexts: Record<string, AgentContext>
+}>(() => ({ details: {}, modes: {}, scopes: {}, jumps: {}, panels: {}, contexts: {} }))
+export function rememberContext(context: AgentContext): void {
+  useAgent.setState((s) => {
+    const previous = s.contexts[context.conversationId]
+    if (previous && previous.stateVersion >= context.stateVersion) return s
+    return { contexts: { ...s.contexts, [context.conversationId]: context } }
+  })
+}
 export function rememberRun(detail: AgentRunDetail): void {
   useAgent.setState((s) => {
     const previous = s.details[detail.run.id]
@@ -19,7 +27,7 @@ export function rememberRun(detail: AgentRunDetail): void {
   })
 }
 registerStoreReset(() =>
-  useAgent.setState({ details: {}, modes: {}, scopes: {}, jumps: {}, panels: {} }),
+  useAgent.setState({ details: {}, modes: {}, scopes: {}, jumps: {}, panels: {}, contexts: {} }),
 )
 registerConversationReset((id) =>
   useAgent.setState((s) => ({
@@ -35,5 +43,6 @@ registerConversationReset((id) =>
     panels: Object.fromEntries(
       Object.entries(s.panels).filter(([key, value]) => key !== id && value !== id),
     ),
+    contexts: Object.fromEntries(Object.entries(s.contexts).filter(([key]) => key !== id)),
   })),
 )

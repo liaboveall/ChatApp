@@ -46,12 +46,7 @@ export type SearchFilter = {
 }
 
 /** The same SQL predicate backs ordinary search and all Agent reads. No unauthorized row is paginated or scored. */
-export async function findVisibleMessages(
-  db: DbOrTx,
-  userId: string,
-  filter: SearchFilter,
-): Promise<MessageRow[]> {
-  if (filter.conversationIds?.length === 0) return []
+export function visibleMessagePredicate(db: DbOrTx, userId: string, filter: SearchFilter): SQL {
   const conditions: (SQL | undefined)[] = [
     eq(conversationMembers.userId, userId),
     gt(messages.seq, conversationMembers.visibleFromSeq),
@@ -85,12 +80,21 @@ export async function findVisibleMessages(
       ? sql`${messages.seq} > (select coalesce(max(cm.visible_from_seq), 0) from conversation_members cm where cm.conversation_id = ${messages.conversationId})`
       : undefined,
   ]
+  return and(...conditions) ?? sql`false`
+}
+
+export async function findVisibleMessages(
+  db: DbOrTx,
+  userId: string,
+  filter: SearchFilter,
+): Promise<MessageRow[]> {
+  if (filter.conversationIds?.length === 0) return []
   return await db
     .select({ message: messages })
     .from(messages)
     .innerJoin(conversationMembers, eq(conversationMembers.conversationId, messages.conversationId))
     .innerJoin(conversations, eq(conversations.id, messages.conversationId))
-    .where(and(...conditions))
+    .where(visibleMessagePredicate(db, userId, filter))
     .orderBy(filter.order === 'seq' ? desc(messages.seq) : desc(messages.id))
     .limit(filter.limit)
     .then((rows) => rows.map((r) => r.message))

@@ -60,7 +60,15 @@ export const patchMeRequestSchema = z
     expectedMeVersion: z.number().int().min(1),
     /** IANA zone, for example Asia/Shanghai. */
     timezone: timezoneSchema.optional(),
-    settings: z.strictObject({ timezoneAuto: z.boolean().optional() }).optional(),
+    settings: z
+      .strictObject({
+        timezoneAuto: z.boolean().optional(),
+        /** M5a: the default assistant mode for new requests. */
+        agentMode: z.enum(['fast', 'deep']).optional(),
+        /** M5a: `site` uses the site allowance even when an own key is saved; applies to new segments only. */
+        aiKeyPreference: z.enum(['own', 'site']).optional(),
+      })
+      .optional(),
     displayName: displayNameSchema.optional(),
     username: usernameSchema.optional(),
     /** An empty or blank bio clears it. */

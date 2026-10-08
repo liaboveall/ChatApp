@@ -43,6 +43,8 @@ export type Config = {
     cursorKey: Uint8Array
     restoreEpoch: string
   }
+  /** 32 raw bytes encrypting members' own AI keys (M5a, SEC-26); optional outside production, where keys are then off. */
+  aiKeyEncryptionKey: Uint8Array | undefined
   smtp: {
     host: string
     port: number
@@ -89,6 +91,7 @@ const rawSchema = z.object({
   S3_SECRET_ACCESS_KEY: z.string().min(1),
   BETTER_AUTH_SECRET: z.string().min(1),
   AUTH_TOKEN_ENCRYPTION_KEY: z.string().min(1),
+  AI_KEY_ENCRYPTION_KEY: optional(z.string()),
   RESTORE_EPOCH: z.string().min(1),
   SMTP_HOST: z.string().min(1),
   SMTP_PORT: z.coerce.number().int().min(1).max(65535),
@@ -196,7 +199,17 @@ export function loadConfig(source: Record<string, string | undefined>): Config {
     problems.push('AUTH_TOKEN_ENCRYPTION_KEY: must be 32 random bytes encoded as base64url')
   }
 
+  const aiKey = raw.AI_KEY_ENCRYPTION_KEY ? decodeBase64Url(raw.AI_KEY_ENCRYPTION_KEY) : undefined
+  if (raw.AI_KEY_ENCRYPTION_KEY && aiKey?.length !== 32)
+    problems.push('AI_KEY_ENCRYPTION_KEY: must be 32 random bytes encoded as base64url')
+  if (
+    raw.AI_KEY_ENCRYPTION_KEY &&
+    [raw.AUTH_TOKEN_ENCRYPTION_KEY, raw.BETTER_AUTH_SECRET].includes(raw.AI_KEY_ENCRYPTION_KEY)
+  )
+    problems.push('AI_KEY_ENCRYPTION_KEY: must differ from the other secrets')
+
   if (isProduction) {
+    if (!raw.AI_KEY_ENCRYPTION_KEY) problems.push('AI_KEY_ENCRYPTION_KEY: required in production')
     for (const key of ['BETTER_AUTH_SECRET', 'AUTH_TOKEN_ENCRYPTION_KEY'] as const) {
       const secret = raw[key]
       if (secret.length < 32 || WEAK_SECRET.test(secret) || !looksRandom(secret)) {
@@ -253,6 +266,7 @@ export function loadConfig(source: Record<string, string | undefined>): Config {
       ),
       restoreEpoch: raw.RESTORE_EPOCH,
     },
+    aiKeyEncryptionKey: aiKey,
     smtp: {
       host: raw.SMTP_HOST,
       port: raw.SMTP_PORT,

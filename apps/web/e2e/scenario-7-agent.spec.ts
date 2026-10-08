@@ -37,7 +37,7 @@ test('M4 scenario 7: private assistant, tools, regeneration, usage, rename and d
   await page.getByRole('textbox', { name: '重命名助手对话' }).fill('我的助手测试')
   await page.getByRole('dialog').getByRole('button', { name: '保存', exact: true }).click()
   await expect(page.locator('.toolbar__title')).toHaveText('我的助手测试')
-  await openSettings(page, 'account')
+  await openSettings(page, 'assistant')
   await expect(page.getByRole('region', { name: 'AI 用量' })).toContainText(
     /今日已用 \d+ \/ 500000/,
   )

@@ -526,6 +526,8 @@ export const conversations = pgTable(
     panelForConversationId: uuid().references((): AnyPgColumn => conversations.id, {
       onDelete: 'cascade',
     }),
+    /** M5a: `reminders` marks the person's own reminder conversation, created on first use. */
+    agentPurpose: text().$type<'reminders'>(),
     /** Allocators: a new message takes last_seq + 1 and last_change_seq + 1 in one UPDATE (INV-01). */
     lastSeq: counter(),
     lastChangeSeq: counter(),
@@ -558,6 +560,13 @@ export const conversations = pgTable(
       'conversations_panel_only_agent',
       sql`${t.panelForConversationId} is null or ${t.kind} = 'agent'`,
     ),
+    check(
+      'conversations_agent_purpose',
+      sql`${t.agentPurpose} is null or (${t.kind} = 'agent' and ${t.agentPurpose} = 'reminders' and ${t.panelForConversationId} is null)`,
+    ),
+    uniqueIndex('conversations_reminders_uidx')
+      .on(t.ownerId)
+      .where(sql`${t.agentPurpose} = 'reminders'`),
     check(
       'conversations_counters',
       sql`${t.lastSeq} >= 0 and ${t.lastChangeSeq} >= ${t.lastSeq} and ${t.metadataVersion} >= 1 and ${t.membershipVersion} >= 0 and ${t.memberCount} >= 0 and ${t.changeLogFloor} >= 0 and ${t.changeLogFloor} <= ${t.lastChangeSeq}`,

@@ -27,6 +27,7 @@ import { useSyncUi } from '@/lib/sync/state.ts'
 import { showToast } from '@/lib/toast.ts'
 import { useTime } from '@/lib/use-time.ts'
 import { m } from '@/paraglide/messages.js'
+import { segmentWindow, useAgentContext } from '../agent/context.ts'
 import { AgentChatControls } from '../agent/controls.tsx'
 import { joinConversation } from './api.ts'
 import { joinErrorText } from './join-error.ts'
@@ -114,6 +115,7 @@ export function ConversationScreen({ id, meId }: { id: string; meId: string }) {
   const ready = useSyncReady()
   const conversation = useConversation(id)
   const win = useTimelineWindow(id)
+  const agentContext = useAgentContext(conversation?.kind === 'agent' ? id : undefined)
   const users = useUsers()
   const markdownReady = useMarkdownReady()
   const state = useSyncUi((s) => s.timelines[id])
@@ -184,14 +186,17 @@ export function ConversationScreen({ id, meId }: { id: string; meId: string }) {
   if (state === 'error' && win === undefined) {
     return <LoadFailed onRetry={() => void engine.openConversation(id)} />
   }
-  if (win === undefined || !markdownReady) return <Loading />
+  if (win === undefined || !markdownReady || (conversation.kind === 'agent' && !agentContext))
+    return <Loading />
 
   return (
     <ConvoFrame>
       <Timeline
-        key={`${id}:${win.membershipId}`}
+        key={`${id}:${win.membershipId}:${agentContext?.contextEpoch ?? ''}`}
         conversation={conversation}
-        window={win}
+        window={
+          agentContext && conversation.kind === 'agent' ? segmentWindow(win, agentContext) : win
+        }
         users={users}
         meId={meId}
         handleRef={timeline}

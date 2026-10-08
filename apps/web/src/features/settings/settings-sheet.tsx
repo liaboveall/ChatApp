@@ -1,7 +1,7 @@
 import { Dialog as BaseDialog } from '@base-ui/react/dialog'
 import type { Me } from '@chatapp/contracts'
 import { Link } from '@tanstack/react-router'
-import { Palette, Ticket, User, X } from 'lucide-react'
+import { Palette, Sparkles, Ticket, User, X } from 'lucide-react'
 import { useRef } from 'react'
 import { IconButton } from '@/components/ui/button.tsx'
 import { useModalFlag } from '@/components/ui/dialog.tsx'
@@ -9,14 +9,16 @@ import { Icon } from '@/components/ui/icon.tsx'
 import { m } from '@/paraglide/messages.js'
 import { AccountSection } from './account-section.tsx'
 import { AppearanceSection } from './appearance-section.tsx'
+import { AssistantSection } from './assistant-section.tsx'
 import { InvitesSection } from './invites-section.tsx'
 
-export const SETTINGS_SECTIONS = ['appearance', 'account', 'invites'] as const
+export const SETTINGS_SECTIONS = ['appearance', 'account', 'assistant', 'invites'] as const
 export type SettingsSection = (typeof SETTINGS_SECTIONS)[number]
 
 const TABS = [
   { id: 'appearance', icon: Palette, label: () => m.settings_tab_appearance() },
   { id: 'account', icon: User, label: () => m.settings_tab_account() },
+  { id: 'assistant', icon: Sparkles, label: () => m.settings_tab_assistant() },
   { id: 'invites', icon: Ticket, label: () => m.settings_tab_invites() },
 ] as const
 
@@ -70,6 +72,7 @@ export function SettingsSheet({ section, me, onClose, onSignOut }: SettingsSheet
               <div className="sheet__body scroll">
                 {section === 'appearance' ? <AppearanceSection /> : null}
                 {section === 'account' ? <AccountSection me={me} onSignOut={onSignOut} /> : null}
+                {section === 'assistant' ? <AssistantSection me={me} /> : null}
                 {section === 'invites' ? <InvitesSection me={me} /> : null}
               </div>
             </div>

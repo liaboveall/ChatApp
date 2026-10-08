@@ -14,12 +14,14 @@ import { startAppearance, useAppearance } from '@/lib/appearance.ts'
 import { meQuery } from '@/lib/queries.ts'
 import { queryClient } from '@/lib/query-client.ts'
 import { startSession } from '@/lib/session.ts'
+import { setRemindersLabel } from '@/lib/sync/selectors.ts'
 import { showToast } from '@/lib/toast.ts'
 import { m } from '@/paraglide/messages.js'
 import { getLocale } from '@/paraglide/runtime.js'
 import './styles/app.css'
 
 document.documentElement.lang = getLocale()
+setRemindersLabel(m.conversation_reminders())
 startAppearance()
 
 const router = createAppRouter(queryClient)

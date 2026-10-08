@@ -3,6 +3,7 @@ import { ConfigError, loadConfig } from './env.ts'
 
 // 32 random-looking bytes as base64url, and a 40-character secret; both are test fixtures, not real secrets.
 const KEY = 'q83vEjS0m1xZk7UwYpHn2LcRtBdA9fGoIeJ4aVhN5Xs'
+const AI_KEY = 'Zt7cWq2PnL0vRb5Hy8XmK3dJf6GsUe1oAiTqVyNz4Ew'
 const SECRET = 'k3Jx9QvLm2ZpWn8RtYb4HcDf7GsAe1UoIiTqVyPz'
 
 const base: Record<string, string> = {
@@ -123,6 +124,7 @@ describe('production hardening (SEC-18)', () => {
     ...base,
     APP_ENV: 'production',
     APP_ORIGIN: 'https://chat.example.com',
+    AI_KEY_ENCRYPTION_KEY: AI_KEY,
   }
 
   test('accepts strong secrets over https', () => {
@@ -140,6 +142,22 @@ describe('production hardening (SEC-18)', () => {
       'low-entropy',
     )
     expect(problemsOf({ ...production, RESTORE_EPOCH: 'dev' }).join()).toContain('RESTORE_EPOCH')
+  })
+
+  test('own AI keys need their own 32-byte encryption key in production (M5a, SEC-26)', () => {
+    const { AI_KEY_ENCRYPTION_KEY: _, ...missing } = production
+    expect(problemsOf(missing).join()).toContain('AI_KEY_ENCRYPTION_KEY: required in production')
+    expect(problemsOf({ ...production, AI_KEY_ENCRYPTION_KEY: 'AAAA' }).join()).toContain(
+      'AI_KEY_ENCRYPTION_KEY: must be 32 random bytes',
+    )
+    expect(problemsOf({ ...production, AI_KEY_ENCRYPTION_KEY: KEY }).join()).toContain(
+      'AI_KEY_ENCRYPTION_KEY: must differ',
+    )
+    // Outside production the key is optional: own keys are then simply unavailable.
+    expect(problemsOf(base)).toEqual([])
+    expect(loadConfig({ ...base, AI_KEY_ENCRYPTION_KEY: AI_KEY }).aiKeyEncryptionKey).toHaveLength(
+      32,
+    )
   })
 
   test('the two auth secrets must differ', () => {

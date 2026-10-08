@@ -45,4 +45,9 @@ export const POLICIES = {
   readUser: { name: 'read.user', limit: 300, windowMs: minutes(1) },
   uploadUser: { name: 'upload.user', limit: 20, windowMs: minutes(1) },
   profileUpdateUser: { name: 'profile-update.user', limit: 20, windowMs: minutes(10) },
+  // M5a. Saving an own key calls the provider once, so it is limited tightly.
+  aiKeySaveUser: { name: 'ai-key-save.user', limit: 10, windowMs: hours(1) },
+  approvalDecideUser: { name: 'approval-decide.user', limit: 60, windowMs: minutes(1) },
+  taskCancelUser: { name: 'task-cancel.user', limit: 60, windowMs: minutes(1) },
+  memoryWriteUser: { name: 'memory-write.user', limit: 30, windowMs: minutes(1) },
 } as const satisfies Record<string, LimitPolicy>

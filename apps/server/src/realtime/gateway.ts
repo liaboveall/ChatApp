@@ -409,6 +409,12 @@ export class Gateway {
         this.#streams.set(event.runId, next)
         return
       }
+      case 'task.changed':
+        this.#tellUser(event.userId, {
+          type: 'task.changed',
+          data: { taskType: event.taskType, taskId: event.taskId, version: event.version },
+        })
+        return
       case 'auth.revoked':
         void this.revalidateUser(event.userId)
         return

@@ -26,7 +26,14 @@ export const WORK_LIMITS = {
   /** Lease while the item waits in the queue, and while a consumer runs it. */
   dispatchLeaseMs: 60_000,
   runLeaseMs: 120_000,
-  maxAttempts: { realtime: 5, email: 5, media: 5, agent: 5 } as Record<WorkKind, number>,
+  maxAttempts: {
+    realtime: 5,
+    email: 5,
+    media: 5,
+    agent: 5,
+    scheduled: 5,
+    embedding: 5,
+  } satisfies Record<WorkKind, number>,
   finishedRetentionDays: 7,
 } as const
 
@@ -38,7 +45,7 @@ export function backoffMs(attempts: number): number {
 /** Dispatcher step: lease ready items (SKIP LOCKED, so several dispatchers never collide) and bump delivery_seq. */
 export async function claimReadyWork(
   deps: Deps,
-  options: { limit: number; kinds?: readonly WorkKind[] },
+  options: { limit: number; kinds?: readonly WorkKind[]; embeddingVersions?: readonly string[] },
 ): Promise<ClaimedWork[]> {
   const now = deps.clock.now()
   return await inTransaction(deps.db, async (tx) => {
@@ -50,6 +57,11 @@ export async function claimReadyWork(
           inArray(workItems.status, ['pending', 'retry']),
           lte(workItems.availableAt, now),
           options.kinds ? inArray(workItems.kind, [...options.kinds]) : undefined,
+          options.embeddingVersions === undefined
+            ? undefined
+            : options.embeddingVersions.length
+              ? sql`(${workItems.kind} <> 'embedding' or ${inArray(sql`${workItems.payload}->>'modelVersion'`, [...options.embeddingVersions])})`
+              : sql`${workItems.kind} <> 'embedding'`,
         ),
       )
       .orderBy(asc(workItems.availableAt), asc(workItems.id))

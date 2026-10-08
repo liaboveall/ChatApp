@@ -256,6 +256,7 @@ export function toConversationDto(row: ViewRow, now: Date): Conversation {
     dmPeer,
     settings: normalizeSettings(c.kind, c.settings),
     panelForConversationId: c.panelForConversationId,
+    agentPurpose: c.agentPurpose ?? null,
     archivedAt: c.archivedAt?.toISOString() ?? null,
     previewVersion: { lastChangeSeq: c.lastChangeSeq, viewerVersion },
     me,

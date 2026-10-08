@@ -90,6 +90,8 @@ export const conversationSchema = z.object({
   dmPeer: userSummarySchema.nullable(),
   settings: conversationSettingsSchema,
   panelForConversationId: z.uuid().nullable(),
+  /** M5a: `reminders` is the person's own reminder conversation (its name is localized by the client). */
+  agentPurpose: z.enum(['reminders']).nullable(),
   archivedAt: isoDate.nullable(),
   previewVersion: z.object({ lastChangeSeq: version, viewerVersion: version }),
   /** null when the viewer is not a member. */

@@ -1,4 +1,5 @@
 #!/usr/bin/env bun
+import { randomBytes } from 'node:crypto'
 /**
  * The backend for browser tests, in the TEST environment (docs/08 section 4, APP_ENV=test): resets the test database,
  * bootstraps it, creates an administrator, clears the rate-limit counters, then runs the API and the worker. Playwright
@@ -28,6 +29,10 @@ const env = {
   ...process.env,
   APP_ENV: 'test',
   AI_PROVIDER: 'mock',
+  // Native embedding quality/transport have their own isolated runners. A developer's local socket must not own this test stack.
+  EMBEDDING_ENABLED: 'false',
+  // Both processes share a fresh encryption key for the database this runner just reset. Never depend on a development credential.
+  AI_KEY_ENCRYPTION_KEY: randomBytes(32).toString('base64url'),
   API_PORT,
   APP_ORIGIN: ORIGIN,
   LOG_LEVEL: process.env.E2E_LOG_LEVEL ?? 'warn',

@@ -1,17 +1,28 @@
 import { errorCodeSchema, type Message } from '@chatapp/contracts'
+import { useQuery } from '@tanstack/react-query'
 import { RotateCcw, Square } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import { Button } from '@/components/ui/button.tsx'
 import { ApiError } from '@/lib/api.ts'
 import { describeError } from '@/lib/error-messages.ts'
+import { meQuery } from '@/lib/queries.ts'
 import { showToast } from '@/lib/toast.ts'
 import { m } from '@/paraglide/messages.js'
-import { loadRun, regenerateRun, stopRun } from './api.ts'
+import { loadRun, regenerateRun, stopRun, switchKeySource } from './api.ts'
+import { ApprovalCard } from './approval-card.tsx'
 import { useAgent } from './store.ts'
 
-export function AgentRunCard({ message }: { message: Message }) {
+export function AgentRunCard({
+  message,
+  nameOf,
+}: {
+  message: Message
+  /** Display name of a member, for "waiting for <name> to approve" in shared conversations. */
+  nameOf?: (userId: string) => string | undefined
+}) {
   const runId = message.meta.agent?.runId
   const detail = useAgent((s) => (runId ? s.details[runId] : undefined))
+  const { data: me } = useQuery(meQuery)
   const [busy, setBusy] = useState(false)
   const denied = detail === 'denied'
   const code = detail && detail !== 'denied' ? detail.run.error?.code : undefined
@@ -26,6 +37,7 @@ export function AgentRunCard({ message }: { message: Message }) {
     detail && detail !== 'denied'
       ? ['queued', 'running'].includes(detail.run.status)
       : message.status === 'streaming'
+  const waitingFor = message.meta.agent?.awaitingApproval?.userId
   useEffect(() => {
     if (!runId || denied) return
     void loadRun(runId, message.conversationId)
@@ -45,37 +57,85 @@ export function AgentRunCard({ message }: { message: Message }) {
       setBusy(false)
     }
   }
+  const switchToSite = async (conversationId: string) => {
+    setBusy(true)
+    try {
+      if ((await switchKeySource(conversationId, 'site')) !== null)
+        showToast(m.agent_key_switched())
+    } catch (error) {
+      showToast(describeError(error))
+    } finally {
+      setBusy(false)
+    }
+  }
+  const run = detail && detail !== 'denied' ? detail.run : undefined
+  // The requests this reply segment made; the segment after a decision is a reply of its own (D-051).
+  const segment = message.meta.agent?.resumeSeq ?? 0
+  const approvals =
+    detail && detail !== 'denied' ? detail.approvals.filter((a) => a.resumeSeq === segment) : []
+  const ownKeyRefused =
+    run?.status === 'failed' &&
+    code === 'AI_KEY_INVALID' &&
+    run.keySource === 'user' &&
+    run.trigger !== 'mention' &&
+    run.conversationId !== null
   return (
     <div className="agent-run-card">
       {active ? (
         <small role="status">
-          {detail && detail !== 'denied' && detail.run.status === 'queued'
-            ? m.agent_queued()
-            : m.agent_running()}
+          {run?.status === 'queued' ? m.agent_queued() : m.agent_running()}
         </small>
       ) : message.status === 'failed' ? (
-        <small role="status">
-          {detail && detail !== 'denied' && detail.run.status === 'cancelled'
-            ? m.agent_cancelled()
-            : failure}
+        <small role="status">{run?.status === 'cancelled' ? m.agent_cancelled() : failure}</small>
+      ) : null}
+      {waitingFor && (!run || run.pendingApproval) ? (
+        <small role="status" className="agent-run-card__waiting">
+          {waitingFor === me?.id
+            ? m.agent_waiting_you()
+            : m.agent_waiting({ name: nameOf?.(waitingFor) ?? m.agent_assistant() })}
         </small>
       ) : null}
       {message.meta.agent?.truncated ? <small>{m.agent_truncated()}</small> : null}
-      {detail && detail !== 'denied' ? (
+      {run && detail && detail !== 'denied'
+        ? approvals.map((approval) => (
+            <ApprovalCard
+              key={approval.id}
+              approval={approval}
+              run={run}
+              effect={detail.effects.find((e) => e.stepIndex === approval.stepIndex)}
+            />
+          ))
+        : null}
+      {ownKeyRefused && run?.conversationId ? (
+        <div className="agent-run-card__key">
+          <small>{m.agent_key_failed_hint()}</small>
+          <Button
+            kind="tinted"
+            size="sm"
+            busy={busy}
+            onClick={() => void switchToSite(run.conversationId ?? '')}
+          >
+            {m.agent_key_failed_action()}
+          </Button>
+        </div>
+      ) : null}
+      {run && detail && detail !== 'denied' ? (
         <>
           <div className="agent-controls">
-            <Button
-              kind="plain"
-              size="sm"
-              busy={busy}
-              icon={active ? Square : RotateCcw}
-              onClick={() => void action(active ? 'stop' : 'regenerate')}
-            >
-              {active ? m.agent_stop() : m.agent_regenerate()}
-            </Button>
+            {active || !(run.hasEffects || run.pendingApproval) ? (
+              <Button
+                kind="plain"
+                size="sm"
+                busy={busy}
+                icon={active ? Square : RotateCcw}
+                onClick={() => void action(active ? 'stop' : 'regenerate')}
+              >
+                {active ? m.agent_stop() : m.agent_regenerate()}
+              </Button>
+            ) : null}
             <small>
-              {detail.run.usage.inputTokens + detail.run.usage.outputTokens} tokens · $
-              {detail.run.usage.costUsd}
+              {run.keySource === 'user' ? `${m.agent_key_own()} · ` : ''}
+              {run.usage.inputTokens + run.usage.outputTokens} tokens · ${run.usage.costUsd}
             </small>
           </div>
           {detail.steps.length ? (
