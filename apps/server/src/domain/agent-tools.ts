@@ -1,10 +1,11 @@
 import {
+  type AgentReadToolName,
   type AgentSource,
-  type AgentToolName,
   AppError,
-  agentToolSchemas,
+  agentReadToolSchemas as agentToolSchemas,
 } from '@chatapp/contracts'
 import {
+  agentConversationState,
   agentRunStates,
   agentRuns,
   agentSteps,
@@ -22,11 +23,14 @@ import {
   type AgentRunRow,
   addManifest,
   contextChanged,
+  readablePrivacy,
   validateAgentSources,
   withAgentLease,
 } from './agent-access.ts'
 import { enforce, loadAccess } from './authorize.ts'
 import type { Deps } from './deps.ts'
+import { embedQuery, hybridMessages } from './embeddings.ts'
+import { recallMemories } from './memories.ts'
 import type { MessageRow } from './messages.ts'
 import { findVisibleMessages } from './search.ts'
 import { toUserSummary } from './users.ts'
@@ -122,12 +126,13 @@ async function toolMessages(
               rows.map((r) => r.id),
             ),
             eq(attachments.status, 'ready'),
-            eq(attachments.privacyClass, 'standard'),
+            inArray(attachments.privacyClass, [...readablePrivacy(run)]),
           ),
         )
     : []
+  const allowed: readonly string[] = readablePrivacy(run)
   for (const row of rows) {
-    if (row.privacyClass !== 'standard') throw contextChanged()
+    if (!allowed.includes(row.privacyClass)) throw contextChanged()
     // Private assistant history carries all transitive sources, including messages from other conversations.
     if (row.kind === 'agent') {
       const originalId = row.meta.agent?.runId
@@ -137,7 +142,7 @@ async function toolMessages(
       if (
         original?.status !== 'completed' ||
         original.contentPurgedAt ||
-        original.privacyClass !== 'standard' ||
+        !allowed.includes(original.privacyClass) ||
         (row.conversationId === run.conversationId && row.contextEpoch !== run.contextEpoch)
       )
         continue
@@ -206,12 +211,17 @@ async function toolMessages(
 export async function executeAgentTool(
   deps: Deps,
   lease: AgentLease,
-  name: AgentToolName,
+  name: AgentReadToolName,
   raw: unknown,
 ): Promise<unknown> {
   const parsed = agentToolSchemas[name].safeParse(raw)
   if (!parsed.success) throw new AppError('VALIDATION_FAILED', 'Invalid tool arguments')
   const allowed = await eligibleConversations(deps, lease)
+  let vector: number[] | null = null
+  if (name === 'semantic_search_messages' || name === 'recall_memories') {
+    await withAgentLease(deps, lease, async () => {})
+    vector = await embedQuery(deps, (parsed.data as { query: string }).query)
+  }
   // Tools may discover transitive manifests in earlier answers. Lock all currently accessible conversations in id order.
   const extras = (
     await deps.db
@@ -249,7 +259,7 @@ export async function executeAgentTool(
           )
         const rows = await findVisibleMessages(tx, run.userId, {
           conversationIds: [id],
-          siteInput: true,
+          siteInput: run.privacyClass !== 'byok_private',
           shared: run.trigger === 'mention',
           limit: name === 'read_unread' ? 300 : 'limit' in input ? input.limit : 30,
           beforeSeq: 'beforeSeq' in input ? input.beforeSeq : undefined,
@@ -274,19 +284,44 @@ export async function executeAgentTool(
         const rows = await findVisibleMessages(tx, run.userId, {
           ...input,
           conversationIds: ids,
-          siteInput: true,
+          siteInput: run.privacyClass !== 'byok_private',
           shared: run.trigger === 'mention',
           excludeMessageIds,
         })
         const projected = await toolMessages(tx, deps, run, rows)
         result = projected.data
         sources = projected.sources
+      } else if (name === 'semantic_search_messages') {
+        const input = agentToolSchemas.semantic_search_messages.parse(args)
+        const ids =
+          input.conversationIds ??
+          allowed.filter(
+            (id) =>
+              run.readScope === 'all_accessible' ||
+              id === run.contextConversationId ||
+              id === run.conversationId,
+          )
+        for (const id of ids) await conversationSource(tx, deps, run, id)
+        const rows = await hybridMessages(tx, deps, run.userId, input.query, vector ?? [], {
+          conversationIds: ids,
+          siteInput: run.privacyClass !== 'byok_private',
+          shared: run.trigger === 'mention',
+          excludeMessageIds,
+          limit: input.limit,
+        })
+        const projected = await toolMessages(tx, deps, run, rows)
+        result = projected.data
+        sources = projected.sources
+      } else if (name === 'recall_memories') {
+        const recalled = await recallMemories(tx, deps, run, vector ?? [])
+        result = recalled.data
+        sources = recalled.sources
       } else if (name === 'get_message') {
         const input = agentToolSchemas.get_message.parse(args)
         const [target] = await findVisibleMessages(tx, run.userId, {
           conversationIds: allowed,
           messageId: input.messageId,
-          siteInput: true,
+          siteInput: run.privacyClass !== 'byok_private',
           shared: run.trigger === 'mention',
           limit: 1,
           excludeMessageIds,
@@ -297,7 +332,7 @@ export async function executeAgentTool(
             conversationIds: [target.conversationId],
             afterSeq: Math.max(0, target.seq - 6),
             beforeSeq: target.seq + 6,
-            siteInput: true,
+            siteInput: run.privacyClass !== 'byok_private',
             shared: run.trigger === 'mention',
             limit: 11,
             order: 'seq',
@@ -381,7 +416,6 @@ export async function executeAgentTool(
         sources.push({ type: 'user', id: user.id, profileVersion: user.profileVersion })
       }
       const manifest = await addManifest(tx, run, sources)
-      const { validateAgentSources } = await import('./agent-access.ts')
       await validateAgentSources(tx, deps, { ...run, contextManifest: manifest })
       await appendAgentStep(tx, deps, run, 'tool_call', { arguments: args }, name, 'done')
       await appendAgentStep(tx, deps, run, 'tool_result', result, name)
@@ -393,13 +427,13 @@ export async function executeAgentTool(
 
 export async function appendAgentStep(
   tx: Tx,
-  deps: Deps,
-  run: AgentRunRow,
-  type: 'model' | 'tool_call' | 'tool_result' | 'error',
+  deps: Pick<Deps, 'clock' | 'newId'>,
+  run: Pick<AgentRunRow, 'id'>,
+  type: 'model' | 'tool_call' | 'tool_result' | 'error' | 'approval',
   payload: unknown,
   toolName: string | null = null,
   status: 'pending' | 'done' | 'failed' | null = null,
-): Promise<void> {
+): Promise<{ id: string; index: number }> {
   const [head] = await tx
     .select({ index: agentSteps.index })
     .from(agentSteps)
@@ -411,16 +445,19 @@ export async function appendAgentStep(
     Buffer.byteLength(text) > 32_000
       ? { truncated: true, preview: Array.from(text).slice(0, 4000).join('') }
       : payload
+  const id = deps.newId()
+  const index = (head?.index ?? -1) + 1
   await tx.insert(agentSteps).values({
-    id: deps.newId(),
+    id,
     runId: run.id,
-    index: (head?.index ?? -1) + 1,
+    index,
     type,
     toolName,
     status,
     payload: display,
     createdAt: deps.clock.now(),
   })
+  return { id, index }
 }
 
 /** Denied model attempts remain reviewable; an expired authority cannot write even an error step. */
@@ -449,6 +486,24 @@ export async function buildAgentContext(
   finalText: string | null
 }> {
   const extras = await eligibleConversations(deps, lease)
+  let memoryVector: number[] | null = null
+  const [peek] = await deps.db.select().from(agentRuns).where(eq(agentRuns.id, lease.id))
+  if (peek?.readScope === 'all_accessible' && deps.embeddings) {
+    await withAgentLease(deps, lease, async () => {})
+    const [input] = peek.sourceMessageId
+      ? await deps.db
+          .select({ body: messages.body })
+          .from(messages)
+          .where(eq(messages.id, peek.sourceMessageId))
+      : []
+    if (input?.body) {
+      try {
+        memoryVector = await embedQuery(deps, input.body.slice(0, 200))
+      } catch (error) {
+        if (!(error instanceof AppError && error.code === 'CAPACITY_UNAVAILABLE')) throw error
+      }
+    }
+  }
   return await withAgentLease(
     deps,
     lease,
@@ -467,7 +522,7 @@ export async function buildAgentContext(
         const rows = await findVisibleMessages(tx, run.userId, {
           conversationIds: [id],
           limit: 30,
-          siteInput: true,
+          siteInput: run.privacyClass !== 'byok_private',
           shared: run.trigger === 'mention',
           beforeSeq: id === source.conversationId ? source.seq : undefined,
           order: 'seq',
@@ -484,6 +539,111 @@ export async function buildAgentContext(
         )
       }
       const projected = await toolMessages(tx, deps, run, allRows)
+      let recalled: Awaited<ReturnType<typeof recallMemories>> = { data: [], sources: [] }
+      if (memoryVector) {
+        try {
+          recalled = await recallMemories(tx, deps, run, memoryVector)
+        } catch (error) {
+          // A staged/unavailable local index must not prevent ordinary chat from using its visible history.
+          if (!(error instanceof AppError && error.code === 'CAPACITY_UNAVAILABLE')) throw error
+        }
+      }
+      const summaries: { trust: 'untrusted'; summary: string }[] = []
+      // Private conversation only. Extractive rolling summaries carry their complete transitive provenance.
+      if (run.trigger !== 'mention' && run.conversationId) {
+        const [saved] = await tx
+          .select()
+          .from(agentConversationState)
+          .where(eq(agentConversationState.conversationId, run.conversationId))
+        if (
+          saved?.summary &&
+          saved.contextEpoch === run.contextEpoch &&
+          saved.keySource === run.keySource &&
+          saved.privacyClass === run.privacyClass &&
+          saved.expiresAt > deps.clock.now()
+        ) {
+          try {
+            await validateAgentSources(tx, deps, { ...run, contextManifest: saved.sourceManifest })
+            summaries.push({ trust: 'untrusted', summary: saved.summary })
+            projected.sources.push(...saved.sourceManifest)
+          } catch (error) {
+            if (
+              !(
+                error instanceof AppError &&
+                ['CONTEXT_CHANGED', 'FORBIDDEN', 'NOT_FOUND'].includes(error.code)
+              )
+            )
+              throw error
+            await tx
+              .update(agentConversationState)
+              .set({ summary: null, sourceManifest: [] })
+              .where(eq(agentConversationState.conversationId, run.conversationId))
+          }
+        }
+        const boundary = Math.min(
+          ...allRows.filter((r) => r.conversationId === run.conversationId).map((r) => r.seq),
+        )
+        if (
+          Number.isFinite(boundary) &&
+          boundary > 1 &&
+          (!saved ||
+            saved.contextEpoch !== run.contextEpoch ||
+            saved.summarizedThroughSeq < boundary - 1)
+        ) {
+          const older = (
+            await findVisibleMessages(tx, run.userId, {
+              conversationIds: [run.conversationId],
+              beforeSeq: boundary,
+              after: new Date(deps.clock.now().getTime() - 30 * 86400000).toISOString(),
+              siteInput: run.privacyClass !== 'byok_private',
+              limit: 48,
+              order: 'seq',
+            })
+          )
+            .reverse()
+            .filter((r) => r.contextEpoch === run.contextEpoch)
+          const view = await toolMessages(tx, deps, run, older)
+          if (view.data.length) {
+            const summary = view.data
+              .map(
+                (r) =>
+                  `${r.createdAtLocal} ${r.sender}: ${[...(r.body ?? '')].slice(0, 200).join('')}`,
+              )
+              .join('\n')
+            const values = {
+              contextEpoch: run.contextEpoch,
+              keySource: run.keySource,
+              privacyClass: run.privacyClass,
+              sourceManifest: view.sources,
+              summary,
+              summarizedThroughSeq: boundary - 1,
+              expiresAt: new Date(deps.clock.now().getTime() + 30 * 86400000),
+              updatedAt: deps.clock.now(),
+            }
+            await tx
+              .insert(agentConversationState)
+              .values({ conversationId: run.conversationId, ...values })
+              .onConflictDoUpdate({ target: agentConversationState.conversationId, set: values })
+            summaries.splice(0, summaries.length, { trust: 'untrusted', summary })
+            projected.sources.push(...view.sources)
+          }
+        }
+      }
+      if (summaries.length && run.conversationId) {
+        const [current] = await tx
+          .select()
+          .from(agentConversationState)
+          .where(eq(agentConversationState.conversationId, run.conversationId))
+        if (current)
+          projected.sources.push({
+            type: 'summary',
+            id: run.conversationId,
+            contextEpoch: current.contextEpoch,
+            summarizedThroughSeq: current.summarizedThroughSeq,
+            expiresAt: current.expiresAt.toISOString(),
+            privacyClass: current.privacyClass,
+          })
+      }
       const imageRows = await tx
         .select()
         .from(attachments)
@@ -492,7 +652,7 @@ export async function buildAgentContext(
             inArray(attachments.messageId, [source.id, ...allRows.map((r) => r.id)]),
             eq(attachments.kind, 'image'),
             eq(attachments.status, 'ready'),
-            eq(attachments.privacyClass, 'standard'),
+            inArray(attachments.privacyClass, [...readablePrivacy(run)]),
           ),
         )
         .orderBy(desc(attachments.createdAt))
@@ -506,6 +666,7 @@ export async function buildAgentContext(
         }))
       const manifest = await addManifest(tx, run, [
         ...projected.sources,
+        ...recalled.sources,
         ...imageRows
           .filter((f) => f.conversationId)
           .map((f) => ({
@@ -517,7 +678,6 @@ export async function buildAgentContext(
             privacyClass: f.privacyClass,
           })),
       ])
-      const { validateAgentSources } = await import('./agent-access.ts')
       await validateAgentSources(tx, deps, { ...run, contextManifest: manifest })
       const [bot] = await tx
         .select({ id: users.id })
@@ -533,7 +693,13 @@ export async function buildAgentContext(
       const payload = lastModel?.payload as { finishReason?: unknown; text?: unknown } | null
       return {
         prompt: bot ? source.body.replaceAll(`<@user:${bot.id}>`, '').trim() : source.body,
-        history: projected.data,
+        history: [
+          ...summaries,
+          ...(recalled.data.length
+            ? [{ trust: 'untrusted', personalMemories: recalled.data }]
+            : []),
+          ...projected.data,
+        ],
         images,
         run: { ...run, contextManifest: manifest },
         continuation: run.resumeSeq > 0 ? (state?.messages.slice(1) ?? []) : [],

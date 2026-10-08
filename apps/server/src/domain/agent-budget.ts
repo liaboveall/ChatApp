@@ -19,10 +19,15 @@ import {
   reserveCost,
   usageCost,
 } from './ai-budget.ts'
+import { defaultKeySource } from './ai-keys.ts'
 import type { Deps } from './deps.ts'
 import type { SessionPrincipal } from './principal.ts'
 import { lockAndRevalidate, lockUsers } from './sessions.ts'
 import { inTransaction } from './tx.ts'
+
+/** Site calls cool down per provider; own-key calls per provider and member. */
+export const cooldownKey = (provider: string, ownerId: string | null): string =>
+  ownerId ? `ai.provider_cooldown.${provider}.user.${ownerId}` : `ai.provider_cooldown.${provider}`
 
 export function budgetPeriod(now: Date, timezone: string): { day: string; month: string } {
   const parts = new Intl.DateTimeFormat('en-CA', {
@@ -116,26 +121,32 @@ export function createAgentLedger(
       await withAgentLease(deps, lease, async (tx, run) => {
         if (stepIndex >= (run.mode === 'fast' ? 8 : 16))
           throw new AppError('QUOTA_EXCEEDED', 'The step limit was reached')
-        const [paused] = await tx
-          .select()
-          .from(appSettings)
-          .where(eq(appSettings.key, 'ai.admission_paused'))
-        if (paused?.value === true)
-          throw new AppError('AI_BUDGET_EXHAUSTED', 'Model admission is paused')
+        const own = run.keySource === 'user'
+        // The site's pause protects the site budget; an own key only records usage (docs/06 section 8).
+        if (!own) {
+          const [paused] = await tx
+            .select()
+            .from(appSettings)
+            .where(eq(appSettings.key, 'ai.admission_paused'))
+          if (paused?.value === true)
+            throw new AppError('AI_BUDGET_EXHAUSTED', 'Model admission is paused')
+        }
         const [cooldown] = await tx
           .select()
           .from(appSettings)
-          .where(eq(appSettings.key, `ai.provider_cooldown.${run.provider}`))
+          .where(eq(appSettings.key, cooldownKey(run.provider, own ? run.userId : null)))
         if (typeof cooldown?.value === 'number' && cooldown.value > deps.clock.now().getTime())
           throw new AppError('RATE_LIMITED', 'The model service requested a cooldown')
         const period = budgetPeriod(deps.clock.now(), deps.config.timezone)
         const tokens = attempt.inputTokenBound + attempt.maxOutputTokens
         const cost = reserveCost(price, attempt.inputTokenBound, attempt.maxOutputTokens)
-        const { day, month } = await lockAccounts(tx, deps, run.userId, period)
-        if (day.settledUnits + day.reservedUnits + tokens > day.limitUnits)
-          throw new AppError('QUOTA_EXCEEDED', 'The daily model allowance is exhausted')
-        if (month.settledUnits + month.reservedUnits + cost > month.limitUnits)
-          throw new AppError('AI_BUDGET_EXHAUSTED', 'The site model budget is exhausted')
+        if (!own) {
+          const { day, month } = await lockAccounts(tx, deps, run.userId, period)
+          if (day.settledUnits + day.reservedUnits + tokens > day.limitUnits)
+            throw new AppError('QUOTA_EXCEEDED', 'The daily model allowance is exhausted')
+          if (month.settledUnits + month.reservedUnits + cost > month.limitUnits)
+            throw new AppError('AI_BUDGET_EXHAUSTED', 'The site model budget is exhausted')
+        }
         const prior = await tx
           .select({ no: aiCallAttempts.attemptNo })
           .from(aiCallAttempts)
@@ -157,6 +168,7 @@ export function createAgentLedger(
           reservedCost: cost,
           createdAt: deps.clock.now(),
         })
+        if (own) return
         await tx
           .update(budgetAccounts)
           .set({ reservedUnits: sql`${budgetAccounts.reservedUnits} + ${tokens}` })
@@ -239,30 +251,34 @@ export async function resolveAttempt(
     const tokens = resolution.usage
       ? resolution.usage.inputTokens + resolution.usage.outputTokens
       : 0
-    await tx
-      .select()
-      .from(budgetAccounts)
-      .where(accountWhere('user_day', reference.userId, attempt.day))
-      .for('update')
-    await tx
-      .select()
-      .from(budgetAccounts)
-      .where(accountWhere('site_month', 'site', attempt.month))
-      .for('update')
-    await tx
-      .update(budgetAccounts)
-      .set({
-        reservedUnits: sql`${budgetAccounts.reservedUnits} - ${attempt.reservedTokens}`,
-        settledUnits: sql`${budgetAccounts.settledUnits} + ${tokens}`,
-      })
-      .where(accountWhere('user_day', reference.userId, attempt.day))
-    await tx
-      .update(budgetAccounts)
-      .set({
-        reservedUnits: sql`${budgetAccounts.reservedUnits} - ${attempt.reservedCost}`,
-        settledUnits: sql`${budgetAccounts.settledUnits} + ${cost}`,
-      })
-      .where(accountWhere('site_month', 'site', attempt.month))
+    // An own-key attempt never reserved site allowance, so it settles nothing there (docs/06 section 8).
+    const own = attempt.keySource === 'user'
+    if (!own) {
+      await tx
+        .select()
+        .from(budgetAccounts)
+        .where(accountWhere('user_day', reference.userId, attempt.day))
+        .for('update')
+      await tx
+        .select()
+        .from(budgetAccounts)
+        .where(accountWhere('site_month', 'site', attempt.month))
+        .for('update')
+      await tx
+        .update(budgetAccounts)
+        .set({
+          reservedUnits: sql`${budgetAccounts.reservedUnits} - ${attempt.reservedTokens}`,
+          settledUnits: sql`${budgetAccounts.settledUnits} + ${tokens}`,
+        })
+        .where(accountWhere('user_day', reference.userId, attempt.day))
+      await tx
+        .update(budgetAccounts)
+        .set({
+          reservedUnits: sql`${budgetAccounts.reservedUnits} - ${attempt.reservedCost}`,
+          settledUnits: sql`${budgetAccounts.settledUnits} + ${cost}`,
+        })
+        .where(accountWhere('site_month', 'site', attempt.month))
+    }
     await tx
       .update(aiCallAttempts)
       .set({
@@ -310,10 +326,11 @@ export async function resolveAttempt(
           },
         })
       if (
-        tokens > attempt.reservedTokens ||
-        cost > attempt.reservedCost ||
-        usage.inputTokens > attempt.inputTokenBound ||
-        usage.outputTokens > attempt.maxOutputTokens
+        !own &&
+        (tokens > attempt.reservedTokens ||
+          cost > attempt.reservedCost ||
+          usage.inputTokens > attempt.inputTokenBound ||
+          usage.outputTokens > attempt.maxOutputTokens)
       ) {
         await tx
           .insert(appSettings)
@@ -382,7 +399,23 @@ export async function getAgentUsage(deps: Deps, principal: SessionPrincipal): Pr
       .select()
       .from(appSettings)
       .where(eq(appSettings.key, 'ai.admission_paused'))
+    const [own] = await tx
+      .select()
+      .from(aiUsageDaily)
+      .where(
+        and(
+          eq(aiUsageDaily.userId, principal.userId),
+          eq(aiUsageDaily.day, period.day),
+          eq(aiUsageDaily.keySource, 'user'),
+        ),
+      )
     return {
+      keySource: await defaultKeySource(tx, principal.userId),
+      own: {
+        inputTokens: own?.inputTokens ?? 0,
+        outputTokens: own?.outputTokens ?? 0,
+        runCount: own?.runCount ?? 0,
+      },
       provider: aiPolicy(deps).provider,
       ...period,
       daily: {
@@ -431,10 +464,22 @@ export async function recordAgentEvidence(
         retryAfterSeconds: evidence.retryAfterSeconds,
       })
       .where(eq(aiCallAttempts.id, evidence.attemptId))
-      .returning({ runId: aiCallAttempts.runId, provider: aiCallAttempts.provider })
+      .returning({
+        runId: aiCallAttempts.runId,
+        provider: aiCallAttempts.provider,
+        keySource: aiCallAttempts.keySource,
+      })
     if (attempt && evidence.httpStatus === 429) {
       const seconds = Math.max(1, Math.min(86_400, evidence.retryAfterSeconds ?? 60))
-      const key = `ai.provider_cooldown.${attempt.provider}`
+      // A member's own key is rate limited for that member only; it never cools down anyone else.
+      const [owner] =
+        attempt.keySource === 'user'
+          ? await tx
+              .select({ userId: agentRuns.userId })
+              .from(agentRuns)
+              .where(eq(agentRuns.id, attempt.runId))
+          : []
+      const key = cooldownKey(attempt.provider, owner?.userId ?? null)
       const until = deps.clock.now().getTime() + seconds * 1000
       await tx
         .insert(appSettings)

@@ -114,6 +114,7 @@ function environmentFor(
     APP_ENV: 'test',
     // A test process may only use the mock model; the developer's .env.local selects a real provider.
     AI_PROVIDER: 'mock',
+    EMBEDDING_ENABLED: 'false',
     LOG_LEVEL: 'warn',
     API_HOST: '127.0.0.1',
     DATABASE_URL: e.databaseUrl,
@@ -240,8 +241,11 @@ export async function startApi(instance: FaultInstance): Promise<ApiService> {
 }
 
 /** A real worker process (dispatcher, consumers, scans). It has no port: a started process is a running one. */
-export async function startWorker(instance: FaultInstance): Promise<Service> {
-  const service = spawnProcess('worker', instance, { API_PORT: String(freePort()) })
+export async function startWorker(
+  instance: FaultInstance,
+  extra: Record<string, string> = {},
+): Promise<Service> {
+  const service = spawnProcess('worker', instance, { API_PORT: String(freePort()), ...extra })
   // Give a failing start a moment to show itself, so the tests do not wait on something that exited.
   await Promise.race([
     service.exited.then(() => {

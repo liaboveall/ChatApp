@@ -27,6 +27,10 @@ jobs:
       - run: bun run infra:up
       - run: bun run infra:bootstrap
       - run: bun run db:migrate:test
+      - name: Prepare fixed offline model for memory injection evaluation
+        run: bun run embeddings prepare bge
+      - name: M5 approval, edited effects, privacy and actual memory injection
+        run: bun run eval:m5:agent
       - name: Frozen corpus and genuine provider evaluation
         run: bun run eval --concurrency 1
       - name: Preserve every attempt and human review worksheet
@@ -37,6 +41,8 @@ jobs:
           path: |
             apps/server/evals/results/
             .test-runs/m4/*usage.sqlite*
+            .test-runs/m5/agent-v2-real-*/result.json
+            .test-runs/m5/agent-v2-real-*/source-manifest.json
           if-no-files-found: error
           retention-days: 30
       - name: Stop isolated services

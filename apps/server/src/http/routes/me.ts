@@ -1,15 +1,18 @@
 import {
   AppError,
+  aiKeyResponseSchema,
   deviceSchema,
   devicesResponseSchema,
   errorBodySchema,
   meSchema,
   okResponseSchema,
   patchMeRequestSchema,
+  putAiKeyRequestSchema,
 } from '@chatapp/contracts'
 import { createRoute, type OpenAPIHono, z } from '@hono/zod-openapi'
 import { cookieNames } from '../../auth/better-auth.ts'
 import { sessionCookieDeletions } from '../../auth/cookies.ts'
+import { deleteAiKey, getAiKey, saveAiKey } from '../../domain/ai-keys.ts'
 import { getMe, updateMe } from '../../domain/me.ts'
 import {
   listDevices,
@@ -115,6 +118,67 @@ const revokeAllRoute = createRoute({
   },
 })
 
+const aiKeyErrors = {
+  ...errors,
+  422: {
+    description: 'The provider did not accept the key (AI_KEY_INVALID, details.reason)',
+    content: { 'application/json': { schema: errorBodySchema } },
+  },
+  429: {
+    description: 'Rate limited here or by the provider (Retry-After)',
+    content: { 'application/json': { schema: errorBodySchema } },
+  },
+  503: {
+    description: 'The provider could not be reached (Retry-After)',
+    content: { 'application/json': { schema: errorBodySchema } },
+  },
+}
+
+const getAiKeyRoute = createRoute({
+  method: 'get',
+  path: '/api/me/ai-key',
+  tags: ['me'],
+  summary: 'My own AI key: provider, last four characters and state, never the key',
+  security: [{ cookieAuth: [] }],
+  responses: {
+    200: {
+      description: 'Key state',
+      content: { 'application/json': { schema: aiKeyResponseSchema } },
+    },
+    ...errors,
+  },
+})
+
+const putAiKeyRoute = createRoute({
+  method: 'put',
+  path: '/api/me/ai-key',
+  tags: ['me'],
+  summary: 'Verify with the provider, then store or replace my own key (stops runs on the old one)',
+  security: [{ cookieAuth: [] }],
+  request: {
+    body: { required: true, content: { 'application/json': { schema: putAiKeyRequestSchema } } },
+  },
+  responses: {
+    200: {
+      description: 'Stored',
+      content: { 'application/json': { schema: aiKeyResponseSchema } },
+    },
+    ...aiKeyErrors,
+  },
+})
+
+const deleteAiKeyRoute = createRoute({
+  method: 'delete',
+  path: '/api/me/ai-key',
+  tags: ['me'],
+  summary: 'Remove my own key (stops runs on it)',
+  security: [{ cookieAuth: [] }],
+  responses: {
+    200: { description: 'Removed', content: { 'application/json': { schema: okResponseSchema } } },
+    ...errors,
+  },
+})
+
 export function meRoutes(app: OpenAPIHono<HttpEnv>, services: Services): void {
   const guard = requireSession(services)
   const names = cookieNames(services.config.origin)
@@ -147,6 +211,7 @@ export function meRoutes(app: OpenAPIHono<HttpEnv>, services: Services): void {
             lastActiveAt: device.lastActiveAt.toISOString(),
             ipAddress: device.ipAddress,
             userAgent: device.userAgent,
+            pendingTasks: device.pendingTasks,
           }),
         ),
       },
@@ -166,6 +231,21 @@ export function meRoutes(app: OpenAPIHono<HttpEnv>, services: Services): void {
 
   app.openapi(revokeOthersRoute, async (c) => {
     await revokeOtherDevices(services.deps, principalOf(c))
+    return c.json({ status: 'ok' as const }, 200)
+  })
+
+  app.openapi(getAiKeyRoute, async (c) =>
+    c.json({ aiKey: await getAiKey(services.deps, principalOf(c)) }, 200),
+  )
+
+  app.openapi(putAiKeyRoute, async (c) => {
+    const principal = principalOf(c)
+    await services.limiter.enforce([{ policy: POLICIES.aiKeySaveUser, subject: principal.userId }])
+    return c.json({ aiKey: await saveAiKey(services.deps, principal, c.req.valid('json')) }, 200)
+  })
+
+  app.openapi(deleteAiKeyRoute, async (c) => {
+    await deleteAiKey(services.deps, principalOf(c))
     return c.json({ status: 'ok' as const }, 200)
   })
 

@@ -16,9 +16,11 @@ import {
   users,
 } from '@chatapp/db'
 import { and, asc, eq, inArray, isNull, ne, sql } from 'drizzle-orm'
+import { closePendingApprovals } from './agent-access.ts'
 import { writeAudit } from './audit.ts'
 import type { Deps } from './deps.ts'
 import type { SessionPrincipal } from './principal.ts'
+import { cancelTasksOfDelegations } from './tasks.ts'
 import { inTransaction } from './tx.ts'
 import { enqueueWork } from './work.ts'
 
@@ -238,7 +240,7 @@ export async function revokeOrigins(
           delegations.map((row) => row.id),
         ),
       )
-    await tx
+    const cancelled = await tx
       .update(agentRuns)
       .set({
         status: 'cancelled',
@@ -247,6 +249,7 @@ export async function revokeOrigins(
         leaseEpoch: sql`${agentRuns.leaseEpoch} + 1`,
         stateVersion: sql`${agentRuns.stateVersion} + 1`,
         leaseUntil: null,
+        pendingApproval: false,
         errorCode: 'UNAUTHENTICATED',
         errorMessage: 'Execution authorization is no longer valid',
       })
@@ -259,6 +262,20 @@ export async function revokeOrigins(
           inArray(agentRuns.status, ['queued', 'running', 'awaiting_approval']),
         ),
       )
+      .returning({ id: agentRuns.id })
+    await closePendingApprovals(
+      tx,
+      deps,
+      cancelled.map((run) => run.id),
+      'unauthenticated',
+    )
+    // Reminders and scheduled messages this device authorized end with it (docs/03 truth table, AT-28).
+    await cancelTasksOfDelegations(
+      tx,
+      deps,
+      delegations.map((d) => d.id),
+      'UNAUTHENTICATED',
+    )
   }
   return { originIds, delegationsRevoked: delegations.length }
 }
@@ -318,6 +335,7 @@ export type DeviceView = {
   lastActiveAt: Date
   ipAddress: string | null
   userAgent: string | null
+  pendingTasks: number
 }
 
 export async function listDevices(deps: Deps, principal: SessionPrincipal): Promise<DeviceView[]> {
@@ -341,7 +359,19 @@ export async function listDevices(deps: Deps, principal: SessionPrincipal): Prom
       ),
     )
     .orderBy(asc(authorizationOrigins.createdAt))
-  return rows.map((row) => ({ ...row, current: row.originId === principal.originId }))
+  // What a security revocation of each device would cancel (docs/02 section 6: shown before revoking).
+  const counts = await deps.db.execute<{ origin_id: string; n: number }>(sql`
+    select d.origin_id, count(*)::int as n from execution_delegations d
+    where d.user_id = ${principal.userId} and d.status = 'active' and d.purpose in ('reminder', 'scheduled_message')
+      and (exists (select 1 from reminders r where r.delegation_id = d.id and r.status = 'scheduled')
+        or exists (select 1 from scheduled_messages s where s.delegation_id = d.id and s.status = 'scheduled'))
+    group by d.origin_id`)
+  const pending = new Map(counts.map((row) => [row.origin_id, Number(row.n)]))
+  return rows.map((row) => ({
+    ...row,
+    current: row.originId === principal.originId,
+    pendingTasks: pending.get(row.originId) ?? 0,
+  }))
 }
 
 /** "Revoke this device": the origin's sessions end and the work it started is cancelled. */

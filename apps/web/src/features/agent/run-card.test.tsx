@@ -1,12 +1,31 @@
 import type { AgentRunDetail } from '@chatapp/contracts'
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { act, render } from '@testing-library/react'
+import type { ReactNode } from 'react'
 import { afterEach, beforeEach, expect, test, vi } from 'vitest'
+import { queryKeys } from '@/lib/queries.ts'
 import { ISO, makeMessage, uuid } from '@/lib/sync/fixtures.ts'
 import { loadRun } from './api.ts'
 import { AgentRunCard } from './run-card.tsx'
 import { useAgent } from './store.ts'
 
-vi.mock('./api.ts', () => ({ loadRun: vi.fn(), regenerateRun: vi.fn(), stopRun: vi.fn() }))
+vi.mock('./api.ts', () => ({
+  loadRun: vi.fn(),
+  regenerateRun: vi.fn(),
+  stopRun: vi.fn(),
+  switchKeySource: vi.fn(),
+  decideApproval: vi.fn(),
+  undoReminder: vi.fn(),
+}))
+
+/** The card reads who is signed in; the cache answers so no request leaves the test. */
+function withQueries(node: ReactNode) {
+  const client = new QueryClient({
+    defaultOptions: { queries: { retry: false, staleTime: Infinity } },
+  })
+  client.setQueryData(queryKeys.me, null)
+  return <QueryClientProvider client={client}>{node}</QueryClientProvider>
+}
 beforeEach(() => {
   vi.useFakeTimers()
   vi.clearAllMocks()
@@ -55,14 +74,18 @@ test('incoming detail versions do not start a request loop, and denial stops the
       resumeSeq: 0,
       stepCount: 1,
       regeneratedFromRunId: null,
+      hasEffects: false,
+      pendingApproval: false,
       usage: { inputTokens: 1, outputTokens: 1, cachedTokens: 0, costUsd: '0.000000' },
       createdAt: ISO,
       finishedAt: null,
       error: null,
     },
     steps: [],
+    approvals: [],
+    effects: [],
   }
-  render(<AgentRunCard message={message} />)
+  render(withQueries(<AgentRunCard message={message} />))
   expect(loadRun).toHaveBeenCalledTimes(1)
   act(() => useAgent.setState({ details: { [id]: detail } }))
   act(() =>

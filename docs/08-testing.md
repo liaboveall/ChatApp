@@ -70,12 +70,13 @@
 | `integration` | 每个 PR | 真实 Postgres/Valkey/Garage/Mailpit → 空库及上一发布夹具升级 → bootstrap 幂等/旧版兼容 → drizzle-kit check → 集成、实时、安全与契约测试，并按第 7 节检查 `domain/`（和将来的 `agent/`）的行覆盖率（`bun run test:coverage`，M2a 起；本地通过，远端 `78e0cf5` 上第一次运行就通过）→ 故障矩阵（独立的 `fault` 作业） |
 | `e2e` | M1b 起每个目标为 v2/main 的 PR，以及每晚 | 构建并启动整个应用 → Playwright（Chromium 和 WebKit 全量，Firefox 冒烟）→ 无障碍检查 → 在 Playwright 官方镜像里做视觉截图对比。**M1b 已写好**（`e2e`、`visual` 两个作业，推送到 main/v2、PR、每晚和手动触发），2026-10-03 在 `d214415` 上首次远端运行成功（`e2e` 作业 106 通过 / 3 跳过，`visual` 作业 64 通过） |
 | `security` | 每个 PR 和每周一次 | gitleaks、osv-scanner；M7 起加上 trivy 扫描镜像 |
-| `eval` | 手动触发，以及每周一次 | 已创建；默认 SoCLaaS，需要仓库密钥 `SOCLAAS_API_KEY`；真实评测与人工事实审核见下文 |
+| `eval` | 手动触发，以及每周一次 | 默认 SoCLaaS，需要仓库密钥 `SOCLAAS_API_KEY`；M5 先跑真实审批/注入/隐私第二版，再跑 M4 冻结评测与事实审核（见下文）；新步骤尚未取得当前提交的远端结果 |
+| `embeddings` | 每次 push/PR，以及手动触发 | M5 新增原生 ARM runner：固定公开 bge 模型 → 实际 Debian 两核 API/AI/media/回填混合负载 → 同源码开发/留出质量 → 合并资源/质量门槛；仅上传结果和源码 manifest，当前工作区尚未推送，无远端结果 |
 | `load` | 手动触发 | k6 压力测试 |
 | `image`（M7 起） | 推送到 main 或打版本标签时 | 在 GitHub 的 `ubuntu-24.04-arm` 机器上构建 arm64 镜像（另外构建 amd64，供本地彩排）→ 扫描 → 在同一台 arm64 机器上用 `compose.prod.yml` 启动整套服务，执行迁移和冒烟测试 → 推送到 GHCR |
 
 - CI 里所有工具的版本都和本地一致：Bun 版本写在 `package.json` 的 `packageManager` 字段里，并且提交锁文件；Docker 镜像锁定精确版本。
-- 合并到 v2/main 前，当前合并 SHA 的 check、integration、security，以及 M1b 起启用的 e2e 必须通过；M7 的发布候选另要求 image/arm64 与恢复、混合负载证据。现有 `check`、`integration`、`security`、`media`、`e2e` 和 M4 的 `eval`；`load`、`image` 未创建。创建了工作流不代表远端已执行通过。
+- 合并到 v2/main 前，当前合并 SHA 的 check、integration、security，以及 M1b 起启用的 e2e 必须通过；M5 起新增的 embeddings 也须通过。M7 的发布候选另要求 image/arm64 与恢复、混合负载证据。现有 `check`、`integration`、`security`、`media`、`e2e`、`eval` 和 `embeddings`；`load`、`image` 未创建。创建了工作流不代表远端已执行通过。
 - CI 必过项与路径过滤保持一致，不能因为跳过工作流就显示完成；失败后的修复必须重跑修复 SHA。只改文档时允许契约/链接检查替代业务重跑，但不得据此更新运行时通过记录。
 
 ## 6. 完成标准（Definition of Done）

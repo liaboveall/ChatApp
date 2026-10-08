@@ -7,12 +7,16 @@ import {
   ToolLoopAgent,
 } from 'ai'
 import { MockLanguageModelV3 } from 'ai/test'
-import { z } from 'zod'
 import { boundedAgentData, compactAgentMessages } from '../agent/context.ts'
 import { agentSystemPrompt, answerReminder, untrustedHistory } from '../agent/prompts/system.ts'
-import { agentTools } from '../agent/tools/index.ts'
+import { agentTools, effectApproval, modelToolSchema } from '../agent/tools/index.ts'
 import { AI_LIMITS, type AiConfig } from '../config/ai.ts'
-import { type AgentLease, withAgentLease } from '../domain/agent-access.ts'
+import { type AgentLease, type AgentRunRow, withAgentLease } from '../domain/agent-access.ts'
+import {
+  answerApprovalRequests,
+  registerApprovalRequests,
+  unansweredRequests,
+} from '../domain/agent-approvals.ts'
 import { closeAgentCalls, createAgentLedger, recordAgentEvidence } from '../domain/agent-budget.ts'
 import {
   claimAgentRun,
@@ -28,10 +32,97 @@ import {
   saveAgentModelStep,
 } from '../domain/agent-tools.ts'
 import type { PaidCallLedger } from '../domain/ai-budget.ts'
+import { markKeyRejected, runKey } from '../domain/ai-keys.ts'
 import type { Deps } from '../domain/deps.ts'
 import { AiTransportError, aiProviderOptions, denyAiDownloads, guardedAiModel } from './ai.ts'
 
 /** Deliberately deterministic; only APP_ENV=test may run mock integration and browser cases. */
+/**
+ * The scripted first call of the mock model: an explicit effect request in the person's own words (integration tests
+ * and E2E type exactly these forms), otherwise the M4 read of the conversation.
+ */
+export function mockIntent(
+  prompt: string,
+  run: Pick<AgentRunRow, 'contextConversationId' | 'timezone'>,
+): { toolName: string; input: Record<string, unknown> } {
+  const target = run.contextConversationId
+  const remember = /记住[:：]\s*([\s\S]+)/.exec(prompt)
+  if (remember?.[1]) return { toolName: 'remember', input: { content: remember[1].trim() } }
+  const forget = /忘记[:：]\s*([0-9a-f-]{36})/.exec(prompt)
+  if (forget?.[1]) return { toolName: 'forget', input: { memoryId: forget[1] } }
+  const send = /代发[:：]\s*([\s\S]+)/.exec(prompt)
+  if (send?.[1] && target)
+    return { toolName: 'send_message', input: { conversationId: target, body: send[1].trim() } }
+  const scheduled = /定时[:：]\s*(\d{4}-\d{2}-\d{2}T\d{2}:\d{2})\s+([\s\S]+)/.exec(prompt)
+  if (scheduled?.[1] && scheduled[2] && target)
+    return {
+      toolName: 'schedule_message',
+      input: {
+        conversationId: target,
+        body: scheduled[2].trim(),
+        localDateTime: scheduled[1],
+        timezone: run.timezone,
+      },
+    }
+  const reminder = /提醒我[:：]\s*(\d{4}-\d{2}-\d{2}T\d{2}:\d{2})\s+([\s\S]+)/.exec(prompt)
+  if (reminder?.[1] && reminder[2])
+    return {
+      toolName: 'create_reminder',
+      input: { localDateTime: reminder[1], timezone: run.timezone, text: reminder[2].trim() },
+    }
+  const group = /建群[:：]\s*(\S+)((?:\s+@[a-z0-9_]+)*)/.exec(prompt)
+  if (group?.[1])
+    return {
+      toolName: 'create_group',
+      input: {
+        name: group[1],
+        memberUsernames: [...(group[2] ?? '').matchAll(/@([a-z0-9_]+)/g)].map((m) => m[1]),
+      },
+    }
+  const invite = /拉人[:：]((?:\s*@[a-z0-9_]+)+)/.exec(prompt)
+  if (invite?.[1] && target)
+    return {
+      toolName: 'invite_members',
+      input: {
+        conversationId: target,
+        usernames: [...invite[1].matchAll(/@([a-z0-9_]+)/g)].map((m) => m[1]),
+      },
+    }
+  const cancel = /取消(提醒|定时消息)[:：]\s*([0-9a-f-]{36})/.exec(prompt)
+  if (cancel?.[2])
+    return {
+      toolName: cancel[1] === '提醒' ? 'cancel_reminder' : 'cancel_scheduled_message',
+      input: { id: cancel[2] },
+    }
+  return { toolName: 'read_conversation', input: { limit: 30 } }
+}
+
+/** What the mock says once an effect call was answered: the outcome the runtime reported, never an invented one. */
+function mockEffectAnswer(output: { type: string; value?: unknown }): string {
+  if (output.type === 'execution-denied') return '已按你的决定取消，没有执行。'
+  const value = output.value as { status?: unknown; error?: unknown } | undefined
+  switch (value?.status) {
+    case 'sent':
+      return '已代你发送这条消息。'
+    case 'scheduled':
+      return '已安排好，到时会执行。'
+    case 'created':
+      return '群组已建好。'
+    case 'invited':
+      return '已邀请。'
+    case 'cancelled':
+      return '已取消。'
+    case 'remembered':
+      return '已记住，可以在设置中查看和删除。'
+    case 'forgotten':
+      return '已删除这条记忆。'
+    case 'failed':
+      return `没能完成：${String(value.error)}。`
+    default:
+      return `结果：${String(value?.status ?? 'unknown')}。`
+  }
+}
+
 function mockAgentModel(
   deps: Deps,
   lease: AgentLease,
@@ -42,6 +133,10 @@ function mockAgentModel(
   experimentLedger?: PaidCallLedger,
   attemptIds?: Set<string>,
   historySources: unknown = [],
+  intent: { toolName: string; input: Record<string, unknown> } = {
+    toolName: 'read_conversation',
+    input: { limit: 30 },
+  },
 ): LanguageModel {
   const ledger = trackedLedger(
     createAgentLedger(deps, lease, stepIndex, price),
@@ -63,6 +158,18 @@ function mockAgentModel(
       })
       await ledger.start(id)
       const toolResult = options.prompt.findLast((p) => p.role === 'tool')
+      const effectOutput =
+        options.prompt.at(-1)?.role === 'tool'
+          ? (options.prompt.at(-1) as { content: unknown[] }).content.find(
+              (part): part is { type: 'tool-result'; toolName: string; output: { type: string } } =>
+                !!part &&
+                typeof part === 'object' &&
+                (part as { type?: unknown }).type === 'tool-result' &&
+                !['read_conversation', 'read_unread', 'search_messages', 'get_message'].includes(
+                  String((part as { toolName?: unknown }).toolName),
+                ),
+            )
+          : undefined
       const visible =
         toolResult?.role === 'tool'
           ? toolResult.content.flatMap((part) => {
@@ -107,9 +214,11 @@ function mockAgentModel(
               })
             })
           : []
-      const text = toolResult
-        ? `已读取可见消息。\n\n**讨论摘要**\n\n${visible.length ? visible.slice(0, 4).join('\n') : '- 当前没有可引用的讨论。'}`
-        : ''
+      const text = effectOutput
+        ? mockEffectAnswer(effectOutput.output)
+        : toolResult
+          ? `已读取可见消息。\n\n**讨论摘要**\n\n${visible.length ? visible.slice(0, 4).join('\n') : '- 当前没有可引用的讨论。'}`
+          : ''
       const tokens = {
         inputTokens: Math.min(bound, 120),
         outputTokens: text ? 60 : 12,
@@ -140,9 +249,9 @@ function mockAgentModel(
       if (!toolResult)
         chunks.push({
           type: 'tool-call',
-          toolCallId: 'read-1',
-          toolName: 'read_conversation',
-          input: JSON.stringify({ limit: 30 }),
+          toolCallId: `call-${stepIndex}`,
+          toolName: intent.toolName,
+          input: JSON.stringify(intent.input),
         })
       else {
         chunks.push({ type: 'text-start', id: 'text-1' })
@@ -221,6 +330,9 @@ export async function executeAgentRun(parts: AgentExecution, id: string): Promis
   let finishStream: (() => Promise<void>) | undefined
   const attemptIds = new Set<string>()
   const abort = new AbortController()
+  let own = false
+  let keyRevision: number | null = null
+  let runUserId: string | undefined
   try {
     const claimed = await claimAgentRun(deps, id)
     if (!claimed) return
@@ -228,11 +340,20 @@ export async function executeAgentRun(parts: AgentExecution, id: string): Promis
     const currentLease = lease
     const context = await buildAgentContext(deps, currentLease)
     const limits = AI_LIMITS[context.run.mode]
+    // The run's source was pinned at creation: an own key always goes to DeepSeek with its own models (docs/06 14).
+    own = context.run.keySource === 'user'
+    const route = own
+      ? { provider: config.byok.provider, models: config.byok.models, prices: config.byok.prices }
+      : { provider: config.provider, models: config.models, prices: config.prices }
     if (
-      context.run.provider !== config.provider ||
-      context.run.model !== config.models[context.run.mode]
+      context.run.provider !== route.provider ||
+      context.run.model !== route.models[context.run.mode]
     )
       throw new AppError('CONTEXT_CHANGED', 'The model configuration changed')
+    // Decrypted only here, for the fixed endpoint; a replaced or rejected key ends the run (A12, SEC-26).
+    const ownKey = own ? await runKey(deps, context.run) : undefined
+    keyRevision = context.run.keyRevision
+    runUserId = context.run.userId
     const outputId = await ensureAgentOutput(deps, currentLease)
     if (context.finalText !== null) {
       await persistAgentText(deps, currentLease, context.finalText, 1)
@@ -240,7 +361,7 @@ export async function executeAgentRun(parts: AgentExecution, id: string): Promis
       return
     }
     const imageParts: { type: 'file'; data: Uint8Array; mediaType: string }[] = []
-    if (context.images.length && config.provider === 'deepseek')
+    if (context.images.length && route.provider === 'deepseek')
       throw new AppError('VALIDATION_FAILED', 'Paid image input requires a verified billing bound')
     for (const image of context.images) {
       if (!deps.blobs) throw new AppError('CAPACITY_UNAVAILABLE', 'Image storage is unavailable')
@@ -269,8 +390,39 @@ export async function executeAgentRun(parts: AgentExecution, id: string): Promis
       }
       imageParts.push({ type: 'file', data: bytes, mediaType: image.mime })
     }
+    const personal = context.history
+      .filter(
+        (row) =>
+          !!row && typeof row === 'object' && ('summary' in row || 'personalMemories' in row),
+      )
+      .map((row) => {
+        const data = row as {
+          summary?: string
+          personalMemories?: { content: string | null; id: string }[]
+        }
+        return data.summary
+          ? {
+              trust: 'untrusted',
+              summary: [...data.summary].slice(-600).join(''),
+              truncated: [...data.summary].length > 600,
+            }
+          : {
+              trust: 'untrusted',
+              personalMemories: data.personalMemories?.map((m) => ({
+                id: m.id,
+                content: [...(m.content ?? '')].slice(0, 160).join(''),
+                truncated: [...(m.content ?? '')].length > 160,
+              })),
+            }
+      })
+    const personalView = boundedAgentData(personal, 6000)
     const historyView = boundedAgentData(
-      [...context.history].reverse(),
+      context.history
+        .filter(
+          (row) =>
+            !(row && typeof row === 'object' && ('summary' in row || 'personalMemories' in row)),
+        )
+        .reverse(),
       context.run.mode === 'fast' ? 4000 : 16_000,
       context.run.mode === 'fast' ? 200 : 1000,
     )
@@ -280,7 +432,7 @@ export async function executeAgentRun(parts: AgentExecution, id: string): Promis
         content: [
           {
             type: 'text',
-            text: `${untrustedHistory([historyView])}\n\n${imageParts.length ? `本轮实际附带 ${imageParts.length} 张参考图片，图片像素见本条消息的图片部分。\n\n` : ''}本轮用户请求：\n${context.prompt}\n\n${answerReminder}`,
+            text: `${untrustedHistory([historyView])}${personal.length ? `\n\n${untrustedHistory([personalView])}` : ''}\n\n${imageParts.length ? `本轮实际附带 ${imageParts.length} 张参考图片，图片像素见本条消息的图片部分。\n\n` : ''}本轮用户请求：\n${context.prompt}\n\n${answerReminder}`,
           },
           ...imageParts,
         ],
@@ -295,123 +447,12 @@ export async function executeAgentRun(parts: AgentExecution, id: string): Promis
       context.run.readScope === 'all_accessible',
       context.run.mode === 'fast' ? 8000 : 64_000,
     )
-    const price = config.prices[context.run.mode]
+    const price = route.prices[context.run.mode]
+    const intent = mockIntent(context.prompt, context.run)
     let durableMessages: unknown[] = [...initialMessages]
     let lastFinishReason: string | undefined
-    const agent = new ToolLoopAgent({
-      model:
-        parts.model?.(0) ??
-        mockAgentModel(
-          deps,
-          currentLease,
-          1,
-          limits.maxOutputTokens,
-          0,
-          price,
-          parts.experimentLedger,
-          attemptIds,
-        ),
-      instructions,
-      tools,
-      maxRetries: 0,
-      // SDK errors can contain prompts and vendor response bodies. Persist only the classified run error below.
-      prepareCall: (call) => ({ ...call, onError: () => {} }),
-      telemetry: { isEnabled: false, recordInputs: false, recordOutputs: false },
-      maxOutputTokens: limits.maxOutputTokens,
-      stopWhen: isStepCount(Math.max(1, limits.steps - context.run.stepCount)),
-      experimental_download: denyAiDownloads,
-      prepareStep: async (step) => {
-        await withAgentLease(deps, currentLease, async () => {})
-        const messages = compactAgentMessages(step.messages, historyView.data)
-        // UTF-8 bytes bound text tokens conservatively, including full schemas/tool results and framing overhead.
-        const bound =
-          Buffer.byteLength(
-            JSON.stringify(
-              {
-                instructions,
-                messages,
-                schemas: Object.fromEntries(
-                  Object.keys(tools).map((name) => [
-                    name,
-                    z.toJSONSchema(agentToolSchemas[name as keyof typeof agentToolSchemas]),
-                  ]),
-                ),
-              },
-              (_, value: unknown) => (value instanceof Uint8Array ? '[server image]' : value),
-            ),
-          ) +
-          8192 +
-          imageParts.length * 8192
-        if (bound > limits.maxInputTokens)
-          throw new AppError('QUOTA_EXCEEDED', 'The model input limit was reached')
-        const stepIndex = step.stepNumber + context.run.stepCount
-        const ledger = trackedLedger(
-          createAgentLedger(deps, currentLease, stepIndex, price),
-          parts.experimentLedger,
-          attemptIds,
-        )
-        if (parts.model) return { messages, model: parts.model(step.stepNumber) }
-        if (config.provider === 'mock')
-          return {
-            messages,
-            model: mockAgentModel(
-              deps,
-              currentLease,
-              bound,
-              limits.maxOutputTokens,
-              stepIndex,
-              price,
-              parts.experimentLedger,
-              attemptIds,
-              historyView.data,
-            ),
-          }
-        const provider = config.provider
-        return {
-          messages,
-          model: guardedAiModel({
-            provider,
-            apiKey: config.apiKey ?? '',
-            model: context.run.model,
-            mode: context.run.mode,
-            price,
-            ledger,
-            label: 'agent',
-            inputTokenBound: bound,
-            maxOutputTokens: limits.maxOutputTokens,
-            onEvidence: async (evidence) => {
-              providerStatus = evidence.httpStatus
-              await recordAgentEvidence(deps, evidence)
-            },
-          }),
-          providerOptions: aiProviderOptions(provider, context.run.mode),
-        }
-      },
-      onStepFinish: async (step) => {
-        lastFinishReason = step.finishReason
-        durableMessages = [...durableMessages, ...step.response.messages]
-        await saveAgentModelStep(deps, currentLease, {
-          messages: durableMessages,
-          text: step.text,
-          finishReason: step.finishReason,
-        })
-      },
-    })
-    timer = setInterval(() => {
-      if (heartbeat) return
-      heartbeat = heartbeatAgentRun(deps, currentLease)
-        .catch(() => abort.abort())
-        .finally(() => {
-          heartbeat = undefined
-        })
-    }, 5000)
-    const remainingMs = limits.durationMs - context.run.elapsedActiveMs
-    if (remainingMs <= 0) throw new AppError('QUOTA_EXCEEDED', 'The request time limit was reached')
-    const signal = AbortSignal.any([abort.signal, AbortSignal.timeout(remainingMs)])
-    const result = await agent.stream({ messages: initialMessages, abortSignal: signal })
-    finishStream = async () => {
-      await result.consumeStream({ onError: () => {} })
-    }
+    let stepsUsed = context.run.stepCount
+    const claimedAt = performance.now()
     let text = ''
     let pending = ''
     let index = 0
@@ -442,34 +483,198 @@ export async function executeAgentRun(parts: AgentExecution, id: string): Promis
       pending = ''
       lastBatch = performance.now()
     }
-    for await (const part of result.fullStream) {
-      if (part.type === 'tool-error') {
-        await recordAgentToolFailure(
-          deps,
-          currentLease,
-          part.toolName in agentToolSchemas ? part.toolName : 'unsupported_tool',
-          null,
-          'TOOL_FAILED',
-        )
-        throw part.error
-      }
-      if (part.type === 'error') throw part.error
-      if (part.type === 'text-delta') {
-        const next = truncateCodePoints(text + part.text, 20_000)
-        const delta = next.slice(text.length)
-        text = next
-        pending += delta
-        if (Array.from(text).length >= 20_000) {
-          truncated = true
-          await flush(true)
-          abort.abort()
-          break
-        }
-        const now = performance.now()
-        if (now - lastBatch >= 75) await flush(now - lastPersist >= 1000)
-      }
+    /**
+     * Settles the approval requests at the end of the history (docs/06 section 5.1). Returns false when the run now
+     * waits for the caller (the segment was finished in the pause transaction), true when every request was answered
+     * and the model may continue.
+     */
+    const settle = async (): Promise<boolean> => {
+      const requests = unansweredRequests(durableMessages)
+      if (!requests.length) return true
+      if (text) await flush(true)
+      const { waiting } = await registerApprovalRequests(deps, currentLease, requests, text)
+      if (waiting) return false
+      const answer = await answerApprovalRequests(deps, currentLease, requests)
+      if (answer === 'waiting') return false
+      durableMessages = [...durableMessages, answer]
+      return true
     }
-    if (lastFinishReason === 'tool-calls')
+    // A run resumed after a decision, or recovered after a crash, may stop at requests the model already made.
+    if (!(await settle())) return
+    timer = setInterval(() => {
+      if (heartbeat) return
+      heartbeat = heartbeatAgentRun(deps, currentLease)
+        .catch(() => abort.abort())
+        .finally(() => {
+          heartbeat = undefined
+        })
+    }, 5000)
+    for (;;) {
+      if (stepsUsed >= limits.steps)
+        throw new AppError('QUOTA_EXCEEDED', 'The tool step limit was reached')
+      const remainingMs =
+        limits.durationMs - context.run.elapsedActiveMs - (performance.now() - claimedAt)
+      if (remainingMs <= 0)
+        throw new AppError('QUOTA_EXCEEDED', 'The request time limit was reached')
+      const roundBase = stepsUsed
+      const agent = new ToolLoopAgent({
+        model:
+          parts.model?.(0) ??
+          mockAgentModel(
+            deps,
+            currentLease,
+            1,
+            limits.maxOutputTokens,
+            roundBase,
+            price,
+            parts.experimentLedger,
+            attemptIds,
+            [],
+            intent,
+          ),
+        instructions,
+        tools,
+        toolApproval: effectApproval,
+        maxRetries: 0,
+        // SDK errors can contain prompts and vendor response bodies. Persist only the classified run error below.
+        prepareCall: (call) => ({ ...call, onError: () => {} }),
+        telemetry: { isEnabled: false, recordInputs: false, recordOutputs: false },
+        maxOutputTokens: limits.maxOutputTokens,
+        stopWhen: isStepCount(Math.max(1, limits.steps - roundBase)),
+        experimental_download: denyAiDownloads,
+        prepareStep: async (step) => {
+          await withAgentLease(deps, currentLease, async () => {})
+          const messages = compactAgentMessages(step.messages, historyView.data)
+          // UTF-8 bytes bound text tokens conservatively, including full schemas/tool results and framing overhead.
+          const bound =
+            Buffer.byteLength(
+              JSON.stringify(
+                {
+                  instructions,
+                  messages,
+                  schemas: Object.fromEntries(
+                    Object.keys(tools).map((name) => [
+                      name,
+                      modelToolSchema(name as keyof typeof agentToolSchemas),
+                    ]),
+                  ),
+                },
+                (_, value: unknown) => (value instanceof Uint8Array ? '[server image]' : value),
+              ),
+            ) +
+            8192 +
+            imageParts.length * 8192
+          if (bound > limits.maxInputTokens)
+            throw new AppError('QUOTA_EXCEEDED', 'The model input limit was reached')
+          const stepIndex = step.stepNumber + roundBase
+          const ledger = trackedLedger(
+            createAgentLedger(deps, currentLease, stepIndex, price),
+            parts.experimentLedger,
+            attemptIds,
+          )
+          if (parts.model) return { messages, model: parts.model(step.stepNumber) }
+          if (route.provider === 'mock') {
+            // The mock stands in for the provider refusing a key revoked after it was saved (E2E scenario 13).
+            if (ownKey?.startsWith('sk-mock-revoked')) {
+              providerStatus = 401
+              throw new AiTransportError('REQUEST_REJECTED', 401)
+            }
+            return {
+              messages,
+              model: mockAgentModel(
+                deps,
+                currentLease,
+                bound,
+                limits.maxOutputTokens,
+                stepIndex,
+                price,
+                parts.experimentLedger,
+                attemptIds,
+                historyView.data,
+                intent,
+              ),
+            }
+          }
+          const provider = route.provider
+          return {
+            messages,
+            model: guardedAiModel({
+              provider,
+              apiKey: ownKey ?? config.apiKey ?? '',
+              model: context.run.model,
+              mode: context.run.mode,
+              price,
+              ledger,
+              label: 'agent',
+              inputTokenBound: bound,
+              maxOutputTokens: limits.maxOutputTokens,
+              onEvidence: async (evidence) => {
+                providerStatus = evidence.httpStatus
+                await recordAgentEvidence(deps, evidence)
+              },
+            }),
+            providerOptions: aiProviderOptions(provider, context.run.mode),
+          }
+        },
+        onStepFinish: async (step) => {
+          lastFinishReason = step.finishReason
+          stepsUsed += 1
+          durableMessages = [...durableMessages, ...step.response.messages]
+          await saveAgentModelStep(deps, currentLease, {
+            messages: durableMessages,
+            text: step.text,
+            finishReason: step.finishReason,
+          })
+        },
+      })
+      const signal = AbortSignal.any([abort.signal, AbortSignal.timeout(remainingMs)])
+      const result = await agent.stream({
+        messages: durableMessages as ModelMessage[],
+        abortSignal: signal,
+      })
+      finishStream = async () => {
+        await result.consumeStream({ onError: () => {} })
+      }
+      // Rounds continue one reply segment: text after an automatic effect follows on a new paragraph.
+      if (text && !text.endsWith('\n')) {
+        text += '\n\n'
+        pending += '\n\n'
+      }
+      for await (const part of result.fullStream) {
+        if (part.type === 'tool-error') {
+          await recordAgentToolFailure(
+            deps,
+            currentLease,
+            part.toolName in agentToolSchemas ? part.toolName : 'unsupported_tool',
+            null,
+            'TOOL_FAILED',
+          )
+          throw part.error
+        }
+        if (part.type === 'error') throw part.error
+        if (part.type === 'text-delta') {
+          const next = truncateCodePoints(text + part.text, 20_000)
+          const delta = next.slice(text.length)
+          text = next
+          pending += delta
+          if (Array.from(text).length >= 20_000) {
+            truncated = true
+            await flush(true)
+            abort.abort()
+            break
+          }
+          const now = performance.now()
+          if (now - lastBatch >= 75) await flush(now - lastPersist >= 1000)
+        }
+      }
+      if (truncated) break
+      if (unansweredRequests(durableMessages).length) {
+        if (!(await settle())) return
+        continue
+      }
+      break
+    }
+    if (lastFinishReason === 'tool-calls' && !truncated)
       throw new AppError('QUOTA_EXCEEDED', 'The tool step limit was reached')
     if (!text.trim()) {
       if (lastFinishReason === 'length')
@@ -478,12 +683,24 @@ export async function executeAgentRun(parts: AgentExecution, id: string): Promis
     }
     if (lastFinishReason === 'length') truncated = true
     await flush(true)
-    if (!truncated && signal.aborted)
+    if (!truncated && abort.signal.aborted)
       throw new AppError('QUOTA_EXCEEDED', 'The request was interrupted')
     await completeAgentRun(deps, currentLease)
   } catch (error) {
-    const code =
-      providerStatus === 429
+    // An own key refused by DeepSeek (V-17): 401/403 invalid, 402 out of balance. That revision is marked so the
+    // person sees why; rate limiting never marks a key.
+    const rejected =
+      own && (providerStatus === 401 || providerStatus === 403 || providerStatus === 402)
+    if (rejected && runUserId)
+      await markKeyRejected(
+        deps,
+        runUserId,
+        keyRevision,
+        providerStatus === 402 ? 'insufficient_balance' : 'invalid',
+      )
+    const code = rejected
+      ? 'AI_KEY_INVALID'
+      : providerStatus === 429
         ? 'RATE_LIMITED'
         : error instanceof AppError
           ? error.code

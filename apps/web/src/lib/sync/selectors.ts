@@ -86,12 +86,20 @@ export function sidebarGroups(
 export const sidebarOrder = (groups: SidebarGroup[]): SidebarItem[] =>
   groups.flatMap((group) => group.items)
 
+/** Label of the person's own reminder conversation; the stored name is only a fallback (set by the app at start). */
+let remindersLabel = ''
+export function setRemindersLabel(label: string): void {
+  remindersLabel = label
+}
+
 /** What a conversation is called: its name, or for a direct message the other person's display name. */
 export function displayName(
-  conversation: Pick<Conversation, 'kind' | 'name' | 'dmPeer'>,
+  conversation: Pick<Conversation, 'kind' | 'name' | 'dmPeer'> &
+    Partial<Pick<Conversation, 'agentPurpose'>>,
   fallback = '',
 ): string {
   if (conversation.kind === 'dm') return conversation.dmPeer?.displayName ?? fallback
+  if (conversation.agentPurpose === 'reminders' && remindersLabel) return remindersLabel
   return conversation.name ?? fallback
 }
 

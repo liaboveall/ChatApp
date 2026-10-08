@@ -39,6 +39,11 @@ const IMAGE_ENV = { PATH: '/usr/local/bin:/usr/bin:/bin', LANG: 'C.UTF-8', TMPDI
 const TMPFS = 'size=268435456,mode=1777,nosuid,nodev,noexec'
 const HEALTH_TEST = ['CMD', '/usr/bin/test', '-S', '/run/chatapp-media/media.sock']
 const SOURCE_PATHS = ['apps/server/src', 'packages/contracts/src', 'packages/db/src']
+const PRIVATE_VOLUMES = ['media-socket', 'embedding-socket', 'embedding-models'] as const
+const EMBEDDING_MOUNTS = [
+  { name: 'embedding-socket', path: '/run/chatapp-embedding', writable: true },
+  { name: 'embedding-models', path: '/var/lib/chatapp/models', writable: false },
+] as const
 const COMMANDS = {
   media: ['bun', '--no-env-file', '/app/apps/media/src/server.ts'],
   worker: ['bun', '--no-env-file', '--watch', '/app/apps/server/src/worker.ts'],
@@ -69,6 +74,11 @@ const DEFAULTS = {
   AGENT_USERNAME: 'assistant',
   LOG_LEVEL: 'info',
   AI_PROVIDER: 'soclaas',
+  AI_KEY_ENCRYPTION_KEY: '',
+  EMBEDDING_ENABLED: 'false',
+  EMBEDDING_MODEL: 'bge',
+  EMBEDDING_SOCKET_PATH: '/run/chatapp-embedding/embedding.sock',
+  EMBEDDING_CACHE_DIR: '/var/lib/chatapp/models',
   SOCLAAS_API_KEY: '',
   DEEPSEEK_API_KEY: '',
   AI_MODEL_FAST: '',
@@ -179,6 +189,19 @@ export function workerEnvironment(source: Source): Record<string, string> {
     env[key] = value
   }
   for (const [key, fallback] of Object.entries(DEFAULTS)) env[key] = source[key] || fallback
+  requireCondition(
+    ['true', 'false'].includes(env.EMBEDDING_ENABLED ?? ''),
+    'EMBEDDING_ENABLED must be true or false',
+  )
+  requireCondition(
+    ['qwen', 'bge'].includes(env.EMBEDDING_MODEL ?? ''),
+    'EMBEDDING_MODEL must be qwen or bge',
+  )
+  env.EMBEDDING_SOCKET_PATH = '/run/chatapp-embedding/embedding.sock'
+  env.EMBEDDING_CACHE_DIR = '/var/lib/chatapp/models'
+  // This stack serves a host API. Its local embedding worker owns the host socket; the media/AI container must not
+  // consume that generation's jobs through a different, empty container socket.
+  env.EMBEDDING_ENABLED = 'false'
   if (!env.AI_MODEL_FAST)
     env.AI_MODEL_FAST = env.AI_PROVIDER === 'soclaas' ? 'x-test-1' : 'deepseek-flash'
   if (!env.AI_MODEL_DEEP)
@@ -395,7 +418,7 @@ export function verifyRuntime(
   requireCondition(
     mounts
       .filter((mount) => mount.Type === 'tmpfs')
-      .every((mount) => mount.Destination === '/tmp') && dataMounts.length === (media ? 1 : 4),
+      .every((mount) => mount.Destination === '/tmp') && dataMounts.length === (media ? 1 : 6),
     'unexpected data mount',
   )
   const socket = dataMounts.find((mount) => mount.Destination === '/run/chatapp-media')
@@ -405,6 +428,16 @@ export function verifyRuntime(
       socket.RW === media,
     'socket volume is not private or has incorrect write access',
   )
+  if (!media)
+    for (const allowed of EMBEDDING_MOUNTS) {
+      const mount = dataMounts.find((entry) => entry.Destination === allowed.path)
+      requireCondition(
+        mount?.Type === 'volume' &&
+          mount.Name === `${MEDIA_PROJECT}_${allowed.name}` &&
+          mount.RW === allowed.writable,
+        'embedding volume ownership or access does not verify',
+      )
+    }
   if (!media)
     for (const path of SOURCE_PATHS) {
       const mount = dataMounts.find((entry) => entry.Destination === `/app/${path}`)
@@ -496,7 +529,7 @@ export function verifyComposeConfiguration(value: unknown, worker: Record<string
     )
     tmpfsOptions(tmpfs[0]?.slice('/tmp:'.length))
     const mounts = array(service.volumes).map(object)
-    requireCondition(mounts.length === (media ? 1 : 4), 'unexpected Compose data mount')
+    requireCondition(mounts.length === (media ? 1 : 6), 'unexpected Compose data mount')
     const socket = mounts.find((mount) => mount.target === '/run/chatapp-media')
     requireCondition(
       socket?.type === 'volume' &&
@@ -521,6 +554,15 @@ export function verifyComposeConfiguration(value: unknown, worker: Record<string
         'worker must use only the existing development network',
       )
       exactEnvironment(object(service.environment), worker)
+      for (const allowed of EMBEDDING_MOUNTS) {
+        const mount = mounts.find((entry) => entry.target === allowed.path)
+        requireCondition(
+          mount?.type === 'volume' &&
+            mount.source === allowed.name &&
+            (mount.read_only === true) === !allowed.writable,
+          'unexpected embedding mount',
+        )
+      }
       for (const path of SOURCE_PATHS) {
         const mount = mounts.find((entry) => entry.target === `/app/${path}`)
         requireCondition(
@@ -534,18 +576,23 @@ export function verifyComposeConfiguration(value: unknown, worker: Record<string
     }
   }
   const volumes = object(config.volumes)
-  const socketVolume = object(volumes['media-socket'])
-  const volumeLabels = object(socketVolume.labels)
   requireCondition(
-    same(Object.keys(volumes), ['media-socket']) &&
-      socketVolume.name === `${MEDIA_PROJECT}_media-socket` &&
-      socketVolume.external !== true &&
-      (socketVolume.driver === undefined || socketVolume.driver === 'local') &&
-      socketVolume.driver_opts === undefined &&
-      volumeLabels['chatapp.media.policy'] === '1' &&
-      volumeLabels['chatapp.media.repository'] === REPOSITORY,
-    'unexpected shared volume or host/object-backed volume options',
+    same(Object.keys(volumes).sort(), [...PRIVATE_VOLUMES].sort()),
+    'unexpected shared volumes',
   )
+  for (const name of PRIVATE_VOLUMES) {
+    const socketVolume = object(volumes[name])
+    const volumeLabels = object(socketVolume.labels)
+    requireCondition(
+      socketVolume.name === `${MEDIA_PROJECT}_${name}` &&
+        socketVolume.external !== true &&
+        (socketVolume.driver === undefined || socketVolume.driver === 'local') &&
+        socketVolume.driver_opts === undefined &&
+        volumeLabels['chatapp.media.policy'] === '1' &&
+        volumeLabels['chatapp.media.repository'] === REPOSITORY,
+      'unexpected shared volume or host/object-backed volume options',
+    )
+  }
   const networks = object(config.networks)
   requireCondition(
     same(Object.keys(networks), ['dev']) &&
@@ -624,16 +671,19 @@ async function inspect(run: DockerRunner, id: string): Promise<Record<string, un
   requireCondition(ID.test(id), 'invalid container id')
   return one(await run(['inspect', '--type', 'container', id]))
 }
-export function verifySocketVolume(value: unknown): void {
+export function verifySocketVolume(
+  value: unknown,
+  name: (typeof PRIVATE_VOLUMES)[number] = 'media-socket',
+): void {
   const volume = object(value)
   const labels = object(volume.Labels)
   requireCondition(
-    volume.Name === `${MEDIA_PROJECT}_media-socket` &&
+    volume.Name === `${MEDIA_PROJECT}_${name}` &&
       volume.Driver === 'local' &&
       volume.Scope === 'local' &&
       Object.keys(object(volume.Options ?? {})).length === 0 &&
       labels['com.docker.compose.project'] === MEDIA_PROJECT &&
-      labels['com.docker.compose.volume'] === 'media-socket' &&
+      labels['com.docker.compose.volume'] === name &&
       labels['chatapp.media.policy'] === '1' &&
       labels['chatapp.media.repository'] === REPOSITORY,
     'socket volume ownership/driver does not verify; host/object-backed volumes are forbidden',
@@ -644,28 +694,32 @@ async function socketVolume(
   targets: ContainerTarget[],
   allowMissing = false,
 ): Promise<void> {
-  const name = `${MEDIA_PROJECT}_media-socket`
-  const names = (await run(['volume', 'ls', '--quiet', '--filter', `name=^${name}$`]))
-    .trim()
-    .split(/\s+/)
-    .filter(Boolean)
-  requireCondition(
-    names.length <= 1 && names.every((entry) => entry === name),
-    'ambiguous socket volume',
-  )
-  if (names.length === 0) {
-    requireCondition(allowMissing, 'socket volume is missing')
-    return
+  for (const kind of PRIVATE_VOLUMES) {
+    const name = `${MEDIA_PROJECT}_${kind}`
+    const names = (await run(['volume', 'ls', '--quiet', '--filter', `name=^${name}$`]))
+      .trim()
+      .split(/\s+/)
+      .filter(Boolean)
+    requireCondition(
+      names.length <= 1 && names.every((entry) => entry === name),
+      'ambiguous socket volume',
+    )
+    if (names.length === 0) {
+      requireCondition(allowMissing, 'socket volume is missing')
+      continue
+    }
+    verifySocketVolume(one(await run(['volume', 'inspect', name])), kind)
+    const users = (
+      await run(['ps', '--all', '--quiet', '--no-trunc', '--filter', `volume=${name}`])
+    )
+      .trim()
+      .split(/\s+/)
+      .filter(Boolean)
+    requireCondition(
+      users.every((id) => ID.test(id) && targets.some((target) => target.id === id)),
+      'socket volume is mounted by an unrelated container; nothing changed',
+    )
   }
-  verifySocketVolume(one(await run(['volume', 'inspect', name])))
-  const users = (await run(['ps', '--all', '--quiet', '--no-trunc', '--filter', `volume=${name}`]))
-    .trim()
-    .split(/\s+/)
-    .filter(Boolean)
-  requireCondition(
-    users.every((id) => ID.test(id) && targets.some((target) => target.id === id)),
-    'socket volume is mounted by an unrelated container; nothing changed',
-  )
 }
 async function dependencies(run: DockerRunner): Promise<void> {
   const network = one(await run(['network', 'inspect', DEV_NETWORK]))

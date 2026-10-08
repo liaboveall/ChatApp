@@ -1,0 +1,48 @@
+name: embeddings
+
+on:
+  push:
+    branches: [main, v2]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: embeddings-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  native-arm:
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v7
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version-file: package.json
+      - run: bun install --frozen-lockfile
+      - name: Require native ARM and generate isolated local configuration
+        run: |
+          bun -e 'if (process.platform !== "linux" || process.arch !== "arm64") process.exit(1)'
+          bun run setup
+      - name: Prepare the pinned public model
+        run: bun run embeddings prepare bge
+      - name: Two-core Debian API, AI, media and indexing load
+        run: bun run test:m5:mixed
+      - name: Frozen development and holdout quality on the same Debian image
+        run: bun run test:m5:native
+      - name: Preserve metadata evidence
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: m5-native-arm-evidence
+          path: |
+            .test-runs/m5/mixed-*/result.json
+            .test-runs/m5/mixed-*/failure.json
+            .test-runs/m5/search-bge-*/result.json
+            .test-runs/m5/search-bge-*/source-manifest.json
+            .test-runs/m5/native-gate-*/result.json
+          if-no-files-found: warn
+          retention-days: 14

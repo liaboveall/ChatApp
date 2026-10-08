@@ -1,4 +1,5 @@
 import {
+  type AgentContext,
   type AgentRun,
   type AgentRunDetail,
   type AgentRunRequest,
@@ -9,6 +10,7 @@ import {
   truncateCodePoints,
 } from '@chatapp/contracts'
 import {
+  agentApprovals,
   agentContexts,
   agentRunOutputs,
   agentRunStates,
@@ -29,6 +31,7 @@ import { fingerprint } from '../lib/crypto.ts'
 import {
   type AgentLease,
   type AgentRunRow,
+  closePendingApprovals,
   contextChanged,
   invalidateConversationRuns,
   lockDelegation,
@@ -38,6 +41,8 @@ import {
   validateAgentSources,
   withAgentLease,
 } from './agent-access.ts'
+import { runDecisions } from './agent-approvals.ts'
+import { activeKeyRevision, defaultKeySource } from './ai-keys.ts'
 import { lockStorage } from './attachment-common.ts'
 import { requireAccess } from './authorize.ts'
 import {
@@ -56,6 +61,7 @@ import { retireAttachment } from './uploads.ts'
 import { enqueueWork } from './work.ts'
 
 export const aiPolicy = (deps: Deps) => deps.config.ai ?? loadAiConfig({ APP_ENV: 'test' })
+export const RUN_DELEGATION_MS = 25 * 3_600_000
 export function agentRunDto(run: AgentRunRow): AgentRun {
   return {
     id: run.id,
@@ -78,6 +84,8 @@ export function agentRunDto(run: AgentRunRow): AgentRun {
     resumeSeq: run.resumeSeq,
     stepCount: run.stepCount,
     regeneratedFromRunId: run.regeneratedFromRunId,
+    hasEffects: run.hasEffects,
+    pendingApproval: run.pendingApproval,
     usage: {
       inputTokens: run.inputTokens,
       outputTokens: run.outputTokens,
@@ -98,6 +106,7 @@ async function makeAgentConversation(
   userId: string,
   prompt: string,
   contextId: string | null,
+  privateTitle = false,
 ): Promise<string> {
   const counts = await countLiveMemberships(tx, [userId])
   if ((counts.get(userId) ?? 0) >= LIMITS.maxConversationsPerUser)
@@ -106,14 +115,18 @@ async function makeAgentConversation(
   await tx.insert(conversations).values({
     id,
     kind: 'agent',
+    // A title taken from an own-key prompt would carry private content into lists the site assistant can read
+    // (docs/06 section 3.1); such conversations start with the neutral name and the person may rename them.
     name:
-      truncateCodePoints(
-        prompt
-          .replace(/<@user:[^>]+>/g, '')
-          .replace(/\s+/g, ' ')
-          .trim(),
-        40,
-      ) || deps.config.product.agentDisplayName,
+      (privateTitle
+        ? ''
+        : truncateCodePoints(
+            prompt
+              .replace(/<@user:[^>]+>/g, '')
+              .replace(/\s+/g, ' ')
+              .trim(),
+            40,
+          )) || deps.config.product.agentDisplayName,
     ownerId: userId,
     createdBy: userId,
     panelForConversationId: contextId,
@@ -130,48 +143,157 @@ async function makeAgentConversation(
   return id
 }
 
+export type AgentSegment = {
+  contextEpoch: string
+  stateVersion: number
+  historyFromSeq: number
+  readScope: AgentRunRow['readScope']
+  keySource: 'site' | 'user'
+  keyRevision: number | null
+  privacyClass: 'standard' | 'byok_private'
+}
+
+/**
+ * The context segment the next private request belongs to (docs/06 section 3.1, D-080). A conversation's first segment
+ * takes the person's default source; later ones keep the source they had, follow a replaced own key to its new
+ * revision, and change source only by an explicit switch. Any change of scope, source or revision is a new blank epoch
+ * and ends the runs of the old one. An own-key segment without a usable key is refused, never moved to the site key.
+ */
 async function switchContext(
   tx: Tx,
   deps: Deps,
   conversationId: string,
   scope: AgentRunRow['readScope'],
-): Promise<string> {
+  userId: string,
+  explicitSource?: 'site' | 'user',
+): Promise<AgentSegment> {
   const [current] = await tx
     .select()
     .from(agentContexts)
     .where(eq(agentContexts.conversationId, conversationId))
+  const keySource = explicitSource ?? current?.keySource ?? (await defaultKeySource(tx, userId))
+  const keyRevision = keySource === 'user' ? await activeKeyRevision(tx, userId) : null
+  if (keySource === 'user' && keyRevision === null)
+    throw new AppError('AI_KEY_INVALID', 'Your own key is missing or no longer accepted', {
+      details: { reason: 'unavailable' },
+    })
+  const privacyClass = keySource === 'user' ? 'byok_private' : 'standard'
   if (
     current &&
     current.readScope === scope &&
-    current.keySource === 'site' &&
-    current.privacyClass === 'standard' &&
-    current.keyRevision === null
+    current.keySource === keySource &&
+    current.privacyClass === privacyClass &&
+    current.keyRevision === keyRevision
   )
-    return current.contextEpoch
+    return { ...current, keyRevision: current.keyRevision ?? null }
   if (current) await invalidateConversationRuns(tx, deps, conversationId)
+  const privacyTransition =
+    current && (current.keySource !== keySource || current.keyRevision !== keyRevision)
+  const [conversation] = privacyTransition
+    ? await tx
+        .select({ lastSeq: conversations.lastSeq })
+        .from(conversations)
+        .where(eq(conversations.id, conversationId))
+    : []
+  const historyFromSeq = privacyTransition
+    ? (conversation?.lastSeq ?? 0)
+    : (current?.historyFromSeq ?? 0)
   const epoch = deps.newId()
+  const values = {
+    contextEpoch: epoch,
+    stateVersion: (current?.stateVersion ?? 0) + 1,
+    historyFromSeq,
+    readScope: scope,
+    keySource,
+    privacyClass,
+    keyRevision,
+    updatedAt: deps.clock.now(),
+  } as const
   await tx
     .insert(agentContexts)
-    .values({
+    .values({ conversationId, ...values })
+    .onConflictDoUpdate({ target: agentContexts.conversationId, set: values })
+  return {
+    contextEpoch: epoch,
+    stateVersion: values.stateVersion,
+    historyFromSeq,
+    readScope: scope,
+    keySource,
+    keyRevision,
+    privacyClass,
+  }
+}
+
+export async function getAgentContext(
+  deps: Deps,
+  principal: SessionPrincipal,
+  conversationId: string,
+): Promise<AgentContext> {
+  return await inTransaction(deps.db, async (tx) => {
+    const user = await lockAndRevalidate(tx, deps, principal)
+    const access = await requireAccess(
+      tx,
+      { userId: user.id, siteRole: user.role },
       conversationId,
-      contextEpoch: epoch,
-      readScope: scope,
-      keySource: 'site',
-      privacyClass: 'standard',
-      updatedAt: deps.clock.now(),
-    })
-    .onConflictDoUpdate({
-      target: agentContexts.conversationId,
-      set: {
-        contextEpoch: epoch,
-        readScope: scope,
-        keySource: 'site',
-        privacyClass: 'standard',
-        keyRevision: null,
-        updatedAt: deps.clock.now(),
-      },
-    })
-  return epoch
+      'read_messages',
+      { now: deps.clock.now(), lock: true },
+    )
+    if (access.conversation.kind !== 'agent' || access.conversation.ownerId !== user.id)
+      throw new AppError('NOT_FOUND', 'Conversation not found')
+    const [context] = await tx
+      .select()
+      .from(agentContexts)
+      .where(eq(agentContexts.conversationId, conversationId))
+    if (!context) throw new AppError('NOT_FOUND', 'Assistant segment not found')
+    return {
+      conversationId,
+      contextEpoch: context.contextEpoch,
+      stateVersion: context.stateVersion,
+      historyFromSeq: context.historyFromSeq,
+      keySource: context.keySource,
+      readScope: context.readScope,
+    }
+  })
+}
+
+/**
+ * "Use the site allowance for a new request" and its opposite (docs/06 section 14, docs/02 section 6): a blank segment
+ * with the chosen source; nothing of the old segment is carried over. Only the owner of the conversation may switch.
+ */
+export async function switchAgentKeySource(
+  deps: Deps,
+  principal: SessionPrincipal,
+  conversationId: string,
+  keySource: 'site' | 'user',
+): Promise<AgentContext> {
+  return await inTransaction(deps.db, async (tx) => {
+    const user = await lockAndRevalidate(tx, deps, principal)
+    const access = await requireAccess(
+      tx,
+      { userId: user.id, siteRole: user.role },
+      conversationId,
+      'send_message',
+      { now: deps.clock.now(), lock: true },
+    )
+    if (access.conversation.kind !== 'agent' || access.conversation.ownerId !== user.id)
+      throw new AppError('NOT_FOUND', 'Conversation not found')
+    const [current] = await tx
+      .select({ readScope: agentContexts.readScope })
+      .from(agentContexts)
+      .where(eq(agentContexts.conversationId, conversationId))
+    const scope =
+      current?.readScope ??
+      (access.conversation.panelForConversationId ? 'current_conversation' : 'all_accessible')
+    const segment = await switchContext(tx, deps, conversationId, scope, user.id, keySource)
+    return {
+      conversationId,
+      contextEpoch: segment.contextEpoch,
+      stateVersion: segment.stateVersion,
+      historyFromSeq: segment.historyFromSeq,
+      keySource: segment.keySource,
+      readScope: segment.readScope,
+    }
+  })
 }
 
 /** Caller already holds the user and output conversation locks; used by HTTP and transactional @Agent creation. */
@@ -233,11 +355,26 @@ export async function enqueueRunForSource(
   if (!user) throw new AppError('UNAUTHENTICATED', 'Session is no longer valid')
   const id = deps.newId()
   const delegationId = deps.newId()
-  const epoch =
-    options.epoch ??
-    (options.trigger === 'mention'
-      ? deps.newId()
-      : await switchContext(tx, deps, source.conversationId, options.scope))
+  // A shared @mention is a public reply: its own segment, the person's default source, standard privacy. A private
+  // request belongs to the conversation's current segment (or the one a regeneration must reuse).
+  let segment: AgentSegment
+  if (options.trigger === 'mention') {
+    const keySource = await defaultKeySource(tx, principal.userId)
+    segment = {
+      contextEpoch: options.epoch ?? deps.newId(),
+      stateVersion: 0,
+      historyFromSeq: 0,
+      readScope: 'current_conversation',
+      keySource,
+      keyRevision: keySource === 'user' ? await activeKeyRevision(tx, principal.userId) : null,
+      privacyClass: 'standard',
+    }
+    if (keySource === 'user' && segment.keyRevision === null)
+      segment = { ...segment, keySource: 'site' }
+  } else
+    segment = await switchContext(tx, deps, source.conversationId, options.scope, principal.userId)
+  if (options.epoch && options.epoch !== segment.contextEpoch) throw contextChanged()
+  const epoch = segment.contextEpoch
   const people =
     options.trigger === 'mention'
       ? await tx
@@ -262,7 +399,11 @@ export async function enqueueRunForSource(
       privacyClass: source.privacyClass,
     },
   ]
-  if (source.seq <= boundary || source.privacyClass !== 'standard') refusal = 'CONTEXT_CHANGED'
+  if (
+    source.seq <= boundary ||
+    (source.privacyClass !== 'standard' && segment.privacyClass !== 'byok_private')
+  )
+    refusal = 'CONTEXT_CHANGED'
   if (options.contextId && options.contextId !== source.conversationId) {
     const context = await requireAccess(
       tx,
@@ -282,7 +423,11 @@ export async function enqueueRunForSource(
   }
   const files = await tx.select().from(attachments).where(eq(attachments.messageId, source.id))
   for (const file of files) {
-    if (file.status !== 'ready' || file.privacyClass !== 'standard') throw contextChanged()
+    if (
+      file.status !== 'ready' ||
+      (file.privacyClass !== 'standard' && segment.privacyClass !== 'byok_private')
+    )
+      throw contextChanged()
     manifest.push({
       type: 'attachment',
       id: file.id,
@@ -307,10 +452,13 @@ export async function enqueueRunForSource(
       scope: options.scope,
       epoch,
     }),
-    expiresAt: new Date(now.getTime() + 24 * 3_600_000),
+    // Runs are authorized for 25 hours, so a request approved at the end of its 24-hour window can still finish;
+    // approval never extends it (D-079, docs/01 section 7).
+    expiresAt: new Date(now.getTime() + RUN_DELEGATION_MS),
     createdAt: now,
   })
   const policy = aiPolicy(deps)
+  const own = segment.keySource === 'user'
   const [run] = await tx
     .insert(agentRuns)
     .values({
@@ -322,9 +470,12 @@ export async function enqueueRunForSource(
       contextConversationId: options.contextId,
       sourceMessageId: source.id,
       readScope: options.scope,
+      keySource: segment.keySource,
+      keyRevision: segment.keyRevision,
+      privacyClass: segment.privacyClass,
       mode: options.mode,
-      provider: policy.provider,
-      model: policy.models[options.mode],
+      provider: own ? policy.byok.provider : policy.provider,
+      model: own ? policy.byok.models[options.mode] : policy.models[options.mode],
       timezone: user.timezone,
       contextEpoch: epoch,
       contextManifest: manifest,
@@ -343,7 +494,19 @@ export async function enqueueRunForSource(
     .returning()
   if (!run) throw new Error('run was not created')
   await tx.insert(agentRunStates).values({ runId: id, contextEpoch: epoch, updatedAt: now })
-  await tx.update(messages).set({ contextEpoch: epoch }).where(eq(messages.id, source.id))
+  // The request of a private own-key segment is private too, and so are the files it carries (D-080).
+  await tx
+    .update(messages)
+    .set({
+      contextEpoch: epoch,
+      ...(segment.privacyClass === 'byok_private' ? { privacyClass: 'byok_private' as const } : {}),
+    })
+    .where(eq(messages.id, source.id))
+  if (segment.privacyClass === 'byok_private')
+    await tx
+      .update(attachments)
+      .set({ privacyClass: 'byok_private', version: sql`${attachments.version} + 1` })
+      .where(eq(attachments.messageId, source.id))
   if (!refusal)
     await enqueueWork(tx, deps, {
       kind: 'agent',
@@ -432,7 +595,14 @@ export async function createAgentRun(
           .orderBy(sql`${conversations.lastMessageAt} desc nulls last`, desc(conversations.id))
           .limit(1)
       )[0]?.id
-    conversationId ??= await makeAgentConversation(tx, deps, user.id, input.prompt, contextId)
+    conversationId ??= await makeAgentConversation(
+      tx,
+      deps,
+      user.id,
+      input.prompt,
+      contextId,
+      (await defaultKeySource(tx, user.id)) === 'user',
+    )
     const access = await requireAccess(
       tx,
       { userId: user.id, siteRole: user.role },
@@ -450,7 +620,8 @@ export async function createAgentRun(
       input.trigger === 'agent_chat' || input.scope === 'all'
         ? 'all_accessible'
         : 'current_conversation'
-    const epoch = await switchContext(tx, deps, conversationId, scope)
+    const segment = await switchContext(tx, deps, conversationId, scope, user.id)
+    const epoch = segment.contextEpoch
     const allocated = await allocateMessageSeq(tx, deps, conversationId)
     const [source] = await tx
       .insert(messages)
@@ -556,8 +727,14 @@ export async function ownedAgentRun(
       if (error instanceof AppError) readable = false
       else throw error
     }
+  const decisions = await runDecisions(
+    tx,
+    deps,
+    readable ? run : { ...run, contentPurgedAt: deps.clock.now() },
+  )
   return {
     run: agentRunDto(run),
+    ...decisions,
     steps: steps.map((step) => ({
       index: step.index,
       type: step.type,
@@ -636,6 +813,7 @@ export async function cancelAgentRun(
       .where(eq(agentRuns.id, id))
       .returning()
     await finishOutput(tx, deps, run, 'failed')
+    await closePendingApprovals(tx, deps, [run.id], 'cancelled')
     if (!updated) throw staleLease()
     await notifyAgentRun(tx, deps, updated)
     return agentRunDto(updated)
@@ -716,6 +894,7 @@ export async function ensureAgentOutput(deps: Deps, lease: AgentLease): Promise<
       status: 'streaming',
       body: '',
       executionSource: 'system',
+      privacyClass: run.privacyClass,
       contextEpoch: run.contextEpoch,
       meta: {
         agent: {
@@ -821,12 +1000,14 @@ export async function failAgentRun(
         errorMessage: 'The request could not be completed',
         finishedAt: deps.clock.now(),
         leaseUntil: null,
+        pendingApproval: false,
         leaseEpoch: sql`${agentRuns.leaseEpoch} + 1`,
         stateVersion: sql`${agentRuns.stateVersion} + 1`,
       })
       .where(eq(agentRuns.id, id))
       .returning()
     await finishOutput(tx, deps, run, 'failed')
+    await closePendingApprovals(tx, deps, [run.id], 'failed')
     if (code === 'CONTEXT_CHANGED' || code === 'UNAUTHENTICATED')
       await tx
         .update(agentRunStates)
@@ -900,6 +1081,9 @@ export async function regenerateAgentRun(
       contextId: run.contextConversationId,
       epoch: run.contextEpoch,
     })
+    // Regenerating can never switch the key: a different source or revision needs a new request (docs/06 3.1).
+    if (next.keySource !== run.keySource || next.keyRevision !== run.keyRevision)
+      throw new AppError('CONTEXT_CHANGED', 'The key changed; start a new request')
     const changeSeq = await allocateChangeSeq(tx, deps, run.conversationId)
     await tx
       .update(messages)
@@ -974,6 +1158,10 @@ export async function deleteAgentConversation(
         .where(inArray(agentRunStates.runId, ids))
       await tx.update(agentSteps).set({ payload: null }).where(inArray(agentSteps.runId, ids))
       await tx
+        .update(agentApprovals)
+        .set({ args: null, editedArgs: null, finalArgs: null })
+        .where(inArray(agentApprovals.runId, ids))
+      await tx
         .update(agentRuns)
         .set({
           contextManifest: [],
@@ -1040,6 +1228,11 @@ export async function purgeAgentContent(deps: Deps): Promise<number> {
         .set({ messages: [], updatedAt: deps.clock.now() })
         .where(eq(agentRunStates.runId, run.id))
       await tx.update(agentSteps).set({ payload: null }).where(eq(agentSteps.runId, run.id))
+      // Approval arguments are run content too; the effect ledger keeps only ids, hashes and codes (docs/04 section 10).
+      await tx
+        .update(agentApprovals)
+        .set({ args: null, editedArgs: null, finalArgs: null })
+        .where(eq(agentApprovals.runId, run.id))
       await tx
         .update(agentRuns)
         .set({ contextManifest: [], contentPurgedAt: deps.clock.now() })

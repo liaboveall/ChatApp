@@ -1,6 +1,6 @@
 # ChatApp v2 总览
 
-> 状态：M0 与规划完善完成，M1a、M1b、M2 与 M3 的验收及复核历史见 [PROGRESS.md](PROGRESS.md)。M4 已验收通过（总结事实审核的最后一处来源时间错误由用户决定作为门槛例外接受，D-196；远端 CI 与原生 ARM 通过），详见 [M4 验收收尾](23-m4-acceptance-2026-10-08.md)。M5–M8 尚未开始，各阶段 AT/V 和远端验证以实际证据为准。
+> 状态：M0–M3 的验收及复核历史见 [PROGRESS.md](PROGRESS.md)。M4 按 D-196 的事实审核例外验收通过，远端 CI 与原生 ARM 通过，见 [23](23-m4-acceptance-2026-10-08.md)。M5a/M5b 实现、本地回归、真实模型安全评测与原生 ARM Debian 质量/资源门槛已完成，仍待 V-17 真实 402/429、用户试用与当前源码远端 CI，见 [24](24-m5-implementation-2026-10-08.md)。M6–M8 尚未开始。
 > 最后更新：2026-10-08
 
 ## 一句话
@@ -25,7 +25,7 @@
 | 语言与运行时 | TypeScript 7 全栈；后端 Bun 1.4 + Hono 4 |
 | 数据 | PostgreSQL 18（含 pgvector）+ Drizzle ORM；Valkey 9.1（事件总线、在线状态、限流、BullMQ 队列）；Garage（自托管 S3） |
 | 认证 | Better Auth 1.7：邮箱密码 + Passkey，凭邀请码注册 |
-| AI / Agent | AI SDK 7 的 `ToolLoopAgent`；站点 SoCLaaS 的模型别名为 `x-test-1`，快速与深度都开启思考，逐 attempt 保存实际模型；DeepSeek 仅显式选择。M4 只读工具与站点 key 已接入，用户自带 key / 审批属 M5a；同库业务效果事务去重、持久 run / 取消、来源范围世代、调用前预算预占 |
+| AI / Agent | AI SDK 7 的 `ToolLoopAgent`；站点 SoCLaaS 的模型别名为 `x-test-1`，快速与深度都开启思考，逐 attempt 保存实际模型；DeepSeek 仅显式选择。自带 key、审批、同库效果去重、调度、私有记忆、本地 bge 混合检索与来源摘要已实现；持久 run / 取消、来源范围世代、调用前预算预占 |
 | 前端 | React 19.3 + React Compiler、Vite 8、TanStack Router/Query、Tailwind 4、Base UI、virtua |
 | 实时 | HTTP 写入与按权限读取；普通 WS 仅发变更提示，流式逐接收者授权；同步日志固定上界，前台周期对账；撤权不依赖订阅缓存 |
 | 权限 | HTTP/WS用服务端session，后台用受限持久delegation；统一authorize和可见性投影（当前成员且消息在加入之后），搜索/Agent/附件共同遵守 |
@@ -54,6 +54,7 @@
 | [21-m4-implementation-2026-10-07.md](21-m4-implementation-2026-10-07.md) | M4 全量实现、原真实评测与证据边界 | 核对 M4 实现时 |
 | [22-trial-fixes-2026-10-07.md](22-trial-fixes-2026-10-07.md) | 八项试用反馈、侧栏预览补修与本人复试确认 | 核对试用修复时 |
 | [23-m4-acceptance-2026-10-08.md](23-m4-acceptance-2026-10-08.md) | 最新源码回归、真实评测、总结事实审核与验收收尾 | 完成 M4 验收或交接时 |
+| [24-m5-implementation-2026-10-08.md](24-m5-implementation-2026-10-08.md) | M5 全量实现、真实审批/注入评测、原生 ARM 质量/资源与待验边界 | 试用、验收或接续 M5 时 |
 
 **文档冲突时的处理：** 先修正文档，再写代码，不要静默选其中一份。优先级为：用户最新指示 > 12-decisions > 其他规格文档。
 

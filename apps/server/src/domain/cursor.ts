@@ -56,7 +56,31 @@ export type SearchCursor = {
   o: string
   x: number
 }
-type AnyCursor = ConversationCursor | UserCursor | MembersCursor | ChannelsCursor | SearchCursor
+/** A page position in one of the person's task lists (M5a): newest first by creation time, then id. */
+export type TaskCursor = {
+  k: 'task'
+  u: string
+  t: 'reminder' | 'scheduled_message'
+  s: string | null
+  o: [string, string]
+  x: number
+}
+/** A page position in the administrators' run list, bound to its filters. */
+export type AdminRunsCursor = {
+  k: 'admin-runs'
+  u: string
+  f: string
+  o: [string, string]
+  x: number
+}
+type AnyCursor =
+  | AdminRunsCursor
+  | ConversationCursor
+  | UserCursor
+  | MembersCursor
+  | ChannelsCursor
+  | SearchCursor
+  | TaskCursor
 
 export function encodeCursor(deps: Pick<Deps, 'config'>, cursor: AnyCursor): string {
   return signPayload(deps.config.auth.cursorKey, cursor)

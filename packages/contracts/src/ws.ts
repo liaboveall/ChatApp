@@ -90,6 +90,15 @@ export const wsAgentRunUpdatedSchema = envelope(
   'agent.run.updated',
   z.object({ runId: z.uuid(), stateVersion: count }),
 )
+/** One of my reminders or scheduled messages changed; the lists are read over HTTP (M5a). */
+export const wsTaskChangedSchema = envelope(
+  'task.changed',
+  z.object({
+    taskType: z.enum(['reminder', 'scheduled_message']),
+    taskId: z.uuid(),
+    version: count,
+  }),
+)
 /** My membership in a conversation ended; the cache is cleared once a newer removal tombstone is confirmed. */
 export const wsConversationRemovedSchema = envelope(
   'conversation.removed',
@@ -128,6 +137,7 @@ export const wsServerMessageSchema = z.discriminatedUnion('type', [
   wsUserChangedSchema,
   wsAgentDeltaSchema,
   wsAgentRunUpdatedSchema,
+  wsTaskChangedSchema,
   wsAttachmentUpdatedSchema,
   wsConversationRemovedSchema,
   wsTypingSchema,

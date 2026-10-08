@@ -69,10 +69,14 @@ export const messageMetaSchema = z.object({
       resumeSeq: count.optional(),
       contextEpoch: z.uuid().optional(),
       truncated: z.boolean().optional(),
+      /** M5a: this segment ended because the run waits for the decision of the person who asked. */
+      awaitingApproval: z.object({ userId: z.uuid() }).optional(),
     })
     .optional(),
   /** M5a: sent by the assistant on the person's behalf. */
   viaAgent: z.object({ runId: z.uuid() }).optional(),
+  /** M5a: a reminder delivered into the person's own reminder conversation. */
+  reminder: z.object({ reminderId: z.uuid() }).optional(),
 })
 export type MessageMeta = z.infer<typeof messageMetaSchema>
 
@@ -109,6 +113,8 @@ export const messageSchema = z.object({
   /** Filled from `<@user:UUID>` tokens when mentions arrive with M3. */
   mentions: z.array(z.uuid()),
   streamRevision: count,
+  /** Private assistant segments; ordinary messages have no context epoch. */
+  contextEpoch: z.uuid().nullable().optional(),
   editedAt: isoDate.nullable(),
   recalledAt: isoDate.nullable(),
   deletedAt: isoDate.nullable(),

@@ -1,6 +1,6 @@
 # 09 本地开发环境
 
-> 基础设施、后端、前端、网关和 M3 媒体命令已可用，见第 7 节。M4 新增 `test:m4:provider`、`test:m4:search`、真实 `eval` 和人工标注检查 `eval:review`；实现与验收证据见 [21](21-m4-implementation-2026-10-07.md)。
+> 基础设施、后端、前端、网关和媒体命令已可用，见第 7 节。M4 评测见 [21](21-m4-implementation-2026-10-07.md)；M5 新增审批/BYOK/记忆、离线 embedding、真实安全评测与原生 ARM 门槛命令，见 [24](24-m5-implementation-2026-10-08.md)。
 > 开发环境：自 2026-10-01 起在 **WSL（Ubuntu 26.04）** 中进行（D-093）。仓库在 `/home/mars/projects/ChatApp`，命令都在 WSL 的 bash 里运行；Docker 用 Docker Desktop 的 WSL 集成。Windows 上的 `D:\ChatApp` 已停用。
 
 ## 1. 前置条件
@@ -138,6 +138,25 @@ bun run doctor                 # end-to-end checks; add --ai to test the selecte
 - `--mock` 仅验证协议；`--case <代表任务或检索查询ID>` 仅冒烟，不计全量质量通过。退出 0 表示冒烟/模拟通过；真实全量自动门槛失败退出 1，自动门槛通过但总结人工标注待完成退出 2。
 - 结果在 `apps/server/evals/results/<runId>/`（Git 忽略）：report、独立 retrieval/summary/capacity 证据、每次尝试的不可覆盖副本、源文件哈希、`human-review.json`。人工核对 30 个总结 × 3 次的事实与来源后运行 `bun run eval:review <结果目录>`；不能用关键词命中率填成人工事实准确率。细节见 08 和 21。
 
+### M5 审批、记忆与本地向量
+
+`bun run setup` 幂等添加并生成本地 `AI_KEY_ENCRYPTION_KEY`，然后 `bun run db:migrate` / `db:migrate:test` 增量应用 0012–0015，不清空数据。用户自带 key 通过设置 → 助手输入；完整 key 不放到聊天、文档或版本库。
+
+模型安装是显式操作：`bun run embeddings prepare bge` 下载固定 revision 的公开 q8 权重并生成大小/校验清单。该准备命令只读取本地 cache 路径，不加载服务凭据；运行时子进程不允许网络下载。当前 bge 门槛证据见 24，Qwen 的超限失败记录保留。
+
+本地 `.env.local` 的 `EMBEDDING_ENABLED=true`、`EMBEDDING_MODEL=bge`；`EMBEDDING_CACHE_DIR` 指向准备完成的绝对缓存目录，`EMBEDDING_SOCKET_PATH` 指向本人私有目录下的 socket。当前开发环境使用 `.test-runs/m5/models` 和 `.test-runs/m5/dev-ipc/embedding.sock` 的绝对路径。`bun run dev` 会一并启动 API、隔离 worker/media、Vite 和宿主 embedding consumer；只启动它用 `bun run dev:embeddings`，或显式 `bun run dev -- embeddings`。固定开发 Docker worker 的 embedding 消费关闭，防止它用另一条 socket 消耗宿主模型的工作。生产只允许有资源上限的 worker 容器，宿主 consumer 拒绝 production。
+
+索引迁移顺序：
+
+1. `bun run embeddings stage bge`，保留旧 active。
+2. 启动已准备模型的 consumer，再执行 `bun run embeddings backfill bge`；每批最多 100 条、durable cursor，重复分批执行并等待队列完成，不能把排队数当完成数。
+3. 用 `bun run embeddings status bge` 查看 generation。创建包含绝对 `qualityPath/resourcesPath` 的本地 JSON，分别引用同源码的原生 ARM 留出质量和实际 Debian 两核混合负载原始 `result.json`。
+4. `bun run embeddings activate bge <上述JSON路径>`。质量/资源不合格、源码/模型不一致或当前内容未全部回填时拒绝启用，旧 generation 保留。当前开发库 67 条历史适用消息已完成并启用。
+
+`bun run eval:m5:agent` 默认使用现有站点 provider 和合成账号/独立库；`--mock` 只验证协议。`bun run eval:m5:search bge --dev` 和不带 `--dev` 的留出运行使用冻结新语料与独立临时库。`bun run test:m5:indexing` 验证实际 SQL/BullMQ/Unix/native 写回。资源命令 `bun run test:m5:mixed` 使用随机、所有权核验的独立 API/worker/media；`bun run test:m5:native` 仅原生 ARM，必须先有同源码的 mixed 结果，再在其实际 Debian worker 镜像运行开发/留出质量并核验合并门槛。模拟与 x64 都不代替 ARM 资源证据。
+
+E2E 和普通故障实例固定 `AI_PROVIDER=mock`、`EMBEDDING_ENABLED=false`，不继承开发配置指向的实际模型 socket；真实索引/质量/资源走上述独立命令。测试 instance manifest 含临时凭据，只留本地，CI 只上传 `result.json` 和 `source-manifest.json`。
+
 ### 命令状态
 
 | 脚本 | 作用 | 状态 |
@@ -169,6 +188,9 @@ bun run doctor                 # end-to-end checks; add --ai to test the selecte
 | `media:up` / `media:down` | worker容器与无网络media、私有IPC及资源限制；不重置开发依赖 | M3新增 |
 | `test:m4:provider` / `test:m4:search` | 当前 provider 的工具、流式、图片与 usage 合成实测 / 中文 2 字关键词 EXPLAIN | ✅ 可用（M4） |
 | `eval` / `eval:review` | 冻结语料的真实全量评测 / 90 份总结的人工标注、来源哈希与质量门槛检查 | ✅ 可用（M4；通过与否以运行结果为准） |
+| `embeddings` / `dev:embeddings` | 显式模型准备、generation/回填/证据启用 / 本地宿主 consumer | ✅ 可用（M5；生产 consumer 限容器） |
+| `eval:m5:agent` / `eval:m5:search` | 真实审批/注入用例 / 冻结中文混合检索与个人记忆质量 | ✅ 可用（M5；mock 不计真实质量） |
+| `test:m5:indexing` / `test:m5:mixed` / `test:m5:native` | 实际异步索引链 / 独立混合资源 / 原生 ARM Debian 同源码质量+资源门槛 | ✅ 可用（M5；native 拒绝 x64） |
 
 **Git 钩子**：lefthook 的 pre-commit 钩子会对暂存的文件运行 Biome（并自动修复）和 guard。
 

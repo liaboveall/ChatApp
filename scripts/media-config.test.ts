@@ -76,6 +76,14 @@ function normalized(): Record<string, unknown> {
       name: `${MEDIA_PROJECT}_media-socket`,
       labels: { 'chatapp.media.policy': '1', 'chatapp.media.repository': REPOSITORY },
     },
+    'embedding-socket': {
+      name: `${MEDIA_PROJECT}_embedding-socket`,
+      labels: { 'chatapp.media.policy': '1', 'chatapp.media.repository': REPOSITORY },
+    },
+    'embedding-models': {
+      name: `${MEDIA_PROJECT}_embedding-models`,
+      labels: { 'chatapp.media.policy': '1', 'chatapp.media.repository': REPOSITORY },
+    },
   }
   return config
 }
@@ -137,12 +145,26 @@ function container(service: 'media' | 'worker'): Record<string, unknown> {
       },
       ...(media
         ? []
-        : ['apps/server/src', 'packages/contracts/src', 'packages/db/src'].map((path) => ({
-            Type: 'bind',
-            Source: join(ROOT, path),
-            Destination: `/app/${path}`,
-            RW: false,
-          }))),
+        : [
+            {
+              Type: 'volume',
+              Name: `${MEDIA_PROJECT}_embedding-socket`,
+              Destination: '/run/chatapp-embedding',
+              RW: true,
+            },
+            {
+              Type: 'volume',
+              Name: `${MEDIA_PROJECT}_embedding-models`,
+              Destination: '/var/lib/chatapp/models',
+              RW: false,
+            },
+            ...['apps/server/src', 'packages/contracts/src', 'packages/db/src'].map((path) => ({
+              Type: 'bind',
+              Source: join(ROOT, path),
+              Destination: `/app/${path}`,
+              RW: false,
+            })),
+          ]),
     ],
   }
 }
@@ -163,7 +185,11 @@ describe('fixed media topology', () => {
   test('only manages worker/media; dependencies and one named socket volume are separate', () => {
     expect(raw.name).toBe(MEDIA_PROJECT)
     expect(Object.keys(rawServices).sort()).toEqual(['media', 'worker'])
-    expect(Object.keys(dict(raw.volumes))).toEqual(['media-socket'])
+    expect(Object.keys(dict(raw.volumes)).sort()).toEqual([
+      'embedding-models',
+      'embedding-socket',
+      'media-socket',
+    ])
     expect(dict(dict(raw.networks).dev)).toEqual({ external: true, name: DEV_NETWORK })
     expect(read('infra/compose.media.yml')).not.toMatch(
       /container_name|\/var\/run\/docker\.sock|seccomp:unconfined/,
@@ -214,7 +240,16 @@ describe('fixed media topology', () => {
       '--watch',
       '/app/apps/server/src/worker.ts',
     ])
-    expect(list(service.volumes).every((value) => dict(value).read_only === true)).toBe(true)
+    expect(
+      list(service.volumes)
+        .filter((v) => dict(v).target !== '/run/chatapp-embedding')
+        .every((value) => dict(value).read_only === true),
+    ).toBe(true)
+    expect(
+      list(service.volumes)
+        .filter((v) => dict(v).target === '/run/chatapp-embedding')
+        .map(dict),
+    ).toEqual([{ type: 'volume', source: 'embedding-socket', target: '/run/chatapp-embedding' }])
     const binds = list(service.volumes)
       .map(dict)
       .filter((mount) => mount.type === 'bind')
@@ -313,6 +348,17 @@ describe('images and development entry points', () => {
 })
 
 describe('worker environment boundary', () => {
+  test('the fixed development worker leaves host embedding jobs to the host consumer', () => {
+    const env = workerEnvironment({
+      ...source(),
+      EMBEDDING_ENABLED: 'true',
+      EMBEDDING_SOCKET_PATH: '/tmp/host-only/embedding.sock',
+      EMBEDDING_CACHE_DIR: '/tmp/host-only/models',
+    })
+    expect(env.EMBEDDING_ENABLED).toBe('false')
+    expect(env.EMBEDDING_SOCKET_PATH).toBe('/run/chatapp-embedding/embedding.sock')
+    expect(env.EMBEDDING_CACHE_DIR).toBe('/var/lib/chatapp/models')
+  })
   test('rewrites local dependency endpoints, preserves unprivileged credentials and drops every unlisted key', () => {
     const env = workerEnvironment({
       ...source(),

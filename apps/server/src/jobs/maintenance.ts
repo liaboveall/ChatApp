@@ -1,5 +1,6 @@
 /** Periodic scans straight from Postgres (docs/03 section 7): reconcile every minute, cleanup every ten. None depends on the queue. */
 
+import { expireApprovals } from '../domain/agent-approvals.ts'
 import { purgeAgentContent, recoverAgentRuns } from '../domain/agent-runs.ts'
 import { cleanupAttachments, reconcileStorage } from '../domain/attachment-processing.ts'
 import type { Deps } from '../domain/deps.ts'
@@ -9,7 +10,9 @@ import {
   purgeSyncLogs,
   runMaintenanceTask,
 } from '../domain/maintenance.ts'
+import { purgeExpiredSummaries } from '../domain/memories.ts'
 import { reconcileRegistrations } from '../domain/registration.ts'
+import { purgeTaskContent, reconcileTasks } from '../domain/tasks.ts'
 import { purgeFinishedWork, recoverExpiredWork, workBacklog } from '../domain/work-queue.ts'
 import { describeError, type Logger } from '../lib/logger.ts'
 
@@ -50,6 +53,9 @@ export function createMaintenance(parts: {
 
   const reconcile = guarded('reconcile', async () => {
     await recoverAgentRuns(deps)
+    const expired = await expireApprovals(deps)
+    const tasks = await reconcileTasks(deps)
+    if (expired + tasks > 0) log.info('agent.reconciled', { count: expired + tasks })
     const work = await recoverExpiredWork(deps)
     const registrations = await reconcileRegistrations(deps)
     if (work.requeued + work.dead > 0)
@@ -79,9 +85,13 @@ export function createMaintenance(parts: {
     const expired = await purgeExpiredRecords(deps)
     const logs = await purgeSyncLogs(deps)
     const agentContent = await purgeAgentContent(deps)
+    const taskContent = await purgeTaskContent(deps)
+    const summaries = await purgeExpiredSummaries(deps)
     const total =
       finished +
       agentContent +
+      taskContent +
+      summaries +
       Object.values(sessions).reduce((a, b) => a + b, 0) +
       Object.values(expired).reduce((a, b) => a + b, 0) +
       Object.values(logs).reduce((a, b) => a + b, 0)

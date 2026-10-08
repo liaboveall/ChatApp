@@ -99,6 +99,7 @@ export function makeConversation(
     dmPeer: null,
     settings: {},
     panelForConversationId: null,
+    agentPurpose: null,
     archivedAt: null,
     previewVersion: { lastChangeSeq: 0, viewerVersion: me?.version ?? 0 },
     me,

@@ -1,0 +1,28 @@
+{
+  "version": 1,
+  "frozenAt": "2026-10-08T07:54:16.384Z",
+  "datasetHash": "4781cfd6eb85257b3b05da1603e129479ec20b56ae99c0ed13c3755a2c1617e8",
+  "targets": {
+    "recall10": 0.85,
+    "ndcg10": 0.75,
+    "keywordRegression": 0.01,
+    "synonymGain": 0.05,
+    "noAnswerFalsePositive": 0.1,
+    "memoryPrecision": 0.9,
+    "memoryHitRate": 0.8,
+    "memoryUnrelatedRate": 0.05
+  },
+  "counts": {
+    "messages": 2400,
+    "conversations": 24,
+    "queries": 120,
+    "memoryQueries": 60
+  },
+  "thresholds": {
+    "rrfK": 60,
+    "candidates": 50,
+    "messageThreshold": 0.55,
+    "memoryThreshold": 0.72
+  },
+  "annotation": "new synthetic source facts; source labels authored before model results"
+}

@@ -1,0 +1,1 @@
+ALTER TABLE "agent_contexts" ADD COLUMN "history_from_seq" bigint DEFAULT 0 NOT NULL;

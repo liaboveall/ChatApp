@@ -13,7 +13,7 @@ export async function signIn(page: Page, email: string, password: string): Promi
 
 export async function openSettings(
   page: Page,
-  section: 'appearance' | 'account' | 'invites',
+  section: 'appearance' | 'account' | 'invites' | 'assistant',
 ): Promise<void> {
   await page.goto(`/?settings=${section}`)
   await expect(page.getByRole('dialog')).toBeVisible()

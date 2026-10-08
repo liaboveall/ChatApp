@@ -35,7 +35,7 @@ export async function addMembers(
   deps: Pick<Deps, 'clock' | 'newId'>,
   conversation: Pick<ConversationRow, 'id' | 'kind' | 'lastSeq'>,
   entries: readonly NewMember[],
-  options: { fromStart?: boolean } = {},
+  options: { fromStart?: boolean; exceptRunId?: string } = {},
 ): Promise<Array<{ userId: string; membershipId: string }>> {
   if (entries.length === 0) return []
   const now = deps.clock.now()
@@ -55,7 +55,11 @@ export async function addMembers(
       hiddenAt: entry.hidden ? now : null,
     })),
   )
-  await bumpConversation(tx, deps, conversation.id, { memberDelta: added.length, membership: true })
+  await bumpConversation(tx, deps, conversation.id, {
+    memberDelta: added.length,
+    membership: true,
+    exceptRunId: options.exceptRunId,
+  })
   for (const entry of added) {
     await recordViewerChange(tx, deps, {
       userId: entry.userId,

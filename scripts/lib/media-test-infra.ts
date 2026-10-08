@@ -62,6 +62,8 @@ type DockerContainer = {
     Init: boolean
     Memory: number
     MemorySwap: number
+    NanoCpus: number
+    CpusetCpus: string
     PidsLimit: number
     CapDrop: string[]
     CapAdd: string[] | null
@@ -271,6 +273,7 @@ export class MediaTestInstance {
   #socketCreated = false
   #closed = false
   #workerImage = ''
+  #twoCores = false
   #kind: ImageKind = 'runtime'
   readonly #browserPort?: number
 
@@ -616,6 +619,11 @@ export class MediaTestInstance {
       `${target.service}: command mismatch`,
     )
     const h = info.HostConfig
+    if (this.#twoCores)
+      check(
+        h.NanoCpus === 2_000_000_000 && h.CpusetCpus === '0,1',
+        `${target.service}: mixed-load CPU bound`,
+      )
     check(
       h.ReadonlyRootfs &&
         !h.Privileged &&
@@ -832,6 +840,17 @@ export class MediaTestInstance {
     timeoutMs = 15_000,
   ): Promise<Uint8Array> {
     return this.#execCommand(service, ['bun', '--no-env-file', '-e', source], input, timeoutMs)
+  }
+
+  /** Only this verified instance's API/worker/media share the same two CPU cores in the M5 benchmark. */
+  async limitToTwoCores(): Promise<void> {
+    await this.verify()
+    for (const target of this.#targets.values()) {
+      await this.#container(target, false)
+      await docker(['update', '--cpus=2', '--cpuset-cpus=0,1', target.id])
+    }
+    this.#twoCores = true
+    await this.verify()
   }
 
   async #execCommand(

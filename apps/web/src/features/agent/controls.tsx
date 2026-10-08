@@ -1,17 +1,21 @@
-import type { Conversation } from '@chatapp/contracts'
+import { agentUsageSchema, aiKeyResponseSchema, type Conversation } from '@chatapp/contracts'
 import { useQuery } from '@tanstack/react-query'
 import { useNavigate } from '@tanstack/react-router'
 import { Pencil, Trash2 } from 'lucide-react'
 import { useState } from 'react'
+import { forScreen } from '@/app/sync.ts'
 import { Button, IconButton } from '@/components/ui/button.tsx'
 import { SegmentedControl } from '@/components/ui/controls.tsx'
 import { Dialog } from '@/components/ui/dialog.tsx'
 import { patchConversation } from '@/features/conversations/api.ts'
+import { api } from '@/lib/api.ts'
 import { describeError } from '@/lib/error-messages.ts'
 import { meQuery } from '@/lib/queries.ts'
+import { useSyncScope } from '@/lib/sync/hooks.ts'
 import { showToast } from '@/lib/toast.ts'
 import { m } from '@/paraglide/messages.js'
-import { deleteAgentChat } from './api.ts'
+import { deleteAgentChat, switchKeySource } from './api.ts'
+import { useAgentContext } from './context.ts'
 import { useAgent } from './store.ts'
 
 export function AgentMode({ id }: { id: string }) {
@@ -49,6 +53,60 @@ export function AgentScope({ id }: { id: string }) {
     </>
   )
 }
+/**
+ * Which key a private assistant conversation uses, and the switch between the person's own key and the site allowance
+ * (docs/02 section 6). Switching starts a blank segment: nothing earlier is carried over (D-080).
+ */
+export function AgentKeySource({ conversationId }: { conversationId: string | undefined }) {
+  const scope = useSyncScope()
+  const context = useAgentContext(conversationId)
+  const [busy, setBusy] = useState(false)
+  const usage = useQuery({
+    queryKey: ['agent-usage', scope?.userId, scope?.generation],
+    enabled: scope !== null,
+    queryFn: () => forScreen(null, () => api('/api/agent/usage', { schema: agentUsageSchema })),
+  })
+  const key = useQuery({
+    queryKey: ['ai-key', scope?.userId, scope?.generation],
+    enabled: scope !== null,
+    queryFn: () => forScreen(null, () => api('/api/me/ai-key', { schema: aiKeyResponseSchema })),
+  })
+  const latest = useAgent((s) =>
+    Object.values(s.details)
+      .filter((d) => d !== 'denied' && conversationId && d.run.conversationId === conversationId)
+      .map((d) => (d === 'denied' ? null : d.run))
+      .filter((run) => run !== null)
+      .sort((a, b) => a.createdAt.localeCompare(b.createdAt))
+      .at(-1),
+  )
+  const source = context?.keySource ?? latest?.keySource ?? usage.data?.keySource ?? 'site'
+  const ownWorks = key.data?.aiKey?.status === 'active'
+  const target = source === 'user' ? 'site' : ownWorks ? 'user' : null
+  const change = async () => {
+    if (!conversationId || !target || busy) return
+    setBusy(true)
+    try {
+      if ((await switchKeySource(conversationId, target)) !== null)
+        showToast(m.agent_key_switched())
+    } catch (error) {
+      showToast(describeError(error))
+    } finally {
+      setBusy(false)
+    }
+  }
+  if (!ownWorks && source === 'site') return null
+  return (
+    <div className="agent-controls agent-key-source">
+      <small>{source === 'user' ? m.agent_key_own() : m.agent_key_site()}</small>
+      {conversationId && target ? (
+        <Button kind="plain" size="sm" busy={busy} onClick={() => void change()}>
+          {target === 'site' ? m.agent_key_switch_site() : m.agent_key_switch_own()}
+        </Button>
+      ) : null}
+    </div>
+  )
+}
+
 export function AgentChatControls({
   conversation,
   onDeleted,
@@ -107,6 +165,7 @@ export function AgentChatControls({
           onClick={() => setDialog('delete')}
         />
       </div>
+      {showMode ? <AgentKeySource conversationId={conversation.id} /> : null}
       {showMode && showDisclosure ? (
         <p className="agent-disclosure">{m.agent_disclosure()}</p>
       ) : null}

@@ -891,3 +891,16 @@
   font-size: var(--fs-subheadline);
   line-height: var(--lh-subheadline);
 }
+
+/* M5a: a message the assistant sent for the person, and a delivered reminder. */
+.bubble__via,
+.bubble__reminder {
+  display: block;
+  font-size: var(--fs-footnote);
+  line-height: var(--lh-footnote);
+  opacity: 0.8;
+}
+.bubble__reminder {
+  font-weight: 600;
+  margin-bottom: 2px;
+}

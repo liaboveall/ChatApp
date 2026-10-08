@@ -15,6 +15,14 @@ export const busEventSchema = z.discriminatedUnion('type', [
     runId: z.uuid(),
     stateVersion: z.number().int().nonnegative(),
   }),
+  /** One of the person's reminders or scheduled messages changed state (M5a); the list is read over HTTP. */
+  z.object({
+    type: z.literal('task.changed'),
+    userId: z.uuid(),
+    taskType: z.enum(['reminder', 'scheduled_message']),
+    taskId: z.uuid(),
+    version: z.number().int().nonnegative(),
+  }),
   /** Some session, device or the whole account of this user was revoked: connections re-check right now. */
   z.object({ type: z.literal('auth.revoked'), userId: z.uuid() }),
   /** Work was committed: the dispatcher should look now instead of waiting for its next scan. */
@@ -91,6 +99,18 @@ export function busEventFromWork(work: {
         : null
     case 'auth.revoked':
       return { type: 'auth.revoked', userId: entityId }
+    case 'task.changed':
+      return (payload.taskType === 'reminder' || payload.taskType === 'scheduled_message') &&
+        typeof payload.taskId === 'string' &&
+        version !== null
+        ? {
+            type: 'task.changed',
+            userId: entityId,
+            taskType: payload.taskType,
+            taskId: payload.taskId,
+            version,
+          }
+        : null
     case 'message.changed':
       return typeof payload.messageId === 'string' && version !== null
         ? {

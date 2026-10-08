@@ -94,6 +94,8 @@ export const deviceSchema = z.object({
   lastActiveAt: z.iso.datetime(),
   ipAddress: z.string().nullable(),
   userAgent: z.string().nullable(),
+  /** Reminders and scheduled messages this device authorized that have not run yet (M5a): revoking it cancels them. */
+  pendingTasks: z.number().int().nonnegative(),
 })
 export type Device = z.infer<typeof deviceSchema>
 

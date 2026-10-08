@@ -80,6 +80,11 @@ services:
       S3_SECRET_ACCESS_KEY: ${WORKER_S3_SECRET_ACCESS_KEY:?use scripts/media.ts}
       BETTER_AUTH_SECRET: ${WORKER_BETTER_AUTH_SECRET:?use scripts/media.ts}
       AUTH_TOKEN_ENCRYPTION_KEY: ${WORKER_AUTH_TOKEN_ENCRYPTION_KEY:?use scripts/media.ts}
+      AI_KEY_ENCRYPTION_KEY: ${WORKER_AI_KEY_ENCRYPTION_KEY:-}
+      EMBEDDING_ENABLED: ${WORKER_EMBEDDING_ENABLED:-false}
+      EMBEDDING_MODEL: ${WORKER_EMBEDDING_MODEL:-bge}
+      EMBEDDING_SOCKET_PATH: ${WORKER_EMBEDDING_SOCKET_PATH:?use scripts/media.ts}
+      EMBEDDING_CACHE_DIR: ${WORKER_EMBEDDING_CACHE_DIR:?use scripts/media.ts}
       RESTORE_EPOCH: ${WORKER_RESTORE_EPOCH:?use scripts/media.ts}
       SMTP_HOST: mailpit
       SMTP_PORT: "1025"
@@ -110,6 +115,13 @@ services:
         source: media-socket
         target: /run/chatapp-media
         read_only: true
+      - type: volume
+        source: embedding-socket
+        target: /run/chatapp-embedding
+      - type: volume
+        source: embedding-models
+        target: /var/lib/chatapp/models
+        read_only: true
       # Only source directories, never the repository root, .env files or host node_modules.
       - type: bind
         source: ../apps/server/src
@@ -137,6 +149,14 @@ services:
     restart: unless-stopped
 
 volumes:
+  embedding-socket:
+    labels:
+      chatapp.media.policy: "1"
+      chatapp.media.repository: ${MEDIA_REPOSITORY:?use scripts/media.ts}
+  embedding-models:
+    labels:
+      chatapp.media.policy: "1"
+      chatapp.media.repository: ${MEDIA_REPOSITORY:?use scripts/media.ts}
   media-socket:
     labels:
       chatapp.media.policy: "1"

@@ -16,7 +16,7 @@ import {
   type MembersPage,
   type PatchMemberRequest,
 } from '@chatapp/contracts'
-import { conversationBans, conversationMembers, conversations, users } from '@chatapp/db'
+import { conversationBans, conversationMembers, conversations, type Tx, users } from '@chatapp/db'
 import { and, asc, eq, inArray, sql } from 'drizzle-orm'
 import { writeAudit } from './audit.ts'
 import { enforce, loadAccess, requireAccess } from './authorize.ts'
@@ -127,6 +127,97 @@ export async function listMembers(
 }
 
 /**
+ * The transaction body of adding people: the caller has locked the actor and everyone named (sorted) and re-checked the
+ * actor's authority. Banned, unavailable and over-limit people are skipped and named in the answer. `exceptRunId` is the
+ * private assistant run whose approved effect this is (it is not cancelled by its own change, D-197).
+ */
+export async function addPeople(
+  tx: Tx,
+  deps: Deps,
+  actor: { userId: string; role: 'user' | 'admin' },
+  conversationId: string,
+  wanted: readonly string[],
+  options: { expectedMembershipVersion?: number; exceptRunId?: string } = {},
+): Promise<AddMembersResponse> {
+  const now = deps.clock.now()
+  const ids = [...new Set(wanted)].sort()
+  const access = await requireAccess(
+    tx,
+    { userId: actor.userId, siteRole: actor.role },
+    conversationId,
+    'add_members',
+    { lock: true, now },
+  )
+  const conversation = access.conversation
+  checkMembershipVersion(options.expectedMembershipVersion, conversation.membershipVersion)
+
+  const [people, memberRows, banRows] = await Promise.all([
+    tx.select().from(users).where(inArray(users.id, ids)),
+    tx
+      .select({ userId: conversationMembers.userId })
+      .from(conversationMembers)
+      .where(
+        and(
+          eq(conversationMembers.conversationId, conversationId),
+          inArray(conversationMembers.userId, ids),
+        ),
+      ),
+    tx
+      .select({ userId: conversationBans.userId })
+      .from(conversationBans)
+      .where(
+        and(
+          eq(conversationBans.conversationId, conversationId),
+          inArray(conversationBans.userId, ids),
+        ),
+      ),
+  ])
+  const known = new Map(people.map((row) => [row.id, row]))
+  const inside = new Set(memberRows.map((row) => row.userId))
+  const banned = new Set(banRows.map((row) => row.userId))
+  const counts = await countLiveMemberships(tx, ids)
+
+  const skipped: AddMembersResponse['skipped'] = []
+  const toAdd: string[] = []
+  let room = memberLimitOf(conversation.kind) - conversation.memberCount
+  for (const id of ids) {
+    const candidate = known.get(id)
+    if (!candidate || !accountAllowsSession(candidate, now)) {
+      skipped.push({ userId: id, reason: 'unavailable' })
+    } else if (inside.has(id)) {
+      skipped.push({ userId: id, reason: 'already_member' })
+    } else if (banned.has(id)) {
+      skipped.push({ userId: id, reason: 'banned' })
+    } else if (room <= 0 || (counts.get(id) ?? 0) >= LIMITS.maxConversationsPerUser) {
+      skipped.push({ userId: id, reason: 'limit_reached' })
+    } else {
+      toAdd.push(id)
+      room -= 1
+    }
+  }
+  await addMembers(
+    tx,
+    deps,
+    conversation,
+    toAdd.map((userId) => ({ userId, addedBy: actor.userId })),
+    { exceptRunId: options.exceptRunId },
+  )
+  const [versions] = await tx
+    .select({ membershipVersion: conversations.membershipVersion })
+    .from(conversations)
+    .where(eq(conversations.id, conversationId))
+  const added = await loadUserSummaries(tx, toAdd)
+  return {
+    added: toAdd.flatMap((id) => {
+      const summary = added.get(id)
+      return summary ? [summary] : []
+    }),
+    skipped,
+    membershipVersion: versions?.membershipVersion ?? conversation.membershipVersion,
+  }
+}
+
+/**
  * Adds people (docs/05: banned people are skipped and the answer says so). Everyone joins as of this moment and sees
  * only what comes after (D-035).
  */
@@ -138,79 +229,17 @@ export async function addConversationMembers(
 ): Promise<AddMembersResponse> {
   const wanted = [...new Set(input.userIds)].sort()
   return await inTransaction(deps.db, async (tx) => {
-    const now = deps.clock.now()
     const user = await lockAndRevalidate(tx, deps, principal, { alsoLock: wanted })
-    const actor = { userId: principal.userId, siteRole: user.role }
-    const access = await requireAccess(tx, actor, conversationId, 'add_members', {
-      lock: true,
-      now,
-    })
-    const conversation = access.conversation
-    checkMembershipVersion(input.expectedMembershipVersion, conversation.membershipVersion)
-
-    const [people, memberRows, banRows] = await Promise.all([
-      tx.select().from(users).where(inArray(users.id, wanted)),
-      tx
-        .select({ userId: conversationMembers.userId })
-        .from(conversationMembers)
-        .where(
-          and(
-            eq(conversationMembers.conversationId, conversationId),
-            inArray(conversationMembers.userId, wanted),
-          ),
-        ),
-      tx
-        .select({ userId: conversationBans.userId })
-        .from(conversationBans)
-        .where(
-          and(
-            eq(conversationBans.conversationId, conversationId),
-            inArray(conversationBans.userId, wanted),
-          ),
-        ),
-    ])
-    const known = new Map(people.map((row) => [row.id, row]))
-    const inside = new Set(memberRows.map((row) => row.userId))
-    const banned = new Set(banRows.map((row) => row.userId))
-    const counts = await countLiveMemberships(tx, wanted)
-
-    const skipped: AddMembersResponse['skipped'] = []
-    const toAdd: string[] = []
-    let room = memberLimitOf(conversation.kind) - conversation.memberCount
-    for (const id of wanted) {
-      const candidate = known.get(id)
-      if (!candidate || !accountAllowsSession(candidate, now)) {
-        skipped.push({ userId: id, reason: 'unavailable' })
-      } else if (inside.has(id)) {
-        skipped.push({ userId: id, reason: 'already_member' })
-      } else if (banned.has(id)) {
-        skipped.push({ userId: id, reason: 'banned' })
-      } else if (room <= 0 || (counts.get(id) ?? 0) >= LIMITS.maxConversationsPerUser) {
-        skipped.push({ userId: id, reason: 'limit_reached' })
-      } else {
-        toAdd.push(id)
-        room -= 1
-      }
-    }
-    await addMembers(
+    return await addPeople(
       tx,
       deps,
-      conversation,
-      toAdd.map((userId) => ({ userId, addedBy: principal.userId })),
+      { userId: principal.userId, role: user.role },
+      conversationId,
+      wanted,
+      {
+        expectedMembershipVersion: input.expectedMembershipVersion,
+      },
     )
-    const [versions] = await tx
-      .select({ membershipVersion: conversations.membershipVersion })
-      .from(conversations)
-      .where(eq(conversations.id, conversationId))
-    const added = await loadUserSummaries(tx, toAdd)
-    return {
-      added: toAdd.flatMap((id) => {
-        const summary = added.get(id)
-        return summary ? [summary] : []
-      }),
-      skipped,
-      membershipVersion: versions?.membershipVersion ?? conversation.membershipVersion,
-    }
   })
 }
 

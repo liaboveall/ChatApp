@@ -9,6 +9,10 @@ useDefault = true
 description = "Literal fixtures that only the test suites use. They are not secrets of any environment."
 # Matched against the detected secret itself, so a real key pasted into a test file is still reported.
 regexes = [
+  # M5 configuration's fixed 32-byte encryption fixture; exact match keeps other keys detectable.
+  '''^Zt7cWq2PnL0vRb5Hy8XmK3dJf6GsUe1oAiTqVyNz4Ew$''',
+  # A BullMQ connection's diagnostic client name, with no authentication meaning.
+  '''^m5-mixed-consumer$''',
   '''tomato-umbrella-47-lantern''',
   '''k3Jx9QvLm2ZpWn8RtYb4HcDf7GsAe1UoIiTqVyPz''',
   '''q83vEjS0m1xZk7UwYpHn2LcRtBdA9fGoIeJ4aVhN5Xs''',

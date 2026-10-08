@@ -33,7 +33,6 @@ import {
   renamePasskey,
 } from '@/lib/webauthn.ts'
 import { m } from '@/paraglide/messages.js'
-import { AgentUsage } from '../agent/usage.tsx'
 import { EditProfileDialog } from './profile-dialog.tsx'
 import { Box, Group, Row } from './settings-ui.tsx'
 
@@ -428,6 +427,11 @@ function DevicesGroup() {
                     {m.settings_devices_active({ time: formatDateTime(device.lastActiveAt) })}
                     {device.ipAddress ? ` · IP ${device.ipAddress}` : ''}
                   </div>
+                  {device.pendingTasks ? (
+                    <div className="text-subheadline text-label-secondary">
+                      {m.settings_devices_tasks({ count: device.pendingTasks })}
+                    </div>
+                  ) : null}
                 </div>
                 {device.current ? null : (
                   <Button
@@ -622,7 +626,6 @@ export function AccountSection({ me, onSignOut }: { me: Me; onSignOut: () => voi
   return (
     <>
       <ProfileGroup me={me} />
-      <AgentUsage />
       <Group title={m.settings_signin()}>
         <Box>
           <Row title={m.settings_password()} help={m.settings_password_help()}>
