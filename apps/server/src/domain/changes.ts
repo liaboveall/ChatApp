@@ -19,6 +19,7 @@ import {
   users,
 } from '@chatapp/db'
 import { and, eq, sql } from 'drizzle-orm'
+import { invalidateConversationRuns } from './agent-access.ts'
 import type { Deps } from './deps.ts'
 import { enqueueWork } from './work.ts'
 
@@ -219,6 +220,7 @@ export async function bumpConversation(
     })
   }
   if (bump.membership) {
+    await invalidateConversationRuns(tx, deps, conversationId)
     await enqueueHint(tx, deps, {
       event: 'member.changed',
       conversationId,

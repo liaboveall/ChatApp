@@ -8,6 +8,7 @@
  * Nothing here imports React or touches the DOM, so the whole thing runs under a fake transport in unit tests.
  */
 import {
+  type AgentDelta,
   type Conversation,
   LIMITS,
   type Me,
@@ -21,6 +22,7 @@ import {
 import type { QueryClient } from '@tanstack/react-query'
 import { ApiError } from '../api.ts'
 import { writeMe, writeMeAnswer } from '../queries.ts'
+import { mergeAgentDelta } from './agent-stream.ts'
 import { RequestBudget } from './budget.ts'
 import { isScopeKey, syncKeys } from './keys.ts'
 import {
@@ -547,6 +549,23 @@ export class SyncEngine {
     return true
   }
 
+  ingestAgentDelta(delta: AgentDelta): 'applied' | 'gap' | 'ignore' {
+    const scope = this.#scope
+    if (!scope) return 'ignore'
+    const membership = this.#index(scope).byId[delta.conversationId]?.me
+    if (!membership) return 'ignore'
+    const win = this.#window(scope, delta.conversationId, membership.membershipId)
+    if (!win) return 'ignore'
+    const current = win.messages.find((message) => message.id === delta.messageId)
+    const next = mergeAgentDelta(current, delta)
+    if (typeof next === 'string') return next
+    this.#writeWindow(scope, {
+      ...win,
+      messages: win.messages.map((message) => (message.id === next.id ? next : message)),
+    })
+    return 'applied'
+  }
+
   /**
    * My own message went out and the server accepted it: it goes into the cache, and the server has moved my read position
    * with it (D-083), so only the local claim is needed to keep it from showing up as unread until my own log delivers the
@@ -669,10 +688,10 @@ export class SyncEngine {
    * first unread message when there are many unread ones. The log position it starts from is read *before* the page
    * (anything after it is replayed, anything before it is already in the page), never the other way round.
    */
-  async openConversation(id: string): Promise<void> {
+  async openConversation(id: string, options: { auxiliary?: boolean } = {}): Promise<void> {
     const scope = this.#scope
     if (scope === null) return
-    this.#open = id
+    if (!options.auxiliary) this.#open = id
     this.#touch(scope, id)
     syncUi.setTimeline(id, this.windowOf(id) === undefined ? 'loading' : 'ready')
     try {

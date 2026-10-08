@@ -54,6 +54,10 @@ export function describeError(error: unknown): string {
       return m.error_conflict()
     case 'QUOTA_EXCEEDED':
       return m.error_quota()
+    case 'AI_BUDGET_EXHAUSTED':
+      return m.agent_usage_paused()
+    case 'CONTEXT_CHANGED':
+      return m.error_conflict()
     case 'WINDOW_EXPIRED':
       return m.error_window_expired()
     case 'CONVERSATION_BANNED':

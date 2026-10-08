@@ -36,7 +36,7 @@ test.describe('keyboard shortcuts', () => {
     await expect(toggle).toHaveAttribute('aria-pressed', 'false')
     await page.keyboard.press('Control+j')
     await expect(toggle).toHaveAttribute('aria-pressed', 'true')
-    await expect(page.getByText('助手功能还在开发中')).toBeVisible()
+    await expect(page.getByText('先打开一个会话，即可询问助手。')).toBeVisible()
     await page.keyboard.press('Control+j')
     await expect(toggle).toHaveAttribute('aria-pressed', 'false')
 

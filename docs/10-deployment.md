@@ -22,7 +22,7 @@
      - 它发不了邮件，而注册必须验证邮箱；
      - 它不在公共后缀列表（Public Suffix List）里，Cookie 隔离会变弱。
 2. **开通 Resend 账号**：完成域名验证（SPF、DKIM、DMARC 三条 DNS 记录），拿到 SMTP 凭据。
-3. **准备站点用的 DeepSeek API key**（v2 专用的新 key）。由用户**自己**写进服务器上的密钥文件：我提供命令，用户在自己的终端里执行，key 不经过聊天。
+3. **准备所选站点 AI 服务的 key**（当前为 `SOCLAAS_API_KEY`，D-182；公开部署前确认校方服务的账户/使用范围与实际模型可用性）。由用户**自己**写进服务器上的密钥文件：我提供命令，用户在自己的终端里执行，key 不经过聊天。
 4. **同意 Let's Encrypt 条款**：每个主机名申请证书前，都要用户明确同意。
 5. **异地备份**：
    - 开通Cloudflare R2或Backblaze B2账号，用于自动备份；M7还需要独立删除journal的持续读写目标。自动同步用户设备可作备份替代，但不能以偶尔拷贝代替在线journal及24小时RPO；替代服务必须通过V-19。
@@ -100,7 +100,7 @@
 ## 6. 部署步骤
 
 ### 首次部署
-1. 创建 `/opt/chatapp` 目录，生成各个密钥文件；DeepSeek key 由用户自己写入。
+1. 创建 `/opt/chatapp` 目录，生成各个密钥文件；所选 AI provider 的 key 由用户自己写入。
 2. 把 `compose.prod.yml` 放到服务器上，执行 `docker compose pull`。
 3. `up -d postgres valkey garage`，等健康检查通过后，初始化 Garage（layout、key、bucket）。
 4. 创建数据库账号 `chatapp_owner` 和 `chatapp_app`。

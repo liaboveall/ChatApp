@@ -115,6 +115,12 @@ describe('previewOf', () => {
     )
     expect(previewOf(makeMessage(1, { body: 'y'.repeat(300) })).text).toHaveLength(100)
   })
+
+  test('parses the full Markdown body before the preview limit, leaving the message intact', () => {
+    const message = makeMessage(1, { kind: 'agent', body: `**${'周'.repeat(110)}**\n\n- 计划` })
+    expect(previewOf(message).text).toBe('周'.repeat(100))
+    expect(message.body).toBe(`**${'周'.repeat(110)}**\n\n- 计划`)
+  })
 })
 
 describe('mergeUsers', () => {

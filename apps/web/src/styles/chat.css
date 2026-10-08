@@ -5,7 +5,7 @@
   --inset: color-mix(in srgb, var(--shade) 16%, transparent);
 }
 
-/* The conversation fills the main panel; the list scrolls behind the glass toolbar and composer. */
+/* The toolbar floats above the list. The dock reserves room for its controls, previews and disclosure. */
 .content[data-layout="fill"] {
   overflow: hidden;
   padding-top: 0;
@@ -13,11 +13,14 @@
 .convo {
   position: absolute;
   inset: 0;
+  display: flex;
+  flex-direction: column;
   --composer-h: 76px;
 }
 .timeline {
-  position: absolute;
-  inset: 0;
+  position: relative;
+  flex: 1;
+  min-height: 0;
   overflow-y: auto;
   overscroll-behavior: contain;
 }
@@ -34,7 +37,7 @@
   height: calc(var(--toolbar-h) + 8px);
 }
 .t-pad-bottom {
-  height: calc(var(--composer-h) + 28px);
+  height: 12px;
 }
 
 /* The "load earlier" control sits outside the feed (an ARIA feed may only contain articles). */
@@ -436,15 +439,26 @@
 /* ---- Composer (floating glass capsule) ---- */
 
 .composer-dock {
-  position: absolute;
-  inset: auto 16px 16px;
+  position: relative;
+  flex: none;
+  padding: 8px 16px 16px;
   z-index: 15;
   pointer-events: none;
+}
+.composer-stack {
+  display: grid;
+  gap: 8px;
+  max-width: 828px;
+  margin: 0 auto;
+}
+.composer-dock .agent-disclosure {
+  margin: 0;
 }
 .composer-dock > * {
   pointer-events: auto;
 }
 .composer {
+  width: 100%;
   max-width: 828px;
   margin: 0 auto;
   border-radius: 26px;
@@ -478,6 +492,22 @@
   align-items: flex-end;
   gap: 2px;
   padding: 6px 8px;
+}
+.composer__formatbar {
+  display: flex;
+  justify-content: flex-end;
+  padding: 4px 12px 0;
+}
+.composer__preview {
+  flex: 1;
+  min-width: 0;
+  max-height: 32vh;
+  padding: 8px;
+  color: var(--label);
+  font-size: var(--fs-message);
+  line-height: var(--lh-message);
+  overflow: auto;
+  overflow-wrap: anywhere;
 }
 .composer__row .icon-btn {
   flex: none;
@@ -550,6 +580,10 @@
     flex-wrap: wrap;
   }
   .composer__input {
+    order: -1;
+    flex: 1 1 100%;
+  }
+  .composer__preview {
     order: -1;
     flex: 1 1 100%;
   }

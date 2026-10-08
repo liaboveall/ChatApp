@@ -17,6 +17,7 @@
  * The gateway only holds an abstract `Socket`; the Bun binding lives in runtime/server.ts.
  */
 import {
+  AppError,
   convTopic,
   LIMITS,
   type PresenceStatus,
@@ -28,6 +29,7 @@ import {
   type WsServerMessage,
   wsClientMessageSchema,
 } from '@chatapp/contracts'
+import { authorizeAgentDelta } from '../domain/agent-access.ts'
 import type { Deps } from '../domain/deps.ts'
 import {
   loadLastSeen,
@@ -129,6 +131,7 @@ export class Gateway {
   readonly #byId = new Map<string, Connection>()
   readonly #byUser = new Map<string, Set<string>>()
   readonly #following = new Map<string, Following>()
+  readonly #streams = new Map<string, Promise<void>>()
   #timers: ReturnType<typeof setInterval>[] = []
   #checking: Promise<void> | undefined
 
@@ -360,6 +363,52 @@ export class Gateway {
   /** An event from the bus. Hints name what changed; who is told is decided by the topics each connection follows. */
   handleEvent(event: BusEvent): void {
     switch (event.type) {
+      case 'agent.run.updated':
+        this.#tellUser(event.userId, {
+          type: 'agent.run.updated',
+          data: { runId: event.runId, stateVersion: event.stateVersion },
+        })
+        return
+      case 'agent.delta': {
+        const previous = this.#streams.get(event.runId) ?? Promise.resolve()
+        const next = previous
+          .then(async () => {
+            const topic = convTopic(event.conversationId)
+            const recipients = this.#hub.subscribers(topic).filter((c) => c.ready && !c.closed)
+            if (!recipients.length) return
+            try {
+              const allowed = await authorizeAgentDelta(
+                this.#deps,
+                event,
+                recipients.map((c) => c.identity),
+              )
+              const { type: _type, ...data } = event
+              const text = JSON.stringify({
+                v: WS_PROTOCOL_VERSION,
+                topic,
+                type: 'agent.delta',
+                data,
+              })
+              for (const c of recipients)
+                if (
+                  !c.closed &&
+                  c.ready &&
+                  c.topics.has(topic) &&
+                  allowed.has(c.identity.sessionId)
+                )
+                  this.#sendText(c, text)
+            } catch (error) {
+              if (!(error instanceof AppError))
+                for (const c of recipients)
+                  this.#close(c, WS_CLOSE.TRY_AGAIN_LATER, 'stream authorization unavailable')
+            }
+          })
+          .finally(() => {
+            if (this.#streams.get(event.runId) === next) this.#streams.delete(event.runId)
+          })
+        this.#streams.set(event.runId, next)
+        return
+      }
       case 'auth.revoked':
         void this.revalidateUser(event.userId)
         return

@@ -1,4 +1,5 @@
 import type { Me } from '@chatapp/contracts'
+import { messageSearchResponseSchema, plainMessageText } from '@chatapp/contracts'
 import { useMatches, useNavigate, useParams, useRouter } from '@tanstack/react-router'
 import {
   Archive,
@@ -17,6 +18,7 @@ import {
   Users,
 } from 'lucide-react'
 import { type ReactNode, useCallback, useEffect, useMemo, useState } from 'react'
+import { engine, forScreen } from '@/app/sync.ts'
 import { AppIcon } from '@/components/brand/app-icon.tsx'
 import { AppShell } from '@/components/layout/app-shell.tsx'
 import { Inspector } from '@/components/layout/inspector.tsx'
@@ -31,6 +33,7 @@ import {
 } from '@/features/conversations/new-conversation-dialog.tsx'
 import { presenceLabel } from '@/features/conversations/presence-text.ts'
 import { type SettingsSection, SettingsSheet } from '@/features/settings/settings-sheet.tsx'
+import { api } from '@/lib/api.ts'
 import { useAppearance } from '@/lib/appearance.ts'
 import { PRODUCT_NAME } from '@/lib/product.ts'
 import { useChrome } from '@/lib/shell-chrome.ts'
@@ -38,7 +41,10 @@ import { useShell } from '@/lib/shell-state.ts'
 import { useGlobalShortcuts } from '@/lib/shortcuts.ts'
 import { useSidebarGroups } from '@/lib/sync/hooks.ts'
 import { displayName, sidebarOrder } from '@/lib/sync/selectors.ts'
+import { showToast } from '@/lib/toast.ts'
 import { m } from '@/paraglide/messages.js'
+import { NewAgentChat } from '../agent/new-chat.tsx'
+import { useAgent } from '../agent/store.ts'
 import { ShortcutsDialog } from './shortcuts-dialog.tsx'
 
 type AppFrameProps = {
@@ -58,6 +64,7 @@ export function AppFrame({ me, settings, onSettingsChange, onSignOut, children }
   const [paletteOpen, setPaletteOpen] = useState(false)
   const [helpOpen, setHelpOpen] = useState(false)
   const [creating, setCreating] = useState<NewKind | null>(null)
+  const [newAgent, setNewAgent] = useState(false)
   const navigate = useNavigate()
   const router = useRouter()
   const conversations = useSidebarGroups()
@@ -141,6 +148,14 @@ export function AppFrame({ me, settings, onSettingsChange, onSignOut, children }
       }
     })
     return [
+      {
+        id: 'new-agent',
+        group: chat,
+        icon: PanelRight,
+        label: m.agent_new(),
+        keywords: 'assistant agent ai',
+        run: () => setNewAgent(true),
+      },
       ...openConversation,
       {
         id: 'new-channel',
@@ -257,6 +272,41 @@ export function AppFrame({ me, settings, onSettingsChange, onSignOut, children }
     ]
   }, [openSettings, toggleAssistant, setTheme, onSignOut, conversations, navigate])
 
+  const searchMessages = useCallback(
+    async (query: string, signal: AbortSignal): Promise<PaletteCommand[] | null> => {
+      const result = await forScreen(null, () =>
+        api(`/api/search/messages?${new URLSearchParams({ query, limit: '20' })}`, {
+          schema: messageSearchResponseSchema,
+          signal,
+        }),
+      )
+      if (!result) return null
+      return result.messages.map((message) => ({
+        id: `message-${message.id}`,
+        group: m.agent_search_messages(),
+        icon: MessageCircle,
+        label: plainMessageText(message.body ?? '', (id) => result.users[id]?.displayName).slice(
+          0,
+          180,
+        ),
+        sub: new Date(message.createdAt).toLocaleString(),
+        run: () => {
+          const ticket = engine.ticket(null)
+          useAgent.setState((s) => ({
+            jumps: { ...s.jumps, [message.conversationId]: message.seq },
+          }))
+          if (engine.isCurrent(ticket))
+            void navigate({
+              to: '/c/$conversationId',
+              params: { conversationId: message.conversationId },
+            })
+        },
+      }))
+    },
+    [navigate],
+  )
+  const searchError = useCallback(() => showToast(m.agent_search_error()), [])
+
   return (
     <>
       <AppShell
@@ -267,6 +317,7 @@ export function AppFrame({ me, settings, onSettingsChange, onSignOut, children }
             onOpenPalette={() => setPaletteOpen(true)}
             onOpenSettings={(section) => openSettings(section)}
             onCreate={setCreating}
+            onCreateAgent={() => setNewAgent(true)}
           />
         }
         toolbar={
@@ -309,7 +360,14 @@ export function AppFrame({ me, settings, onSettingsChange, onSignOut, children }
       >
         {children}
       </AppShell>
-      <CommandPalette open={paletteOpen} onOpenChange={setPaletteOpen} commands={commands} />
+      <CommandPalette
+        open={paletteOpen}
+        onOpenChange={setPaletteOpen}
+        commands={commands}
+        search={searchMessages}
+        onSearchError={searchError}
+      />
+      <NewAgentChat open={newAgent} onOpenChange={setNewAgent} />
       <ShortcutsDialog open={helpOpen} onOpenChange={setHelpOpen} />
       <NewConversationDialog kind={creating} onOpenChange={(open) => !open && setCreating(null)} />
       <SettingsSheet

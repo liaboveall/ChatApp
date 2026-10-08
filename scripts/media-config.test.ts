@@ -243,7 +243,11 @@ describe('fixed media topology', () => {
       else expect(String(value)).toContain(`WORKER_${key}`)
     }
     expect(variables.DATABASE_OWNER_URL).toBeUndefined()
-    expect(variables.DEEPSEEK_API_KEY).toBeUndefined()
+    // biome-ignore lint/suspicious/noTemplateCurlyInString: literal Compose substitution is the expected value
+    expect(variables.DEEPSEEK_API_KEY).toBe('${WORKER_DEEPSEEK_API_KEY:-}')
+    // biome-ignore lint/suspicious/noTemplateCurlyInString: literal Compose substitution is the expected value
+    expect(variables.SOCLAAS_API_KEY).toBe('${WORKER_SOCLAAS_API_KEY:-}')
+    expect(dict(rawServices.media).environment).toBeUndefined()
   })
 
   test('captured normalized Compose configuration passes, and isolation drift is rejected', () => {
@@ -323,9 +327,32 @@ describe('worker environment boundary', () => {
     expect(env.SMTP_HOST).toBe('mailpit')
     expect(env.SMTP_PORT).toBe('1025')
     expect(env.MEDIA_SOCKET_PATH).toBe(MEDIA_SOCKET_PATH)
-    for (const key of ['DATABASE_OWNER_URL', 'DATABASE_URL_TEST', 'DEEPSEEK_API_KEY', 'UNRELATED'])
+    for (const key of ['DATABASE_OWNER_URL', 'DATABASE_URL_TEST', 'UNRELATED'])
       expect(env[key]).toBeUndefined()
+    expect(env.DEEPSEEK_API_KEY).toBe('')
     expect(env.APP_ENV).toBe('development')
+  })
+  test('only the selected model key reaches the worker; the decoder receives neither provider key', () => {
+    const env = workerEnvironment({
+      ...source(),
+      AI_PROVIDER: 'soclaas',
+      SOCLAAS_API_KEY: 'fixture-selected-key',
+      DEEPSEEK_API_KEY: 'fixture-unselected-key',
+    })
+    expect(env.SOCLAAS_API_KEY).toBe('fixture-selected-key')
+    expect(env.DEEPSEEK_API_KEY).toBe('')
+    const decoder = mediaEnvironment('/tmp/fixture')
+    expect(decoder.SOCLAAS_API_KEY).toBeUndefined()
+    expect(decoder.DEEPSEEK_API_KEY).toBeUndefined()
+    expect(decoder.S3_SECRET_ACCESS_KEY).toBeUndefined()
+    const paid = workerEnvironment({
+      ...source(),
+      AI_PROVIDER: 'deepseek',
+      SOCLAAS_API_KEY: 'fixture-unselected-key',
+      DEEPSEEK_API_KEY: 'fixture-selected-key',
+    })
+    expect(paid.DEEPSEEK_API_KEY).toBe('fixture-selected-key')
+    expect(paid.SOCLAAS_API_KEY).toBe('')
   })
 
   test('rejects owner role, test database, remote endpoints and URL overrides without echoing values', () => {

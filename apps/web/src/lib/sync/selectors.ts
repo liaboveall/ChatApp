@@ -7,7 +7,7 @@ import type { Conversation, UserSummary } from '@chatapp/contracts'
 import { unreadOf } from './state.ts'
 import type { ConversationIndex, UsersByid } from './types.ts'
 
-export type SidebarGroupKey = 'pinned' | 'channel' | 'group' | 'dm'
+export type SidebarGroupKey = 'pinned' | 'channel' | 'group' | 'dm' | 'agent'
 
 export type SidebarItem = {
   conversation: Conversation
@@ -25,7 +25,7 @@ export function isListed(conversation: Conversation): boolean {
     conversation.me !== null &&
     conversation.me.hiddenAt === null &&
     conversation.archivedAt === null &&
-    conversation.kind !== 'agent'
+    conversation.panelForConversationId === null
   )
 }
 
@@ -67,6 +67,7 @@ export function sidebarGroups(
     ['channel', 'channel'],
     ['group', 'group'],
     ['dm', 'dm'],
+    ['agent', 'agent'],
   ]
   const groups: SidebarGroup[] = [{ key: 'pinned', items: pinned.map(item) }]
   for (const [key, kind] of kinds) {

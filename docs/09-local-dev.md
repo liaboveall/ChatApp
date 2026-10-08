@@ -1,6 +1,6 @@
 # 09 本地开发环境
 
-> 基础设施和工具链已在 2026-09-30 的"开发准备"中搭好并验证通过（验证方式：`bun run doctor`）。M1a 的后端脚本（`db:*`、`dev:api`、`dev:worker`、`admin:*`、`test`、`test:integration`、`test:infra:*`、`test:fault`）和 M1b 的前端脚本（`dev`、`dev:web`、`build`、`storybook`、`test:e2e`、`test:visual`、`web:messages`）都已可用，见第 7 节；M2b 起还有 `edge:up`、`edge:down`、`test:edge`（本地网关，见第 2 节和第 7 节）；M3 的 `media:*`、`test:media`、`test:attachments`、`test:m3:e2e`、`test:m3:edge` 已创建；`eval` 仍待后续里程碑。
+> 基础设施、后端、前端、网关和 M3 媒体命令已可用，见第 7 节。M4 新增 `test:m4:provider`、`test:m4:search`、真实 `eval` 和人工标注检查 `eval:review`；实现与验收证据见 [21](21-m4-implementation-2026-10-07.md)。
 > 开发环境：自 2026-10-01 起在 **WSL（Ubuntu 26.04）** 中进行（D-093）。仓库在 `/home/mars/projects/ChatApp`，命令都在 WSL 的 bash 里运行；Docker 用 Docker Desktop 的 WSL 集成。Windows 上的 `D:\ChatApp` 已停用。
 
 ## 1. 前置条件
@@ -24,10 +24,11 @@ bun install                    # install dependencies; also installs the lefthoo
 bun run setup                  # create .env.local + infra/garage/garage.toml; generate local secrets (never printed)
 bun run infra:up               # start postgres, valkey, garage, mailpit, wait until healthy, and check that every host port is published and answers
 bun run infra:bootstrap        # Garage: layout + import key + buckets (idempotent)
-bun run doctor                 # end-to-end checks; add --ai to also test the DeepSeek key
+bun run doctor                 # end-to-end checks; add --ai to test the selected AI key and configured models
 ```
 
-- **DeepSeek key**：打开 `.env.local`，自己填写 `DEEPSEEK_API_KEY=`，然后运行 `bun run doctor --ai` 验证。这个命令只调用免费的模型列表接口，不会打印 key。**不要把 key 发到聊天里，也不要提交到仓库。**
+- **当前 M4 的 SoCLaaS key（D-182）**：打开仓库根目录 `.env.local`，自己填写 `SOCLAAS_API_KEY=`。`AI_PROVIDER=soclaas`、两种 `AI_MODEL_*=x-test-1` 已配置。运行 `bun run doctor --ai` 检查认证与模型是否可用，再用 `bun run test:m4:provider` 做工具/流式/图片的合成验证。模型 ID 来自校方邮件，是可撤下的试用别名；以 `/v1/models` 的实际结果为准。检查只打印配置状态，不打印 key。**不要把 key 发到聊天里，也不要提交到仓库。**
+- DeepSeek 保留为显式可选 provider；要使用时同时切换 `AI_PROVIDER`、模型 ID、付费价格及实验额度。学校认证失败不会自动用现有 DeepSeek key。
 - **后端（M1a 已完成）**，接着执行：
   ```bash
   bun run db:migrate         # 以拥有者账号迁移，并创建/授权无特权的应用账号 chatapp_app
@@ -96,7 +97,7 @@ bun run doctor                 # end-to-end checks; add --ai to also test the De
 ## 6. 环境变量文件
 
 - **`.env.example`**：提交到仓库，列出所有变量及说明，不含真实密钥。
-- **`.env.local`**：不提交，已被 `.gitignore` 忽略；`guard` 脚本也会拦截任何被 git 跟踪的 env 文件。它由 `bun run setup` 生成，只有 `DEEPSEEK_API_KEY` 需要自己填写。`POSTGRES_PORT`、`VALKEY_PORT` 是主机端口，连接串里的端口始终跟着它们，`setup` 重复运行是安全的（D-172）。
+- **`.env.local`**：不提交，已被 `.gitignore` 忽略；`guard` 脚本也会拦截任何被 git 跟踪的 env 文件。它由 `bun run setup` 生成，当前助手需自己填写完整 `SOCLAAS_API_KEY`；显式改用 DeepSeek 才填写对应 key 与价格。`POSTGRES_PORT`、`VALKEY_PORT` 是主机端口，连接串里的端口始终跟着它们，`setup` 重复运行是安全的（D-172）。
 - **读取方式**：
   - Bun 只会从**当前目录**自动加载 `.env.local`，而且 `bun test`（`NODE_ENV=test`）根本不自动加载它。所以根目录的脚本都显式传 `--env-file=.env.local`；测试的 `APP_ENV=test` 由 `bunfig.toml` 的 preload 强制设置，配置加载器在测试环境下改用 `DATABASE_(OWNER_)URL_TEST`、`VALKEY_URL_TEST`、`S3_BUCKET_TEST`，并拒绝库名不以 `_test` 结尾、与开发共用 Valkey 库号或桶的配置。
   - 前端（M1b）：Vite 的 `envDir` 指向仓库根目录，`envPrefix` 设为 `VITE_PUBLIC_`，因此前端只能读取以它开头的变量。这些变量里不要放任何需要保密的内容。
@@ -128,12 +129,21 @@ bun run doctor                 # end-to-end checks; add --ai to also test the De
 - `.github/workflows/media.yml` 在原生 x64 与 ARM Linux 上分别执行相同套件，只上传 `result.json`。主机与 Docker 引擎架构必须一致，QEMU 结果不算 ARM 准入；新工作流尚未运行时，不能写 V-18 已通过。
 - M3 已接入上传、数据库 generation fencing、对象账本、头像与附件界面；V-18 的本地证据和原生 ARM 剩余门槛见 `PROGRESS.md`，全量混合负载属于 M7。
 
+### M4 助手开发与真实评测（D-182–D-184）
+
+- `bun run db:migrate` / `db:migrate:test` 应用 0007–0010：Agent run、上下文、状态、步骤、输出、事务预算、调用账本、每日用量、trigram 索引与供应商状态证据。本次已在开发/测试库执行；不重置开发数据。
+- 当前使用完整 `SOCLAAS_API_KEY`、固定校方 endpoint 和 `x-test-1`。API 只读模型/额度策略，执行模型调用的 worker 只获得所选 provider 的 key；media 解码容器没有 AI key、数据库、S3 凭据或网络。
+- 更新 AI 配置后要重启原开发 worker 会话。固定 worker/media 已存在却没有本轮所有权凭据时，`media:up` 拒绝环境不一致，`media:down` 拒绝停止借用实例。先在原启动终端结束 `bun run dev` / `dev:worker`，由拥有该实例的启动流程清理，然后重新启动；不要手写 lease 或删基础设施卷。本次保留了该旧实例，浏览器验证使用本轮创建并清理的隔离栈。
+- `bun run eval --concurrency 1`：真实 provider、冻结语料、独立临时数据库、完整调用与实验账本。默认并发 4 是 runner 上限；当前校方服务实测出现 HTTP 429，每周工作流使用并发 1。`Retry-After` 已知时释放该次预占并记录冷却；实验等待后创建新 run，保留失败尝试，未知结果不自动重放。
+- `--mock` 仅验证协议；`--case <代表任务或检索查询ID>` 仅冒烟，不计全量质量通过。退出 0 表示冒烟/模拟通过；真实全量自动门槛失败退出 1，自动门槛通过但总结人工标注待完成退出 2。
+- 结果在 `apps/server/evals/results/<runId>/`（Git 忽略）：report、独立 retrieval/summary/capacity 证据、每次尝试的不可覆盖副本、源文件哈希、`human-review.json`。人工核对 30 个总结 × 3 次的事实与来源后运行 `bun run eval:review <结果目录>`；不能用关键词命中率填成人工事实准确率。细节见 08 和 21。
+
 ### 命令状态
 
 | 脚本 | 作用 | 状态 |
 |---|---|---|
 | `setup` | 生成 `.env.local`、本地密钥和 Garage 配置 | ✅ 可用 |
-| `doctor` | 端到端检查环境（`--ai` 额外检查 DeepSeek key） | ✅ 可用 |
+| `doctor` | 端到端检查环境（`--ai` 额外检查所选 AI key 和配置模型） | ✅ 可用 |
 | `infra:up` / `infra:down` / `infra:ps` / `infra:logs` | 启动并等健康、再核对每个主机端口真的发布且连得上（Windows 保留的端口 Docker 不会报错，D-172；`INFRA_SKIP_PORT_CHECK=1` 关掉）/ 停止 / 查看状态 / 查看日志 | ✅ 可用 |
 | `infra:bootstrap` | 初始化 Garage | ✅ 可用 |
 | `infra:reset --yes` | **删除所有开发数据卷**，不带 `--yes` 会拒绝执行 | ✅ 可用 |
@@ -157,7 +167,8 @@ bun run doctor                 # end-to-end checks; add --ai to also test the De
 | `web:messages` | 由 `apps/web/tools/messages-source.ts` 生成 `messages/*.json`；加 `-- --check` 只核对是否过期（`check` 里已包含） | ✅ 可用（M1b） |
 | `edge:up` / `edge:down` / `test:edge` | 用 Nginx 容器和生产站点配置提供一次构建产物（`up` 构建、组装 web root、生成本地证书、`nginx -t`；`down` 只删 `chatapp-edge` 的容器和网络，不 prune）/ 一条命令跑完整个 edge 套件（`up`、套件、`down`）。`bun scripts/edge.ts configtest` 只检查配置能加载（CI 用它）。edge 栈与 `test:e2e`、`test:integration` 一样独占测试库 | ✅ 可用（M2b） |
 | `media:up` / `media:down` | worker容器与无网络media、私有IPC及资源限制；不重置开发依赖 | M3新增 |
-| `eval` | Agent 评测 | M4 |
+| `test:m4:provider` / `test:m4:search` | 当前 provider 的工具、流式、图片与 usage 合成实测 / 中文 2 字关键词 EXPLAIN | ✅ 可用（M4） |
+| `eval` / `eval:review` | 冻结语料的真实全量评测 / 90 份总结的人工标注、来源哈希与质量门槛检查 | ✅ 可用（M4；通过与否以运行结果为准） |
 
 **Git 钩子**：lefthook 的 pre-commit 钩子会对暂存的文件运行 Biome（并自动修复）和 guard。
 

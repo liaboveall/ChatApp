@@ -127,9 +127,17 @@
   color: var(--accent-text);
   font-weight: 500;
   border-radius: 4px;
+  padding: 0 3px;
 }
 .mention[data-self="true"] {
   background: var(--fill);
+}
+.bubble--out .mention {
+  color: var(--on-accent);
+  background: var(--inset);
+  text-decoration: underline;
+  text-decoration-thickness: 1px;
+  text-underline-offset: 2px;
 }
 .avatar img {
   width: 100%;
@@ -143,16 +151,26 @@
   gap: 4px;
 }
 .avatar-crop {
+  display: block;
   position: relative;
   width: 256px;
   height: 256px;
   overflow: hidden;
   border-radius: 12px;
   margin: 12px auto;
+  padding: 0;
+  border: 0;
+  cursor: grab;
+  touch-action: none;
+  user-select: none;
+}
+.avatar-crop[data-dragging="true"] {
+  cursor: grabbing;
 }
 .avatar-crop img {
   position: absolute;
   max-width: none;
+  pointer-events: none;
 }
 
 .attachment-placeholder {

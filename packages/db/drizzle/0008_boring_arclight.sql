@@ -1,0 +1,1 @@
+CREATE INDEX "messages_body_trgm_idx" ON "messages" USING gin ("body" gin_trgm_ops) WHERE "messages"."body" is not null;

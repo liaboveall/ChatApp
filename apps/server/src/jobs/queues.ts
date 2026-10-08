@@ -1,7 +1,7 @@
 /** Queue names and shared options. BullMQ is only the transport: the work_items table is the record (D-056). */
 import type { JobsOptions } from 'bullmq'
 
-export const QUEUE = { email: 'email', media: 'media' } as const
+export const QUEUE = { email: 'email', media: 'media', agent: 'agent' } as const
 
 export const queuePrefix = (environment: string): string => `chatapp-${environment}`
 

@@ -46,7 +46,17 @@ export type MembersCursor = {
 /** A page position in channel discovery; `q` is the normalized query it belongs to. */
 export type ChannelsCursor = { k: 'chn'; u: string; q: string; o: [string, string]; x: number }
 
-type AnyCursor = ConversationCursor | UserCursor | MembersCursor | ChannelsCursor
+export type SearchCursor = {
+  k: 'search'
+  u: string
+  ae: number
+  re: string
+  q: string
+  c: string
+  o: string
+  x: number
+}
+type AnyCursor = ConversationCursor | UserCursor | MembersCursor | ChannelsCursor | SearchCursor
 
 export function encodeCursor(deps: Pick<Deps, 'config'>, cursor: AnyCursor): string {
   return signPayload(deps.config.auth.cursorKey, cursor)

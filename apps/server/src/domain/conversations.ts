@@ -174,6 +174,8 @@ export async function createConversation(
   idempotencyKey: string,
 ): Promise<{ conversation: Conversation; created: boolean }> {
   assertIdempotencyKey(idempotencyKey)
+  if (input.kind === 'agent' && ((input.memberIds?.length ?? 0) > 0 || input.description))
+    throw new AppError('VALIDATION_FAILED', 'An assistant conversation belongs only to its creator')
   const named = [...new Set(input.memberIds ?? [])].filter((id) => id !== principal.userId).sort()
   const requestHash = fingerprint({
     v: 1,
@@ -689,6 +691,15 @@ export async function updateConversation(
           details: { metadataVersion: conversation.metadataVersion },
         })
       }
+
+      if (
+        conversation.kind === 'agent' &&
+        (input.description !== undefined || input.settings !== undefined)
+      )
+        throw new AppError(
+          'VALIDATION_FAILED',
+          'Only the assistant conversation title can be changed',
+        )
 
       const set: Partial<typeof conversations.$inferInsert> = {}
       const changed: string[] = []

@@ -78,11 +78,12 @@ Message      { id, conversationId, seq, changeSeq, kind: 'user'|'system'|'agent'
                replyTo: { state: 'unavailable' }|{ id, seq, senderId|null, excerpt|null, attachmentKind?: 'image'|'video'|'audio'|'file'|null, state: 'ok'|'recalled'|'deleted' }|null,
                attachments: Attachment[], mentions: string[], streamRevision,
                editedAt|null, recalledAt|null, deletedAt|null, createdAt,
-               meta: { system?: {...}, agent?: { runId, mode, keySource, streamIndex? }, viaAgent?: { runId } } }
+               meta: { system?: {...}, agent?: { runId, mode, keySource, resumeSeq?, streamIndex? }, viaAgent?: { runId } } }
 Attachment   { id, version, generation, kind: 'image'|'video'|'audio'|'file', mime, name, sizeBytes, width|null, height|null,
                durationMs|null, metadataCleared?: boolean|null, thumbhash|null, status: 'processing'|'ready'|'failed',
                urls: { original, thumb|null, preview|null } }
-AgentRun     { id, trigger, conversationId|null, status, mode, model|null, keySource: 'site'|'user', readScope,
+AgentRun     { id, userId, trigger, conversationId|null, contextConversationId|null, sourceMessageId|null, outputMessageId|null,
+               status, mode, provider, model, actualModel|null, keySource: 'site'|'user', privacyClass, readScope,
                stepCount, usage: { inputTokens, outputTokens, cachedTokens, costUsd }, createdAt, finishedAt|null,
                error: { code, message }|null, regeneratedFromRunId|null, stateVersion, resumeSeq, contextEpoch }
 Notification { id, version, type, data, readAt|null, createdAt }                          // M6
@@ -90,6 +91,7 @@ Page<T>      { items: T[], nextCursor|null }  // message lists instead return { 
 ```
 
 - 纯文本摘要统一经 `plainMessageText`：先把完整提及标记解析为当前显示名，再按码点截断；未知名字用中性占位，不显示 UUID。纯附件摘要携带 `attachmentKind` 并有 `[image]` 等兜底，客户端按当前语言显示 `[图片]` 等。正文与草稿继续使用稳定的 `<@user:id>` 格式。
+- 侧栏 `lastMessagePreview.text` 先从完整 Markdown 正文提取可读文字，再解析提及名并截断为 100 码点；标题、加粗、列表等只保留文字，链接保留标签。服务端读取与前端实时/乐观更新使用同一个 `markdownPreviewText`。输出已是纯文本，显示时不再解析 Markdown，防止代码、转义字符和显示名中的星号被再次解释；存储的消息正文保持原文。
 - 消息列表的响应附带一个 `users` 字典，消息里只放 `senderId`，避免每条消息都重复带上用户资料。
 - 普通实时事件不携带消息或 sender；HTTP 响应按当前请求者投影，再合并 users 字典。
 - `lastMessagePreview.text` 在撤回或删除后为 null，界面文字（"撤回了一条消息"等）由客户端按 `state` 生成。
@@ -207,13 +209,16 @@ Page<T>      { items: T[], nextCursor|null }  // message lists instead return { 
 | `GET /api/attachments/:id/:variant` | `variant` 取 `original`、`thumb` 或 `preview`。<br>• 鉴权按 `purpose` 区分（INV-09）<br>• 支持 Range（断点续传和拖动播放）<br>• 响应头见 07 的 SEC-08<br>• 带 `ETag`；所有私有变体与原文件 `Cache-Control: private, no-store`；ETag 仅用于本次 Range/条件验证，不授权跨会话缓存 | M3 |
 
 ### 3.6 Agent
+
+M4 接口已接入并有契约/鉴权回归（D-183），里程碑质量与用户验收单列于 21。创建和重新生成要求 Idempotency-Key；请求中的 keySource/provider/lease 等受控字段不能由客户端设置。面板自动定位或创建私有会话，返回其 conversationId/contextEpoch。
+
 | 方法和路径 | 说明 | 里程碑 |
 |---|---|---|
-| `POST /api/agent/runs` | 启动一次运行：`{trigger: 'agent_chat'\|'panel'\|'command', conversationId?, contextConversationId?, prompt, mode?: 'fast'\|'deep', scope?: 'current'\|'all', attachmentIds?, timezone}`，返回 run（含 `keySource`）。<br>• `scope` 只对面板和命令有效，默认 `current`（D-051）<br>• 群里 @Agent 不走这个接口，而是由发送消息自动触发 | M4 |
+| `POST /api/agent/runs` | 启动一次运行：`{trigger: 'agent_chat'\|'panel'\|'command', conversationId?, contextConversationId?, newConversation?, prompt, mode?: 'fast'\|'deep', scope?: 'current'\|'all', attachmentIds?, timezone}`，返回 run（含 `keySource`）。<br>• `scope` 只对面板和命令有效，默认 `current`（D-051）<br>• 面板/命令的 `newConversation: true` 新建独立私有会话并保留旧历史，不能同时指定 `conversationId`；省略时复用本人最近活跃的面板会话，指定时授权读取并继续该段（D-185）<br>• 群里 @Agent 不走这个接口，而是由发送消息自动触发 | M4 |
 | `GET /api/agent/runs/:id` | run 的状态和每一步，只有本人可以查看 | M4 |
 | `POST /api/agent/runs/:id/cancel` | 停止生成 | M4 |
 | `POST /api/agent/runs/:id/regenerate` | 重新生成，替换原回复（D-036），返回新的 run。限制如下：<br>• 只有发起人可以操作；<br>• Agent 会话和面板里，只能重新生成最近一条回复；<br>• 群组和频道里，24 小时内可以重新生成；<br>• 执行过任何业务效果（包括提醒、记忆）或有待审批的运行不能重新生成；来源失效要求新请求 | M4 |
-| `GET /api/agent/usage` | 我的今日和本月用量、剩余额度；站点 key 和自带 key 分开统计 | M4 |
+| `GET /api/agent/usage` | M4 固定站点 key：我的今日 token 和站点月预算（整数微美元）的 settled/reserved/unknown/available、各周期 resetAt、warning/paused；不显示其他用户 token。自带 key 统计在 M5 扩展 | M4 |
 | `POST /api/agent/approvals/:id` | `{decision: 'approve'\|'reject', editedArgs?, expectedStateVersion}`，状态 CAS 审批，回应/queued/work 同事务 | M5 |
 | `GET /api/agent/approvals?status=pending` | 待我审批的列表 | M5 |
 | `GET /api/agent/memories` / `POST` / `DELETE /api/agent/memories/:id` | 长期记忆：查看、新增、删除 | M5 |
@@ -293,7 +298,8 @@ Page<T>      { items: T[], nextCursor|null }  // message lists instead return { 
 | presence / presence.snapshot | presence:* / — | userId、status（online/away/offline）、lastSeenAt，没有任何「是不是我」的字段；仅登录用户可接收；聚合与清扫规则见 D-131 |
 | attachment.updated | user:* | attachmentId、generation、version，重新查询上传或附件 |
 | agent.run.updated / agent.step / agent.approval.requested | user:* | runId、stateVersion、stepIndex 或 approvalId；详情接口读取，仅调用者接收 |
-| agent.delta | conv:*（hub 逐连接授权，非盲播） | runId、resumeSeq、messageId、index、text；每批重新检查 session、成员、来源版本、租约 |
+| agent.delta | conv:*（hub 逐连接授权，非盲播） | conversationId、runId、resumeSeq、leaseEpoch、messageId、index、streamRevision、text；每批重新检查 session、成员、来源版本、租约 |
+| agent.run.updated | 本人（普通元数据提示） | runId、stateVersion；无工具结果或正文，客户端用当前会话授权读取详情 |
 | notification | user:* | notificationId、userChangeSeq；正文按权限读取 |
 | error | — | code、message |
 

@@ -19,11 +19,13 @@ function Crop({
   onSave,
   onCancel,
   busy,
+  error,
 }: {
   file: File
   onSave: (blob: Blob) => void
   onCancel: () => void
   busy: boolean
+  error: string
 }) {
   const [url, setUrl] = useState(''),
     [zoom, setZoom] = useState(1),
@@ -31,6 +33,14 @@ function Crop({
     [y, setY] = useState(0)
   const [ready, setReady] = useState(false)
   const [dimensions, setDimensions] = useState({ width: 256, height: 256 })
+  const [dragging, setDragging] = useState(false)
+  const drag = useRef<{
+    pointer: number
+    clientX: number
+    clientY: number
+    x: number
+    y: number
+  } | null>(null)
   const side = Math.min(dimensions.width, dimensions.height) / zoom
   const image = useRef<HTMLImageElement>(null)
   useEffect(() => {
@@ -70,11 +80,72 @@ function Crop({
       }}
       title={m.media_crop()}
     >
-      <div className="avatar-crop">
+      <p className="dsec__note">{m.media_crop_drag()}</p>
+      {error ? <p role="alert">{error}</p> : null}
+      <button
+        type="button"
+        className="avatar-crop"
+        aria-label={m.media_crop_drag()}
+        disabled={!ready || busy}
+        data-dragging={dragging}
+        onPointerDown={(event) => {
+          if (event.button !== 0) return
+          event.preventDefault()
+          event.currentTarget.focus()
+          event.currentTarget.setPointerCapture(event.pointerId)
+          drag.current = {
+            pointer: event.pointerId,
+            clientX: event.clientX,
+            clientY: event.clientY,
+            x,
+            y,
+          }
+          setDragging(true)
+        }}
+        onPointerMove={(event) => {
+          const start = drag.current
+          if (!start || event.pointerId !== start.pointer) return
+          const horizontal = (dimensions.width / side) * 256 - 256
+          const vertical = (dimensions.height / side) * 256 - 256
+          const clamp = (value: number) => Math.max(-1, Math.min(1, value))
+          if (horizontal > 0)
+            setX(clamp(start.x - (2 * (event.clientX - start.clientX)) / horizontal))
+          if (vertical > 0) setY(clamp(start.y - (2 * (event.clientY - start.clientY)) / vertical))
+        }}
+        onPointerUp={(event) => {
+          if (drag.current?.pointer !== event.pointerId) return
+          drag.current = null
+          setDragging(false)
+          event.currentTarget.releasePointerCapture(event.pointerId)
+        }}
+        onPointerCancel={() => {
+          drag.current = null
+          setDragging(false)
+        }}
+        onLostPointerCapture={() => {
+          drag.current = null
+          setDragging(false)
+        }}
+        onKeyDown={(event) => {
+          const step = event.shiftKey ? 0.2 : 0.05
+          if (event.key === 'ArrowLeft' || event.key === 'ArrowRight') {
+            event.preventDefault()
+            setX((value) =>
+              Math.max(-1, Math.min(1, value + (event.key === 'ArrowRight' ? step : -step))),
+            )
+          } else if (event.key === 'ArrowUp' || event.key === 'ArrowDown') {
+            event.preventDefault()
+            setY((value) =>
+              Math.max(-1, Math.min(1, value + (event.key === 'ArrowDown' ? step : -step))),
+            )
+          }
+        }}
+      >
         <img
           ref={image}
           src={url || undefined}
           alt={file.name}
+          draggable={false}
           onLoad={(event) => {
             setDimensions({
               width: event.currentTarget.naturalWidth,
@@ -89,7 +160,7 @@ function Crop({
             top: (-((dimensions.height / side) * 256 - 256) * (y + 1)) / 2,
           }}
         />
-      </div>
+      </button>
       <label>
         {m.media_zoom()}
         <input
@@ -200,12 +271,12 @@ export function AvatarEditor({ me, conversation }: { me: Me; conversation?: Conv
       if (!attachment || abort.signal.aborted) return
       if ((await set(attachment.id)) === null || abort.signal.aborted) return
       setFile(null)
-      setBusy(false)
     } catch (error) {
       if (!abort.signal.aborted) {
         setError(describeError(error))
-        setBusy(false)
       }
+    } finally {
+      if (controller.current === abort && !abort.signal.aborted) setBusy(false)
     }
   }
   return (
@@ -239,11 +310,12 @@ export function AvatarEditor({ me, conversation }: { me: Me; conversation?: Conv
       >
         {m.media_avatar_clear()}
       </Button>
-      {error ? <p role="alert">{error}</p> : null}
+      {error && !file ? <p role="alert">{error}</p> : null}
       {file ? (
         <Crop
           file={file}
           busy={busy}
+          error={error}
           onSave={(blob) => void save(blob)}
           onCancel={() => setFile(null)}
         />

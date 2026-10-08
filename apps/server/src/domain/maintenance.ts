@@ -4,6 +4,7 @@
  */
 import { LIMITS } from '@chatapp/contracts'
 import {
+  agentRuns,
   authChallenges,
   authorizationOrigins,
   conversationInvites,
@@ -61,6 +62,12 @@ export async function purgeSessionsAndOrigins(deps: Deps): Promise<MaintenanceRe
       and(
         inArray(executionDelegations.status, ['revoked', 'completed', 'expired']),
         lt(executionDelegations.createdAt, cutoff),
+        notExists(
+          deps.db
+            .select({ one: sql`1` })
+            .from(agentRuns)
+            .where(eq(agentRuns.delegationId, executionDelegations.id)),
+        ),
       ),
     )
     .returning({ id: executionDelegations.id })

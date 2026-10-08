@@ -17,7 +17,7 @@ api  (Bun + Hono)  :3100
                                      ├──▶ PostgreSQL 18 (+pgvector)  source of truth
 worker (Bun)                         ├──▶ Valkey 9.1   pub/sub bus · presence · rate limits · BullMQ
   ├─ jobs/   media · push · email · cleanup · scheduled · reconcile · embeddings
-  └─ agent/  Agent runtime (AI SDK 7 ToolLoopAgent) ──▶ DeepSeek API (site key or the user's own key)
+  └─ agent/  Agent runtime (AI SDK 7 ToolLoopAgent) ──▶ SoCLaaS API (site key); DeepSeek only when explicitly selected / BYOK
                                      └──▶ Garage (S3)  attachments (private bucket)
 Events: api/worker ──publish──▶ Valkey channel "events:{APP_ENV}" ──▶ every api instance ──▶ local WS subscribers
 ```
@@ -46,7 +46,7 @@ Events: api/worker ──publish──▶ Valkey channel "events:{APP_ENV}" ─�
 | ORM 与迁移 | drizzle-orm / drizzle-kit，驱动用 `drizzle-orm/bun-sql` | 0.45.3 / 0.31.11（1.0 仍是 RC，D-104；GA 后另开决策迁移） |
 | 认证 | better-auth + `@better-auth/passkey` | 1.7.7 |
 | 队列与 Valkey 客户端 | bullmq + ioredis（应用里所有 Valkey 访问统一用 ioredis，D-044） | 6.3.11 / 6.0.0 |
-| AI | `ai`（AI SDK）+ `@ai-sdk/deepseek` | 7.0.123 / 3.0.57 |
+| AI | `ai`（AI SDK）+ `@ai-sdk/openai-compatible` / `@ai-sdk/deepseek` | 7.0.130 / 3.0.65 / 3.0.61 |
 | 本地向量模型（M5b 验证） | `@huggingface/transformers` | 4.3.0 |
 | 图片处理 | sharp | 0.35.5 |
 | 视频元数据清理（M3） | ffmpeg（镜像里的系统包，只做重新封装） | 随 Debian 版本 |
@@ -345,11 +345,13 @@ work_items 唯一 dedupe_key 与业务事务关联；payload 只存 id、版本�
 | `BETTER_AUTH_SECRET` | 由 setup 脚本生成 | ≥ 32 字节随机值 |
 | `AUTH_TOKEN_ENCRYPTION_KEY` | M1a由setup生成 | 独立32字节密钥，仅加密待投递认证凭证，版本化轮换 |
 | `SMTP_HOST` / `SMTP_PORT` / `SMTP_USER` / `SMTP_PASS` / `MAIL_FROM` | `localhost` / `12525`（模板默认 2525）/ 空 / 空 / `ChatApp <noreply@chatapp.localhost>` | |
-| `DEEPSEEK_API_KEY` | **用户自己填写** | 站点 key；不能出现在聊天记录和日志里 |
-| `AI_PROVIDER` | `deepseek` | `deepseek` 或 `mock`；测试时用 `mock`（M4 新增） |
-| `AI_MODEL_FAST` / `AI_MODEL_DEEP` | `deepseek-flash` / `deepseek-flash` | 模型名做成可配置项。当前两种模式都用 V4.1-Flash，深度模式开启思考（D-031） |
-| `AI_USER_DAILY_TOKENS` / `AI_MONTHLY_BUDGET_USD` | `500000` / `20` | 只是初始值，之后以后台设置为准 |
-| `AI_PRICE_*` | 按 DeepSeek 当前价格填写 | 用于估算费用 |
+| `SOCLAAS_API_KEY` | **用户自己填写** | 当前 M4 站点 key；只用于固定 SoCLaaS 地址，不能进聊天或日志（D-182） |
+| `DEEPSEEK_API_KEY` | 可选，用户自己填写 | 仅显式选择 DeepSeek 时使用，不是自动降级 key |
+| `AI_PROVIDER` | `soclaas` | `soclaas`、`deepseek` 或 `mock`；测试必须用 `mock`（M4 新增） |
+| `AI_MODEL_FAST` / `AI_MODEL_DEEP` | `x-test-1` / `x-test-1` | SoCLaaS 当前 GLM-5.3-Flash 试用别名，两种模式均开启思考；模式参数由 V-01 实测（D-182） |
+| `AI_USER_DAILY_TOKENS` / `AI_MONTHLY_BUDGET_USD` | `500000` / `20` | 初始每日 token 与付费 provider 月预算；SoCLaaS 实际货币费用为 0 |
+| `AI_EXPERIMENT_BUDGET_USD` | `0` | 当前免费 SoCLaaS 无付费预占；显式选付费服务时从总预算中扣除实验预占 |
+| `AI_PRICE_*` | 显式选 DeepSeek 时填写 | SoCLaaS 强制费用为 0，仍记录每次 usage 并受 token/并发/时长上限约束 |
 | `AI_KEY_ENCRYPTION_KEY` | 由 setup 脚本生成（M5a 加入） | 32 字节，加密用户自带的 key；丢失后用户需要重新填写 key |
 | `PRODUCT_NAME` / `AGENT_DISPLAY_NAME` / `AGENT_USERNAME` | `ChatApp` / `助手` / `assistant` | |
 | `VAPID_PUBLIC_KEY` / `VAPID_PRIVATE_KEY` / `VAPID_SUBJECT` | M6 生成 | |

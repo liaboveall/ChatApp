@@ -1,0 +1,2 @@
+DROP INDEX "conversations_panel_uidx";--> statement-breakpoint
+CREATE INDEX "conversations_panel_idx" ON "conversations" USING btree ("owner_id","panel_for_conversation_id") WHERE "conversations"."panel_for_conversation_id" is not null;

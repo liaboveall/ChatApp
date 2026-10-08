@@ -1,5 +1,6 @@
 import { describe, expect, test } from 'vitest'
-import { makeConversation, makeUser, uuid } from '@/lib/sync/fixtures.ts'
+import { makeConversation, makeMessage, makeUser, uuid } from '@/lib/sync/fixtures.ts'
+import { previewOf } from '@/lib/sync/merge.ts'
 import { type PreviewWords, previewLine } from './preview.ts'
 
 const words: PreviewWords = {
@@ -68,4 +69,26 @@ test('an attachment-only preview has a localized label', () => {
   expect(
     line({ kind: 'dm', lastMessagePreview: { ...preview(''), attachmentKind: 'image' } }),
   ).toBe('[图片]')
+})
+
+test('an assistant preview reads like the screenshot title and keeps code and escaped stars literal', () => {
+  const lastMessagePreview = previewOf(
+    makeMessage(1, {
+      kind: 'agent',
+      senderId: uuid(2),
+      body: '**当前会话总结**\n\n- `**literal**` 和 \\*\\*原样\\*\\*',
+    }),
+  )
+  expect(line({ kind: 'group', lastMessagePreview })).toBe(
+    'Bea: 当前会话总结 **literal** 和 **原样**',
+  )
+})
+
+test('Markdown is parsed before resolving names that contain formatting characters', () => {
+  const user = makeUser(2, { displayName: '**Bea**' })
+  const conversation = makeConversation(10, {
+    kind: 'dm',
+    lastMessagePreview: previewOf(makeMessage(1, { body: `**请 <@user:${user.id}> 确认**` })),
+  })
+  expect(previewLine(conversation, { [user.id]: user }, ME, words)).toBe('You: 请 @**Bea** 确认')
 })

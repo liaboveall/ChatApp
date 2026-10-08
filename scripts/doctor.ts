@@ -2,9 +2,12 @@
  * Checks that the local development environment works end to end, using Bun's
  * native clients (SQL, Redis, S3). Never prints secret values.
  *   bun run doctor          all local checks
- *   bun run doctor --ai     also calls the DeepSeek models endpoint (needs DEEPSEEK_API_KEY)
+ *   bun run doctor --ai     also checks the selected provider's models endpoint (no generation)
  */
 import { $, RedisClient, S3Client, SQL } from 'bun'
+import { loadAiConfig } from '../apps/server/src/config/ai.ts'
+import { ConfigError } from '../apps/server/src/config/env.ts'
+import { AI_ENDPOINTS } from '../apps/server/src/runtime/ai.ts'
 import packageJson from '../package.json'
 import { getEnv, isUnset, readEnvFile } from './lib/env-file.ts'
 import {
@@ -31,14 +34,19 @@ async function check(name: string, run: () => Promise<string>, optional = false)
     results.push({ name, ok: true, detail: await run(), optional })
   } catch (error) {
     const detail =
-      error instanceof Problems
-        ? error.lines.join('\n    ')
+      error instanceof Problems || error instanceof ConfigError
+        ? (error instanceof Problems ? error.lines : error.problems).join('\n    ')
         : (error instanceof Error ? error.message : String(error)).split('\n')[0]
     results.push({ name, ok: false, detail: detail ?? 'failed', optional })
   }
 }
 
 const env = await readEnvFile('.env.local')
+const aiSource: Record<string, string | undefined> = {}
+for (const line of env.lines) {
+  const key = /^\s*([A-Za-z_][A-Za-z0-9_]*)\s*=/.exec(line)?.[1]
+  if (key) aiSource[key] = getEnv(env, key)
+}
 const value = (key: string): string => {
   const found = getEnv(env, key)
   if (found === undefined || isUnset(found)) throw new Error(`${key} is not set in .env.local`)
@@ -75,10 +83,10 @@ await check('.env.local', async () => {
   return `${keys.length} required values present`
 })
 await check(
-  'DEEPSEEK_API_KEY',
+  'AI configuration',
   async () => {
-    value('DEEPSEEK_API_KEY')
-    return 'set'
+    const config = loadAiConfig(aiSource)
+    return `${config.provider}; ${config.provider === 'mock' ? 'no key needed' : 'key set'}`
   },
   true,
 )
@@ -236,15 +244,35 @@ await check('mailpit', async () => {
   return `${info.Version}, SMTP on :${smtpPort} ready`
 })
 
-// Optional: DeepSeek connectivity (free models endpoint; the key is never printed)
+// Optional connectivity: only the selected fixed host, no generation or paid fallback.
 if (process.argv.includes('--ai')) {
-  await check('deepseek api', async () => {
-    const response = await fetch('https://api.deepseek.com/models', {
-      headers: { Authorization: `Bearer ${value('DEEPSEEK_API_KEY')}` },
-    })
+  await check('AI models', async () => {
+    const config = loadAiConfig(aiSource)
+    if (config.provider === 'mock') return 'mock; external requests disabled'
+    let response: Response
+    try {
+      response = await fetch(`${AI_ENDPOINTS[config.provider]}/models`, {
+        headers: { Authorization: `Bearer ${config.apiKey}` },
+        redirect: 'error',
+        signal: AbortSignal.timeout(20_000),
+      })
+    } catch {
+      throw new Error(`${config.provider}: connection failed or timed out`)
+    }
     if (!response.ok) throw new Error(`HTTP ${response.status}`)
-    const body = (await response.json()) as { data: { id: string }[] }
-    return `models: ${body.data.map((model) => model.id).join(', ')}`
+    const body: unknown = await response.json().catch(() => null)
+    const data = body !== null && typeof body === 'object' && 'data' in body ? body.data : null
+    if (!Array.isArray(data)) throw new Error('invalid models response')
+    const ids = new Set(
+      data.flatMap((model: unknown) =>
+        model !== null && typeof model === 'object' && 'id' in model && typeof model.id === 'string'
+          ? [model.id]
+          : [],
+      ),
+    )
+    for (const model of Object.values(config.models))
+      if (!ids.has(model)) throw new Error(`configured model unavailable: ${model}`)
+    return `${config.provider}; configured fast/deep models available`
   })
 }
 

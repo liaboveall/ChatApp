@@ -3,7 +3,7 @@
 ## 1. 原则
 
 - **用真实的依赖测试。** 数据库、Valkey、Garage、Mailpit 都用真实服务，不做模拟，因为事务、并发、权限这些问题只有在真实环境里才测得出来。
-- **只模拟外部服务**：DeepSeek、浏览器推送服务、生产环境的邮件服务商。Agent 的评测则直接调用真实的 DeepSeek。
+- **只模拟外部服务**：SoCLaaS/DeepSeek、浏览器推送服务、生产环境的邮件服务商。Agent 的评测则直接调用显式配置的真实 provider（当前 SoCLaaS，D-182）。
 - **测试是"完成"的一部分**：没有测试的功能不算完成。
 - **只说跑过的结果**：不能把没跑过的检查写成"通过"。PROGRESS 里要记录实际执行的命令和结果。
 
@@ -20,7 +20,7 @@
 | 端到端 | Playwright 1.63 | `apps/web/e2e/` | 多人场景：用两到三个互相隔离的浏览器环境同时登录。Chromium 和 WebKit 全量运行，Firefox 只跑冒烟（带 `@smoke` 标记的用例）。**对生产构建运行**：`vite preview` 发送生产的 CSP，API 与 worker 用测试环境，邮件取自 Mailpit 的 API，每个测试自动断言零 CSP 违规和零意外控制台错误（D-122）。M1b 有 8 个文件：`scenario-1-registration`、`scenario-11-devices`、`auth-flows`、`shell`、`isolation`、`realtime`、`passkey`、`a11y`；M2a 加了 `network`（模拟断线的辅助函数 `support/network.ts` 与它的验证，V-14、D-134）。M2b 起夹具对**每个**浏览器上下文断言零违规（D-148：`newContext()` 登记并在测试结束关闭；`allowConsole`、`claimViolation` 必须匹配到才算数；文档响应的 CSP 头逐字等于 `tools/csp.ts`），并新增 `scenario-2-chat`、`scenario-3-reconnect`、`scenario-4-recall`、`scenario-5-isolation`、`scenario-10-boundary`、`scenario-12-ime`、`security`、`inspector`、`profile`、`consistency`、`timeline-perf`、`latency`、`accessibility`（`support/chat.ts` 是 API 与界面两类助手，`support/perf.ts` 是性能探针，`support/network.ts` 另有 `muteHints`）。带 `@perf` 标记的用例（`timeline-perf`、`latency`）只在单独的 `perf` 项目里跑（Chromium，有显卡时用显卡合成，D-161），其余项目都不跑它们；WebKit 和 Firefox 在截图时往页面里塞的内联样式、断网期间浏览器对失败请求的控制台报告、Firefox 里 `fill` 之后紧跟的回车，夹具和助手各有处理（D-165）。`apps/web/edge/` 是只在本机跑的网关套件（`bun run test:edge`，D-147） |
 | 无障碍 | `@axe-core/playwright` | 与端到端测试一起（`a11y.spec.ts`） | 关键页面没有 WCAG 2.2 A/AA 与 best-practice 违规；M1b 覆盖登录前的页面、外壳及其对话框、设置面板，浅色与深色各一遍；M2b 加会话页（时间线、输入栏）、详情面板及其菜单与对话框、侧栏与消息菜单、私信资料、新建会话对话框、频道发现与已归档页、读屏分页模式、找不到会话的页面、没人写过消息的会话（空的 feed 会被 axe 判严重违规，D-164）（弹层里的菜单关掉 axe 的 `region` 规则，其余全开）。`accessibility.spec.ts` 补 axe 查不出来的两件事（AT-21）：在一万条消息的会话里用键盘走（↑ 三十次、PageUp、滚轮拉走很远、End、Home、Esc），焦点任何时刻都不落到 `<body>`；320 CSS 像素宽（桌面 400% 缩放的等价布局）下从抽屉里选会话、发消息、看详情，页面不横向溢出（D-166）。Storybook 的 a11y 面板是 `todo` 模式，只报告不阻断 |
 | 视觉 | Playwright 截图，对象是 Storybook 中的关键组件 | `apps/web/visual/` | 防止设计还原走样；浅色和深色模式都要截。**基线只在 Playwright 官方 Linux 镜像里生成和比对**（`bun run test:visual`），本机（WSL 与 Windows）的字体不同，直接截图永远对不上。M1b：64 张基线，逐像素严格比较，只有 Chromium（D-123） |
-| Agent 评测 | `bun run eval`（调用真实的 DeepSeek） | `apps/server/evals/` | 见 06 第 12 节 |
+| Agent 评测 | `bun run eval`（调用显式配置的真实 provider（当前 SoCLaaS，D-182）） | `apps/server/evals/` | 见 06 第 12 节 |
 | 压力 | k6（Docker 镜像，锁定版本） | `infra/load/` | M7：500 个 WebSocket 连接、每秒 20 条消息，p95 < 300 ms；彩排时把容器的 CPU 限制到接近服务器的 2 核 |
 
 ## 3. 端到端测试必须覆盖的场景
@@ -57,7 +57,8 @@
   - 后端单元和集成测试：直接注入时钟。
   - E2E：服务端在 `APP_ENV=test` 时提供 `/api/test/clock`，浏览器端用 Playwright 的 `page.clock`。
   - 这些测试接口在生产环境不存在，启动时会检查（SEC-29）。
-- **Agent**：集成测试和 E2E 用 `AI_PROVIDER=mock`，结果确定；评测才调用真实的 DeepSeek。
+- **Agent**：集成测试和 E2E 用 `AI_PROVIDER=mock`，结果确定；评测才调用显式配置的真实 provider（当前 SoCLaaS，D-182）。
+- 视觉测试的 Playwright outputDir 为 `.test-runs/visual/results`；普通 E2E 继续使用 `apps/web/test-results`。两种 runner 不能共用默认目录，否则一个启动时会删掉另一个正在写的 trace（M4 实测并修复）；各自保留失败证据。
 - **限流**：Better Auth 的限流可能默认只在生产环境开启。测试环境要显式开启，否则限流相关的测试没有意义（M1a 确认）。
 - **崩溃注入**：副作用工具"恰好一次"的测试，要在"写入步骤之后、执行之前"和"执行之后、返回之前"两个时刻分别杀掉 worker，再验证结果（INV-10）。
 
@@ -69,12 +70,12 @@
 | `integration` | 每个 PR | 真实 Postgres/Valkey/Garage/Mailpit → 空库及上一发布夹具升级 → bootstrap 幂等/旧版兼容 → drizzle-kit check → 集成、实时、安全与契约测试，并按第 7 节检查 `domain/`（和将来的 `agent/`）的行覆盖率（`bun run test:coverage`，M2a 起；本地通过，远端 `78e0cf5` 上第一次运行就通过）→ 故障矩阵（独立的 `fault` 作业） |
 | `e2e` | M1b 起每个目标为 v2/main 的 PR，以及每晚 | 构建并启动整个应用 → Playwright（Chromium 和 WebKit 全量，Firefox 冒烟）→ 无障碍检查 → 在 Playwright 官方镜像里做视觉截图对比。**M1b 已写好**（`e2e`、`visual` 两个作业，推送到 main/v2、PR、每晚和手动触发），2026-10-03 在 `d214415` 上首次远端运行成功（`e2e` 作业 106 通过 / 3 跳过，`visual` 作业 64 通过） |
 | `security` | 每个 PR 和每周一次 | gitleaks、osv-scanner；M7 起加上 trivy 扫描镜像 |
-| `eval` | 手动触发，以及每周一次 | Agent 评测，需要仓库密钥 `DEEPSEEK_API_KEY` |
+| `eval` | 手动触发，以及每周一次 | 已创建；默认 SoCLaaS，需要仓库密钥 `SOCLAAS_API_KEY`；真实评测与人工事实审核见下文 |
 | `load` | 手动触发 | k6 压力测试 |
 | `image`（M7 起） | 推送到 main 或打版本标签时 | 在 GitHub 的 `ubuntu-24.04-arm` 机器上构建 arm64 镜像（另外构建 amd64，供本地彩排）→ 扫描 → 在同一台 arm64 机器上用 `compose.prod.yml` 启动整套服务，执行迁移和冒烟测试 → 推送到 GHCR |
 
 - CI 里所有工具的版本都和本地一致：Bun 版本写在 `package.json` 的 `packageManager` 字段里，并且提交锁文件；Docker 镜像锁定精确版本。
-- 合并到 v2/main 前，当前合并 SHA 的 check、integration、security，以及 M1b 起启用的 e2e 必须通过；M7 的发布候选另要求 image/arm64 与恢复、混合负载证据。未创建的工作流必须在对应里程碑建立；现有 `check`、`integration`、`security`、`e2e`（M1b 创建，`d214415` 上首次远端运行成功），`eval`、`load`、`image` 未创建。
+- 合并到 v2/main 前，当前合并 SHA 的 check、integration、security，以及 M1b 起启用的 e2e 必须通过；M7 的发布候选另要求 image/arm64 与恢复、混合负载证据。现有 `check`、`integration`、`security`、`media`、`e2e` 和 M4 的 `eval`；`load`、`image` 未创建。创建了工作流不代表远端已执行通过。
 - CI 必过项与路径过滤保持一致，不能因为跳过工作流就显示完成；失败后的修复必须重跑修复 SHA。只改文档时允许契约/链接检查替代业务重跑，但不得据此更新运行时通过记录。
 
 ## 6. 完成标准（Definition of Done）
@@ -97,7 +98,17 @@
 - 不设全局的覆盖率门槛。
 - `domain/`（尤其是 `authorize()`、可见性判断和各项策略）以及 `agent/` 里的策略、预算和副作用账本代码，行覆盖率要达到 90% 以上，由 CI 检查。
 - bun test 的覆盖率门槛只能设全局值，所以按目录的检查用一个小脚本读取 lcov 结果来完成。
-- **已实现（M2a，D-142）**：`bun run test:coverage` 跑服务端的单元、集成、安全、契约、实时测试，写出 `coverage/lcov.info`，再由 `scripts/coverage-check.ts` 按 `scripts/lib/coverage.ts` 里的门槛检查：`apps/server/src/domain/` ≥ 90%；`apps/server/src/agent/` ≥ 90%（目录还不存在时跳过，M4 起生效；存在却没有数据则失败）。退出码 0 通过、1 不达标（列出拖后腿的文件）、2 没有 lcov。`bun run coverage:check` 只检查已有的 lcov。脚本本身有单元测试。`integration` 工作流的集成作业调用它（远端 `78e0cf5` 上第一次运行就通过：595 个测试，`domain/` 99.28%）。测试文件、`test/` 目录和依赖不计入。故障测试（`test/fault/`）需要独立实例，不在这次覆盖率运行里。
+- **已实现（M2a，D-142；M4 两个目录均已生效）**：`bun run test:coverage` 跑服务端的单元、集成、安全、契约、实时测试，写出 `coverage/lcov.info`，再由 `scripts/coverage-check.ts` 按 `scripts/lib/coverage.ts` 里的门槛检查：`apps/server/src/domain/` ≥ 90%；`apps/server/src/agent/` ≥ 90%。存在却没有数据则失败。退出码 0 通过、1 不达标（列出拖后腿的文件）、2 没有 lcov。`bun run coverage:check` 只检查已有的 lcov。脚本本身有单元测试。`integration` 工作流的集成作业调用它。测试文件、`test/` 目录和依赖不计入。故障测试（`test/fault/`）需要独立实例，不在这次覆盖率运行里。
+
+### M4 真实评测与人工事实审核
+
+`bun run eval --concurrency 1` 使用独立临时数据库和应用角色，运行冻结的 2400 条消息、24 个会话、120 条查询、30 个总结任务各 3 轮和 36 个容量/安全任务。默认并行数 4；串行模式便于在供应商限流下获得可核对的质量结果，报告记录并行配置。语料与门槛由 `corpus/v1/freeze.json` 固定，看到留出结果后不得改写。`--mock` 仅验证协议，`--case` 仅冒烟，均不计质量通过。
+
+每个实际 run 写独立证据，查询/总结/容量任务分开命名以防同名覆盖。所有模型 attempt 同时进入 Postgres 与实验账本；只有明确 429 拒绝可在等待后开启新 run，最多两次重做、全评测最多六次等待，且收费/unknown 均不丢弃。未知结果不自动重放。源文件清单、hash、模型实际返回名称、价格版本和环境记录在报告内。结果写入 Git 忽略的 `apps/server/evals/results/<run-id>/`。
+
+退出 0 表示冒烟/模拟协议成功，退出 1 表示执行或自动门槛失败；完整真实评测即使自动门槛通过也退出 2，要求真实人工事实审核。`human-review.json` 的人工字段保持未填写；评审者需核对 30 个任务的来源、必需/可选/禁止事实，以及三次实际输出，填写事实计数、关键编造、身份和时间。`bun run eval:review <结果目录>` 检查冻结 hash、输出 hash、重复完整性，再计算均值/最差覆盖率、准确率及关键编造。自动关键词命中只作审核辅助，不能填充人工结论，也不能替代用户试用。
+
+本次 M4 按 D-191 的直接用户授权，审核者改为 `Codex AI (user-authorized D-191)`；Codex 额度用尽后由 Claude 接续，第九轮起标识为 `Claude AI (user-authorized D-191 continuation)`，口径与门槛不变（D-193）；第十二轮仍差一处来源时间错误，用户决定作为一次例外接受，原退出码与审核记录保留（D-196）。逐份来源审核后填写同一数值工作表，并附 `ai-fact-review.json` / `.md` 记录 `reviewerKind=ai`、原句、来源、计数和失败；不能称作人类独立复审或使用用户签名。保留 `human-review.before-ai.json` 空表及原模型/持久输出，原阈值、语料和哈希检查不变；真实发现未达标仍退出 1。用户功能复试在验收记录中单列，校验器历史 `userTrial=pending` 字段不替代已经取得的用户确认。
 
 ## 8. 独立复审故障验收矩阵
 

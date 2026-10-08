@@ -11,3 +11,4 @@
 @import "./inspector.css" layer(components);
 @import "./markdown.css" layer(components);
 @import "./attachments.css" layer(components);
+@import "./agent.css" layer(components);

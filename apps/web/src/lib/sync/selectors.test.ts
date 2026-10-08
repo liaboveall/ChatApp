@@ -10,14 +10,17 @@ const indexOf = (...conversations: ReturnType<typeof makeConversation>[]): Conve
 })
 
 describe('isListed', () => {
-  test('mine, not a hidden direct message, not archived, not an agent conversation', () => {
+  test('mine, not hidden or archived; dedicated assistants are listed and private panels are not', () => {
     expect(isListed(makeConversation(1))).toBe(true)
     expect(isListed(makeConversation(1, { me: null }))).toBe(false)
     expect(
       isListed(makeConversation(1, { me: makeMe({ hiddenAt: '2026-10-04T08:00:00.000Z' }) })),
     ).toBe(false)
     expect(isListed(makeConversation(1, { archivedAt: '2026-10-04T08:00:00.000Z' }))).toBe(false)
-    expect(isListed(makeConversation(1, { kind: 'agent' }))).toBe(false)
+    expect(isListed(makeConversation(1, { kind: 'agent' }))).toBe(true)
+    expect(isListed(makeConversation(1, { kind: 'agent', panelForConversationId: uuid(2) }))).toBe(
+      false,
+    )
   })
 })
 

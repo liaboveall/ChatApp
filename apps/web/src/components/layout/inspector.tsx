@@ -1,8 +1,8 @@
-import { Sparkles, X } from 'lucide-react'
+import { X } from 'lucide-react'
 import { useEffect } from 'react'
 import { IconButton } from '@/components/ui/button.tsx'
 import { SegmentedControl } from '@/components/ui/controls.tsx'
-import { EmptyState } from '@/components/ui/feedback.tsx'
+import { AgentPanel } from '@/features/agent/panel.tsx'
 import { Details } from '@/features/inspector/details.tsx'
 import { type InspectorTab, useShell } from '@/lib/shell-state.ts'
 import { m } from '@/paraglide/messages.js'
@@ -50,13 +50,7 @@ export function Inspector() {
         </div>
       </div>
       <div className="inspector__body scroll">
-        {tab === 'details' ? (
-          <Details />
-        ) : (
-          <EmptyState icon={Sparkles} title={m.shell_inspector_assistant_title()}>
-            {m.shell_inspector_assistant_text()}
-          </EmptyState>
-        )}
+        {tab === 'details' ? <Details /> : <AgentPanel />}
       </div>
     </div>
   )

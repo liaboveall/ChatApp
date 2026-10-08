@@ -23,6 +23,8 @@ const groupTitle = (key: SidebarGroupKey): string => {
       return m.sidebar_group_groups()
     case 'dm':
       return m.sidebar_group_dms()
+    case 'agent':
+      return m.agent_chats()
   }
 }
 

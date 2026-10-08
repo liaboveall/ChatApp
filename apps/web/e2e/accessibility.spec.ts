@@ -39,23 +39,53 @@ test('the keyboard walks a long conversation, and the message that has the focus
   await expect.poll(() => activeSeq(page)).toBe(9_970)
   await page.keyboard.press('ArrowDown')
   await expect.poll(() => activeSeq(page)).toBe(9_971)
+  const beforePage = await page.locator('.timeline').evaluate((element) => ({
+    offset: element.scrollTop,
+    height: element.clientHeight,
+  }))
   await page.keyboard.press('PageUp')
-  // A screenful or so up: well past the neighbour, short of the end of what is loaded.
-  await expect.poll(async () => (await activeSeq(page)) ?? 0).toBeLessThan(9_968)
+  // Messages have different heights, and the composer includes the assistant privacy notice.
+  // Verify an actual page of scrolling, rather than assuming a fixed number of messages fits.
+  await expect.poll(async () => (await activeSeq(page)) ?? 10_000).toBeLessThan(9_970)
+  await expect
+    .poll(
+      async () =>
+        beforePage.offset -
+        (await page.locator('.timeline').evaluate((element) => element.scrollTop)),
+    )
+    .toBeGreaterThan(beforePage.height / 2)
   const here = await activeSeq(page)
 
-  // The wheel takes the list tens of thousands of pixels away. The row with the focus is far outside the window on screen,
+  // The wheel takes the list several screens away. The row with the focus is far outside the window on screen,
   // and it is still there, and still has the focus: a virtual list must not hand it to the body.
-  await page.mouse.move(640, 360)
-  await page.mouse.wheel(0, -30_000)
+  const timelineBounds = await page.locator('.timeline').boundingBox()
+  if (!timelineBounds) throw new Error('timeline is unavailable')
+  // Stay clear of the sidebar splitter and code blocks, which can consume their own wheel events.
+  const wheelPoint = { x: timelineBounds.x + 64, y: timelineBounds.y + timelineBounds.height / 2 }
+  expect(
+    await page.evaluate(
+      ({ x, y }) => document.querySelector('.timeline')?.contains(document.elementFromPoint(x, y)),
+      wheelPoint,
+    ),
+  ).toBe(true)
+  await page.locator('.timeline').hover({ position: { x: 64, y: timelineBounds.height / 2 } })
+  // Allow the browser's hit-test state to catch up with the pointer, then use ordinary wheel gestures.
+  await page.evaluate(() => new Promise<void>((resolve) => requestAnimationFrame(() => resolve())))
+  for (let i = 0; i < 4; i++) await page.mouse.wheel(0, -3000)
   await page.waitForTimeout(800)
+  await expect
+    .poll(async () => Number(await page.locator('.timeline').getAttribute('data-loaded-count')))
+    .toBeGreaterThan(50)
   expect(await activeSeq(page)).toBe(here)
 
-  // End goes to the newest message, Home to the oldest one that is loaded (the wheel loaded older pages).
+  // End returns to the newest page if paging detached the bounded window. Home goes to the
+  // oldest message in the window that is now loaded, which can differ from the pre-End window.
   await page.keyboard.press('End')
   await expect.poll(() => activeSeq(page)).toBe(10_000)
+  const loadedAfterEnd = Number(await page.locator('.timeline').getAttribute('data-loaded-count'))
+  expect(loadedAfterEnd).toBeGreaterThan(0)
   await page.keyboard.press('Home')
-  await expect.poll(async () => (await activeSeq(page)) ?? 10_000).toBeLessThan(9_951)
+  await expect.poll(() => activeSeq(page)).toBe(10_001 - loadedAfterEnd)
 
   // Escape leaves the list for the message field.
   await page.keyboard.press('Escape')

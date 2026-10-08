@@ -115,6 +115,19 @@ function Rows({
   return <div style={{ width: 720 }}>{built.items.map(row)}</div>
 }
 
+export const Mentions: Story = {
+  render: () => (
+    <Rows
+      messages={[
+        msg(1, ME, `<@user:${BOB}> 请看一下周六的集合计划。`, at('04', '02:10'), {
+          mentions: [BOB],
+        }),
+        msg(2, BOB, `<@user:${ME}> 收到，我会带两瓶水。`, at('04', '02:11'), { mentions: [ME] }),
+      ]}
+    />
+  ),
+}
+
 export const Conversation: Story = {
   render: () => (
     <Rows

@@ -104,7 +104,7 @@ describe('sending (INV-01, INV-02, INV-28)', () => {
     expect((await conv(bob, group.id)).me).toMatchObject({ lastReadSeq: 0, unread: 1 })
     expect(mine.lastMessagePreview).toEqual({
       senderId: alice.id,
-      text: 'hello **world**',
+      text: 'hello world',
       kind: 'user',
       state: 'ok',
     })
@@ -125,6 +125,33 @@ describe('sending (INV-01, INV-02, INV-28)', () => {
     expect(JSON.stringify(hints)).not.toContain('hello')
     const [row] = await dbs.owner.db.select().from(messages)
     expect(row?.executionSource).toBe('interactive')
+  })
+
+  test('conversation previews parse Markdown before truncation and retain the original message body', async () => {
+    const alice = await person(app, 'alice')
+    const bob = await person(app, 'bob')
+    const group = await createConversation(alice, {
+      kind: 'group',
+      name: 'preview',
+      memberIds: [bob.id],
+    })
+    const cases = [
+      {
+        body: '**当前会话总结**\n\n- **时间**：八点\n- [路线图](https://example.com/map)',
+        text: '当前会话总结 时间：八点 路线图',
+      },
+      { body: `**${'周'.repeat(110)}**`, text: '周'.repeat(100) },
+      { body: '`**literal**` 和 \\*\\*原样\\*\\*', text: '**literal** 和 **原样**' },
+    ]
+    for (const { body, text } of cases) {
+      const sent = await say(alice, group.id, body)
+      expect(sent.status).toBe(201)
+      expect(sent.body.message.body).toBe(body)
+      expect((await conv(alice, group.id)).lastMessagePreview?.text).toBe(text)
+      expect((await listed(bob, group.id))?.lastMessagePreview?.text).toBe(text)
+      const read = await bob.get<MessageEnvelope>(`/api/messages/${sent.body.message.id}`)
+      expect(read.body.message.body).toBe(body)
+    }
   })
 
   test('the same clientId and request give the same message; another request or another conversation is a conflict (INV-03)', async () => {

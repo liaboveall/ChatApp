@@ -1,6 +1,16 @@
 import type { Me } from '@chatapp/contracts'
 import { useNavigate, useRouterState } from '@tanstack/react-router'
-import { Archive, Compass, Hash, MessageCircle, Plus, Search, Settings, Users } from 'lucide-react'
+import {
+  Archive,
+  Compass,
+  Hash,
+  MessageCircle,
+  Plus,
+  Search,
+  Settings,
+  Sparkles,
+  Users,
+} from 'lucide-react'
 import { Avatar } from '@/components/ui/avatar.tsx'
 import { IconButton } from '@/components/ui/button.tsx'
 import { Icon } from '@/components/ui/icon.tsx'
@@ -15,13 +25,20 @@ type SidebarProps = {
   onOpenPalette: () => void
   onOpenSettings: (section: 'appearance' | 'account') => void
   onCreate: (kind: NewKind) => void
+  onCreateAgent?: () => void
 }
 
 /**
  * Search field, the conversation list and the signed-in user's card. Every part of the card is a real control: the name
  * opens the account settings, the gear opens the settings.
  */
-export function Sidebar({ me, onOpenPalette, onOpenSettings, onCreate }: SidebarProps) {
+export function Sidebar({
+  me,
+  onOpenPalette,
+  onOpenSettings,
+  onCreate,
+  onCreateAgent,
+}: SidebarProps) {
   const navigate = useNavigate()
   const path = useRouterState({ select: (state) => state.location.pathname })
   const currentId = /^\/c\/([0-9a-f-]{36})$/i.exec(path)?.[1]
@@ -43,6 +60,9 @@ export function Sidebar({ me, onOpenPalette, onOpenSettings, onCreate }: Sidebar
           align="end"
           trigger={<IconButton label={m.sidebar_new()} icon={Plus} aria-haspopup="menu" />}
         >
+          <MenuItem icon={Sparkles} onClick={onCreateAgent}>
+            {m.agent_new()}
+          </MenuItem>
           <MenuItem icon={Hash} onClick={() => onCreate('channel')}>
             {m.sidebar_new_channel()}
           </MenuItem>

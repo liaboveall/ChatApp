@@ -1,6 +1,7 @@
 import type { Meta, StoryObj } from '@storybook/react-vite'
 import { useEffect } from 'react'
-import { ISO, makeConversation, makeMe, makeUser, uuid } from '@/lib/sync/fixtures.ts'
+import { ISO, makeConversation, makeMe, makeMessage, makeUser, uuid } from '@/lib/sync/fixtures.ts'
+import { previewOf } from '@/lib/sync/merge.ts'
 import { usePresence } from '@/lib/sync/presence.ts'
 import { SidebarItem } from './sidebar-item.tsx'
 
@@ -16,6 +17,7 @@ const ME = uuid(1)
 const users = {
   [uuid(2)]: makeUser(2, { displayName: 'Bob Lin' }),
   [uuid(3)]: makeUser(3, { displayName: '周屿' }),
+  [uuid(4)]: makeUser(4, { displayName: '助手', isBot: true }),
 }
 const preview = (senderId: string, text: string) => ({
   senderId,
@@ -130,4 +132,37 @@ export const Rows: Story = {
       </div>
     )
   },
+}
+
+export const MarkdownPreviews: Story = {
+  render: () => (
+    <div style={{ containerType: 'inline-size', containerName: 'win', width: 1100 }}>
+      <div
+        className="sidebar glass squircle"
+        style={{ width: 300, height: 'auto', padding: 8, position: 'relative' }}
+      >
+        <ul className="s-list">
+          {[
+            ['综合讨论', '**当前会话总结**\n\n- **时间**：明天八点\n- **地点**：地铁站'],
+            ['周末爬山', '# **周六爬山计划总结**\n\n1. 八点集合\n2. 准备饮水'],
+            ['路线与装备', '查看[**路线图**](https://example.com/map)，带好**饮水**和*外套*'],
+          ].map(([name, body], index) => (
+            <li key={name}>
+              <Row
+                conversation={makeConversation(20 + index, {
+                  kind: index === 0 ? 'channel' : 'group',
+                  name: name ?? '',
+                  lastMessageAt: ISO,
+                  lastMessagePreview: previewOf(
+                    makeMessage(index + 1, { kind: 'agent', senderId: uuid(4), body: body ?? '' }),
+                  ),
+                  me: makeMe({ pinnedAt: index === 0 ? ISO : null }),
+                })}
+              />
+            </li>
+          ))}
+        </ul>
+      </div>
+    </div>
+  ),
 }

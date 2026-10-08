@@ -14,7 +14,7 @@
 
 ## 已定方向（细节见 docs/12）
 
-- 邀请制注册；AI 使用 DeepSeek；桌面优先；Apple Liquid Glass 风格；先在本地完成，上线放在最后（M8）。
+- 邀请制注册；M4 站点 AI 使用 NUS SoCLaaS 的 GLM-5.3-Flash（D-182），DeepSeek 仅显式选用；桌面优先；Apple Liquid Glass 风格；先在本地完成，上线放在最后（M8）。
 - 2026-09-30 规划审查后，用户又定了四项（D-033 到 D-036）：
   - 内存只要不超过服务器总量；
   - 新成员看不到加入前的历史；
@@ -50,7 +50,7 @@
 - TS 严格模式。不引入新的 `any`、`@ts-ignore`，不跳过测试；确有必要时写明原因。
 - 所有外部输入都用 `packages/contracts` 里的 zod schema 校验。
 - 业务逻辑只写在 `apps/server/src/domain/`，其他层只调用它（分层规则见 docs/03 第 3 节）。
-- 集成测试使用真实的 Postgres、Valkey、Garage；只模拟外部服务（DeepSeek、推送服务、生产环境的邮件服务商）。
+- 集成测试使用真实的 Postgres、Valkey、Garage；只模拟外部服务（SoCLaaS/DeepSeek、推送服务、生产环境的邮件服务商）。
 - 前端同步层（D-171，SEC-34）：屏幕和发送队列自己发的请求，发之前取 `engine.ticket()`，回答与失败带着它进 `engine.ingest*` 等入口，账号或成员关系变了的会被丢弃（必填参数，漏了编译不过）；任何按会话存状态的前端 store（草稿、待发、回复/编辑、输入提示……）必须向 `lib/sync/stores.ts` 的 `registerConversationReset` 登记，成员关系结束时才会一起清除；用一页替换窗口或把页面并入窗口时，日志位置要退回到请求发起时的水位（见 `engine.ts` 的 `#installWindow`、`#rewind`）。回答回来之后的界面收尾（结束编辑、放回草稿等）同样受它约束（D-173）：`await` 之后不用渲染时的闭包做决定，拿发起时的身份（回复/编辑的编号、成员关系、发出的文本）去问 store 现在的状态（`compose.ts` 的 `settleEdit`、`endCompose` 的编号参数）；引擎拒绝的回答（`ingestMessage` 返回 false）不算成功。屏幕发的写请求一律经 `app/sync.ts` 的 `forScreen`（D-174）：回答和失败只在同一次登录会话、同一个成员关系时交给屏幕，否则是 null，屏幕拿到 null 什么也不做（跳转、提示、结束会话都不做）；新写的请求如果不经它，`features/screen-writes.test.ts` 会失败。每个请求属于发起它的那次登录会话（D-175）：会话结束或新的登录开始时，`lib/session.ts` 通过 `lib/api.ts` 的 `cancelSessionRequests()` 让浏览器放弃该会话发出的所有请求（迟到的响应连同它头里的 `Set-Cookie` 到不了页面和 Cookie 罐）；新增任何全局副作用（比如 401 处理）必须在 `api()` 里先确认请求仍属于当前会话，不能指望屏幕里的 `forScreen` 检查：浏览器在页面看到响应之前就已经应用了它的 Cookie 头。
 
 **流程**
@@ -60,7 +60,7 @@
 
 **密钥**
 - API key 和各种密钥都不能出现在聊天、日志和提交里。
-- `.env.local` 不提交；`DEEPSEEK_API_KEY` 由用户自己填写。
+- `.env.local` 不提交；当前站点的 `SOCLAAS_API_KEY` 由用户自己填写；显式使用 DeepSeek 时填写 `DEEPSEEK_API_KEY`。缺失学校 key 或调用失败不会自动切回付费服务。
 
 ## 本机环境（2026-10-01 起在 WSL 中开发，详见 docs/09 和 D-093）
 
@@ -78,7 +78,7 @@
 ## 常用命令
 
 - **已经可用**：
-  - 环境与基础设施：`bun run setup` · `doctor`（加 `--ai` 可以检查 DeepSeek key）· `infra:up`（启动、等健康、再核对每个主机端口真的发布且连得上）/ `infra:down` / `infra:ps` / `infra:logs` · `infra:bootstrap` · `infra:reset --yes`（会删除全部本地数据，执行前先征得用户同意）
+  - 环境与基础设施：`bun run setup` · `doctor`（加 `--ai` 可以检查所选 AI key 和配置模型）· `infra:up`（启动、等健康、再核对每个主机端口真的发布且连得上）/ `infra:down` / `infra:ps` / `infra:logs` · `infra:bootstrap` · `infra:reset --yes`（会删除全部本地数据，执行前先征得用户同意）
   - 检查：`lint` / `lint:fix` · `typecheck`（所有工作区包，含 `apps/web`）· `guard`（含架构边界）· `check`（以上加单元测试、令牌对比度、文案一致性，不需要任何服务）
   - 数据库（M1a）：`db:generate` / `db:check` · `db:migrate` / `db:migrate:test` · `db:bootstrap`（生产也可用）/ `db:bootstrap:test` · `db:seed`（仅开发；M2a 起还会建演示会话和 59 条消息，幂等，开发库要先 `db:migrate`）
   - 后端（M1a）：`dev:api` · `dev:worker` · `admin:create`（密码在用户自己的终端输入）· `admin:verify-email`
@@ -87,8 +87,7 @@
   - 前端（M1b）：`dev`（api、worker、Vite 一起；`-- api web` 选进程）· `dev:web` · `build` · `storybook` · `web:messages`（生成文案，`-- --check` 只核对）· `test:e2e`（Playwright 对生产构建运行，需要先 `infra:up`、`infra:bootstrap`；**不能和集成测试、edge 套件同时跑**，共用测试库；第一次要装浏览器和系统库，见 docs/09 第 2 节；性能场景（`@perf`，D-161）在 WSL 里用显卡，`E2E_NO_GPU=1` 关掉显卡、照 CI 的软件合成方式跑（D-170）；本机 32 个核而 CI 只有 4 个，只在 CPU 吃紧时才出现的竞态本机复现不了，把整条命令用 `taskset -c 0,1` 限在两个核上就能复现（D-170）；M2b 起夹具对每个浏览器上下文断言零违规，新建上下文必须用 `support/fixtures.ts` 的 `newContext()`，控制台里确实会出现的错误用 `allowConsole(pattern, reason)` 声明（D-148）；E2E 里模拟断线用 `e2e/support/network.ts` 的 `controlNetwork`，不要单独用 `context.setOffline`，它断不开已建立的 WebSocket，D-134；写 E2E 要先等页面到位再量、再填：点链接后地址栏先变而旧页面还在，量尺寸要等入场动画结束（`e2e/support/ui.ts` 的 `animationsFinished`），都不用加容差，D-143；用 `--repeat-each` 重复跑会撞管理员登录限流，分批、每批不超过 7 次）· `test:visual`（在 Playwright 官方镜像里比较 Storybook 截图，需要 Docker；`-- --update-snapshots` 重新生成基线）
   - 设计原型（D，见 `design/README.md`）：`design:build`（`-- --minify` 是发布版）· `design:contrast`（令牌对比度自查，脚本在 `apps/web/tools`）；用真实 Windows Edge 做的浏览器检查：`design/prototype/tools/browser-checks/run.sh <keyboard|layout|media|flows|audit>`
   - 本地网关（M2b）：`edge:up` / `edge:down`（Nginx 容器用生产站点配置提供构建产物，`https://chat.localhost:8443`；`down` 只删 `chatapp-edge` 项目）· `test:edge`（一条命令：起网关、跑 `apps/web/edge/` 套件、拆网关；它的 API 是测试环境的 3104，**独占测试库**，CI 不跑，CI 只跑 `bun scripts/edge.ts configtest`）
-- **以下命令到对应的里程碑才会创建，在那之前不要假定它们存在**：
-  - M4：`eval`
+  - AI 准入与评测（M4）：`test:m4:provider`（只使用所选 provider 与本地 key 的合成实测，付费服务另需实验预占）· `test:m4:search`（测试库临时数据的中文短词 EXPLAIN）· `eval`（真实 provider、冻结语料、独立数据库与全 attempt 账本，完整真实评测自动通过但人工未完成时退出 2）· `eval:review`（只消费真实人工审核表）。Agent 会话、委托、配额、租约、七个只读工具、worker 和界面已接入；最新本人复试与技术验收状态见 23 / PROGRESS。修改代码后保留失败结果，不改写冻结留出集或放宽门槛，不凭模拟测试认定验收。
 - lefthook 的 pre-commit 钩子会运行 Biome 和 guard，提交时 PATH 里必须能找到 `bun`。
 
 ## 部署

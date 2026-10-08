@@ -59,7 +59,10 @@ export type ConversationMe = z.infer<typeof conversationMeSchema>
 export const previewStateSchema = z.enum(['ok', 'recalled', 'deleted'])
 export type PreviewState = z.infer<typeof previewStateSchema>
 
-/** The latest message this viewer may see; `text` is empty once it was recalled or deleted (the client words it by `state`). */
+/**
+ * The latest message this viewer may see. `text` is a plain-text Markdown preview, never Markdown to parse again;
+ * it is empty once recalled or deleted (the client words it by `state`).
+ */
 export const lastMessagePreviewSchema = z.object({
   senderId: z.uuid().nullable(),
   text: z.string().nullable(),
@@ -113,7 +116,7 @@ export const conversationListQuerySchema = z.object({
 
 /** `agent` conversations arrive with M4. */
 export const createConversationRequestSchema = z.strictObject({
-  kind: z.enum(['channel', 'group']),
+  kind: z.enum(['channel', 'group', 'agent']),
   name: conversationNameSchema,
   description: conversationDescriptionSchema.nullable().optional(),
   memberIds: z.array(z.uuid()).max(LIMITS.addMembersMax).optional(),

@@ -1,0 +1,2 @@
+ALTER TABLE "ai_call_attempts" ADD COLUMN "input_token_bound" bigint DEFAULT 0 NOT NULL;--> statement-breakpoint
+ALTER TABLE "ai_call_attempts" ADD COLUMN "max_output_tokens" bigint DEFAULT 0 NOT NULL;
