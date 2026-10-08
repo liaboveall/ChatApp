@@ -10,6 +10,9 @@ import { startInstance, stopInstance } from './lib/test-infra.ts'
 
 await verifyMediaTestLocation()
 if (process.arch !== 'arm64') throw new Error('This acceptance command requires native ARM')
+const uid = process.getuid?.(),
+  gid = process.getgid?.()
+if (uid === undefined || gid === undefined) throw new Error('The workspace owner is required')
 const { manifest } = await startInstance()
 try {
   const sourceHash = sourceDigest(JSON.stringify(await evaluationSourceManifest()))
@@ -36,7 +39,8 @@ try {
         'run',
         '--rm',
         '--network=host',
-        '--user=0:0',
+        // Keep private evidence readable by its host owner without relaxing its 0700/0600 permissions.
+        `--user=${uid}:${gid}`,
         '--cpus=2',
         '--memory=1536m',
         '--read-only',

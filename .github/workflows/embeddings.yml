@@ -46,3 +46,5 @@ jobs:
             .test-runs/m5/native-gate-*/result.json
           if-no-files-found: warn
           retention-days: 14
+          # Only the explicit metadata files above; instance manifests and credentials stay excluded.
+          include-hidden-files: true
