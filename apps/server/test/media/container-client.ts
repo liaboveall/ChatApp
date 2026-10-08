@@ -116,6 +116,47 @@ async function processJob(input: ClientInput): Promise<Record<string, unknown>> 
   }
 }
 
+/** Consume only the declared header; keep the output body unread for the backpressure probe. */
+function readRawBytes(socket: Socket, count: number): Promise<Buffer> {
+  const bytes = Buffer.alloc(count)
+  let offset = 0
+  return new Promise((resolve, reject) => {
+    const cleanup = () => {
+      socket.off('readable', readable)
+      socket.off('end', closed)
+      socket.off('close', closed)
+      socket.off('error', closed)
+    }
+    const closed = () => {
+      cleanup()
+      reject(new Error('raw_header_incomplete'))
+    }
+    const readable = () => {
+      while (offset < count) {
+        const chunk: unknown = socket.read(count - offset)
+        if (chunk === null) {
+          if (socket.destroyed || socket.readableEnded) closed()
+          return
+        }
+        if (!Buffer.isBuffer(chunk) || chunk.length === 0 || chunk.length > count - offset) {
+          cleanup()
+          reject(new Error('raw_header_invalid'))
+          return
+        }
+        chunk.copy(bytes, offset)
+        offset += chunk.length
+      }
+      cleanup()
+      resolve(bytes)
+    }
+    socket.on('readable', readable)
+    socket.once('end', closed)
+    socket.once('close', closed)
+    socket.once('error', closed)
+    readable()
+  })
+}
+
 async function rawJob(input: ClientInput): Promise<Record<string, unknown>> {
   const bytes = Buffer.from(input.input, 'base64')
   const request = requestFor(bytes, input)
@@ -131,6 +172,7 @@ async function rawJob(input: ClientInput): Promise<Record<string, unknown>> {
   socket.on('error', () => {})
   const started = performance.now()
   let maxBufferedBytes = 0
+  let responseHeaderBytes = 0
   let transportTimedOut = false
   let data = Buffer.alloc(0)
   let timer: ReturnType<typeof setTimeout> | undefined
@@ -142,10 +184,11 @@ async function rawJob(input: ClientInput): Promise<Record<string, unknown>> {
   const completed = new Promise<void>((resolve) => {
     socket.once('close', resolve)
     socket.once('end', resolve)
-    socket.on('data', (chunk: Buffer) => {
-      if (data.length + chunk.length <= MEDIA_LIMITS.headerBytes + 4)
-        data = Buffer.concat([data, chunk])
-    })
+    if (input.mode !== 'paused-output')
+      socket.on('data', (chunk: Buffer) => {
+        if (data.length + chunk.length <= MEDIA_LIMITS.headerBytes + 4)
+          data = Buffer.concat([data, chunk])
+      })
     timer = setTimeout(() => {
       transportTimedOut = true
       socket.destroy()
@@ -155,10 +198,26 @@ async function rawJob(input: ClientInput): Promise<Record<string, unknown>> {
   try {
     if (input.mode === 'paused-output') {
       socket.pause()
+      socket.end(Buffer.concat([prefix, json, bytes]))
+      const responsePrefix = await readRawBytes(socket, 4)
+      const length = responsePrefix.readUInt32BE(0)
+      if (length < 1 || length > MEDIA_LIMITS.headerBytes) throw new Error('raw_header_invalid')
+      data = Buffer.concat([responsePrefix, await readRawBytes(socket, length)])
+      const response = decodeMediaResponse(data.subarray(4))
+      if (
+        response.status !== 'ok' ||
+        response.jobId !== request.jobId ||
+        response.generation !== request.generation ||
+        response.nonce !== request.nonce ||
+        response.files.find((file) => file.variant === 'original')?.bytes !== 4 * 1024 * 1024
+      )
+        throw new Error('raw_probe_response_invalid')
+      responseHeaderBytes = data.length
+      // Only body bytes remain. Protocol metadata is separately validated and bounded to 8 KiB + 4.
+      maxBufferedBytes = socket.readableLength
       const sample = setInterval(() => {
         maxBufferedBytes = Math.max(maxBufferedBytes, socket.readableLength)
       }, 20)
-      socket.end(Buffer.concat([prefix, json, bytes]))
       await Bun.sleep(8000)
       clearInterval(sample)
       socket.destroy()
@@ -200,6 +259,7 @@ async function rawJob(input: ClientInput): Promise<Record<string, unknown>> {
       responseBytes: data.length,
       elapsedMs: performance.now() - started,
       maxBufferedBytes,
+      responseHeaderBytes,
       transportTimedOut,
     }
   } finally {
