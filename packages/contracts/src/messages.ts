@@ -66,6 +66,9 @@ export const messageMetaSchema = z.object({
       mode: z.string(),
       keySource: z.enum(['site', 'user']),
       streamIndex: count.optional(),
+      resumeSeq: count.optional(),
+      contextEpoch: z.uuid().optional(),
+      truncated: z.boolean().optional(),
     })
     .optional(),
   /** M5a: sent by the assistant on the person's behalf. */

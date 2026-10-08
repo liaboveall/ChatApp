@@ -90,6 +90,20 @@ services:
       AGENT_DISPLAY_NAME: ${WORKER_AGENT_DISPLAY_NAME:?use scripts/media.ts}
       AGENT_USERNAME: ${WORKER_AGENT_USERNAME:?use scripts/media.ts}
       LOG_LEVEL: ${WORKER_LOG_LEVEL:?use scripts/media.ts}
+      AI_PROVIDER: ${WORKER_AI_PROVIDER:?use scripts/media.ts}
+      SOCLAAS_API_KEY: ${WORKER_SOCLAAS_API_KEY:-}
+      DEEPSEEK_API_KEY: ${WORKER_DEEPSEEK_API_KEY:-}
+      AI_MODEL_FAST: ${WORKER_AI_MODEL_FAST:?use scripts/media.ts}
+      AI_MODEL_DEEP: ${WORKER_AI_MODEL_DEEP:?use scripts/media.ts}
+      AI_USER_DAILY_TOKENS: ${WORKER_AI_USER_DAILY_TOKENS:?use scripts/media.ts}
+      AI_MONTHLY_BUDGET_USD: ${WORKER_AI_MONTHLY_BUDGET_USD:?use scripts/media.ts}
+      AI_EXPERIMENT_BUDGET_USD: ${WORKER_AI_EXPERIMENT_BUDGET_USD:?use scripts/media.ts}
+      AI_PRICE_FAST_INPUT_CACHE_HIT: ${WORKER_AI_PRICE_FAST_INPUT_CACHE_HIT:?use scripts/media.ts}
+      AI_PRICE_FAST_INPUT: ${WORKER_AI_PRICE_FAST_INPUT:?use scripts/media.ts}
+      AI_PRICE_FAST_OUTPUT: ${WORKER_AI_PRICE_FAST_OUTPUT:?use scripts/media.ts}
+      AI_PRICE_DEEP_INPUT_CACHE_HIT: ${WORKER_AI_PRICE_DEEP_INPUT_CACHE_HIT:?use scripts/media.ts}
+      AI_PRICE_DEEP_INPUT: ${WORKER_AI_PRICE_DEEP_INPUT:?use scripts/media.ts}
+      AI_PRICE_DEEP_OUTPUT: ${WORKER_AI_PRICE_DEEP_OUTPUT:?use scripts/media.ts}
     volumes:
       # A read-only mount can connect to a Unix socket but cannot create files in its directory.
       - type: volume

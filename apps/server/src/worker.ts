@@ -6,8 +6,10 @@
 import { createDatabase } from '@chatapp/db/client'
 import { Queue } from 'bullmq'
 import { sdkPasswords } from './auth/passwords.ts'
+import { loadAiConfig } from './config/ai.ts'
 import { type Config, ConfigError, loadConfig } from './config/index.ts'
 import type { Deps } from './domain/deps.ts'
+import { createAgentWorker } from './jobs/agent.ts'
 import { createDispatcher } from './jobs/dispatcher.ts'
 import { createEmailWorker } from './jobs/email.ts'
 import { createMaintenance } from './jobs/maintenance.ts'
@@ -37,6 +39,8 @@ async function main(): Promise<void> {
     throw error
   }
   const log = createLogger({ level: config.logLevel, service: 'worker' })
+  const ai = loadAiConfig(process.env, { requireKey: false })
+  const { apiKey: _apiKey, ...aiPolicy } = ai
 
   const database = createDatabase(config.databaseUrl, { max: 6, applicationName: 'chatapp-worker' })
   await assertDatabaseReady(database.db, config, log)
@@ -59,6 +63,7 @@ async function main(): Promise<void> {
         restoreEpoch: config.auth.restoreEpoch,
       },
       product: config.product,
+      ai: aiPolicy,
     },
     blobs: createBlobStore(config.s3),
     media: createMediaClient(),
@@ -83,7 +88,19 @@ async function main(): Promise<void> {
     connection: consumerConnection,
     environment: config.env,
   })
-  const dispatcher = createDispatcher({ deps, bus, emailQueue, mediaQueue, log })
+  const agentQueue = new Queue<WorkJobData>(QUEUE.agent, {
+    connection: queueConnection,
+    prefix: queuePrefix(config.env),
+    defaultJobOptions: DEFAULT_JOB_OPTIONS,
+  })
+  const agentWorker = createAgentWorker({
+    deps,
+    config: ai,
+    bus,
+    connection: consumerConnection,
+    environment: config.env,
+  })
+  const dispatcher = createDispatcher({ deps, bus, emailQueue, mediaQueue, agentQueue, log })
   const emailWorker = createEmailWorker({
     deps,
     mailer: createSmtpMailer(config.smtp),
@@ -115,6 +132,8 @@ async function main(): Promise<void> {
     await dispatcher.stop()
     await maintenance.stop()
     await presence.stop()
+    await agentWorker.close()
+    await agentQueue.close()
     await mediaWorker.close()
     await mediaQueue.close()
     await emailWorker.close()

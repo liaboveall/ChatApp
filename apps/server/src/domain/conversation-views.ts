@@ -9,6 +9,7 @@ import {
   type ConversationSettings,
   LIMITS,
   type Mute,
+  markdownPreviewText,
   plainMessageText,
   truncateCodePoints,
 } from '@chatapp/contracts'
@@ -205,7 +206,7 @@ export function toConversationDto(row: ViewRow, now: Date): Conversation {
               (row.lastMessageExcerpt !== null || row.lastMessageAttachmentKind !== null)
                 ? truncateCodePoints(
                     plainMessageText(
-                      row.lastMessageExcerpt,
+                      markdownPreviewText(row.lastMessageExcerpt),
                       (id) => row.lastMessageMentionNames?.[id],
                       row.lastMessageAttachmentKind,
                     ),

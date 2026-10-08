@@ -7,6 +7,8 @@ import { defineConfig, devices } from '@playwright/test'
  */
 export default defineConfig({
   testDir: './visual',
+  // E2E and visual runners must not clear each other's live traces.
+  outputDir: '../../.test-runs/visual/results',
   snapshotPathTemplate: '{testDir}/__screenshots__/{arg}{ext}',
   forbidOnly: !!process.env.CI,
   fullyParallel: true,

@@ -5,6 +5,7 @@ import {
   type KeyboardEvent,
   type ReactNode,
   useDeferredValue,
+  useEffect,
   useId,
   useMemo,
   useState,
@@ -32,6 +33,8 @@ type CommandPaletteProps = {
   open: boolean
   onOpenChange: (open: boolean) => void
   commands: PaletteCommand[]
+  search?: (query: string, signal: AbortSignal) => Promise<PaletteCommand[] | null>
+  onSearchError?: () => void
 }
 
 /** Case-insensitive substring match; returns the matched range for highlighting, or null. */
@@ -56,7 +59,13 @@ function Highlight({ text, query }: { text: string; query: string }): ReactNode 
  * ⌘K: jump to a setting or run a command. A modal combobox: the input keeps focus and moves the active option with the
  * arrow keys (aria-activedescendant), Enter runs it, Escape closes.
  */
-export function CommandPalette({ open, onOpenChange, commands }: CommandPaletteProps) {
+export function CommandPalette({
+  open,
+  onOpenChange,
+  commands,
+  search,
+  onSearchError,
+}: CommandPaletteProps) {
   useModalFlag(open)
   return (
     <Dialog.Root open={open} onOpenChange={onOpenChange}>
@@ -64,7 +73,12 @@ export function CommandPalette({ open, onOpenChange, commands }: CommandPaletteP
         <Dialog.Backdrop className="scrim" />
         <Dialog.Viewport className="palette-host">
           <Dialog.Popup className="palette glass-text squircle" aria-label={m.palette_title()}>
-            <PaletteBody commands={commands} onDone={() => onOpenChange(false)} />
+            <PaletteBody
+              commands={commands}
+              search={search}
+              onSearchError={onSearchError}
+              onDone={() => onOpenChange(false)}
+            />
           </Dialog.Popup>
         </Dialog.Viewport>
       </Dialog.Portal>
@@ -72,22 +86,52 @@ export function CommandPalette({ open, onOpenChange, commands }: CommandPaletteP
   )
 }
 
-function PaletteBody({ commands, onDone }: { commands: PaletteCommand[]; onDone: () => void }) {
+function PaletteBody({
+  commands,
+  onDone,
+  search,
+  onSearchError,
+}: Pick<CommandPaletteProps, 'commands' | 'search' | 'onSearchError'> & { onDone: () => void }) {
   const [query, setQuery] = useState('')
   const [active, setActive] = useState(0)
   const deferred = useDeferredValue(query)
   const listId = useId()
+  const [hits, setHits] = useState<PaletteCommand[]>([])
+  useEffect(() => {
+    setHits([])
+    const text = deferred.trim()
+    if (!text || text.length > 200 || !search) return
+    const controller = new AbortController()
+    const timer = setTimeout(
+      () =>
+        void search(text, controller.signal)
+          .then((answer) => {
+            if (!controller.signal.aborted && answer) setHits(answer)
+          })
+          .catch(() => {
+            if (!controller.signal.aborted) onSearchError?.()
+          }),
+      250,
+    )
+    return () => {
+      clearTimeout(timer)
+      controller.abort()
+    }
+  }, [deferred, search, onSearchError])
 
   const results = useMemo(() => {
     const needle = deferred.trim()
     if (!needle) return commands
-    return commands.filter(
-      (command) =>
-        findMatch(command.label, needle) ||
-        findMatch(command.sub ?? '', needle) ||
-        findMatch(command.keywords ?? '', needle),
-    )
-  }, [commands, deferred])
+    return [
+      ...commands.filter(
+        (command) =>
+          findMatch(command.label, needle) ||
+          findMatch(command.sub ?? '', needle) ||
+          findMatch(command.keywords ?? '', needle),
+      ),
+      ...hits,
+    ]
+  }, [commands, deferred, hits])
 
   const current = results[Math.min(active, results.length - 1)]
   const optionId = (index: number): string => `${listId}-${index}`

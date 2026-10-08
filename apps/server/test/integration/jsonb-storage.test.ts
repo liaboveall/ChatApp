@@ -8,11 +8,15 @@ import {
   users,
   workItems,
 } from '@chatapp/db'
+import { runBootstrap } from '@chatapp/db/bootstrap'
 import { eq, sql } from 'drizzle-orm'
+import { loadAiConfig } from '../../src/config/ai.ts'
+import { createAgentRun } from '../../src/domain/agent-runs.ts'
 import { writeAudit } from '../../src/domain/audit.ts'
 import { enqueueWork } from '../../src/domain/work.ts'
+import { executeAgentRun } from '../../src/runtime/agent.ts'
 import { openTestDatabases, type TestDatabases, truncateAll } from '../support/db.ts'
-import { createActiveUser, makeDeps } from '../support/deps.ts'
+import { createActiveUser, makeDeps, makePrincipal } from '../support/deps.ts'
 
 /**
  * Drizzle's jsonb() and Bun's driver together stored every value as a jsonb string that held JSON text (D-107). These
@@ -31,6 +35,9 @@ beforeEach(async () => {
 })
 
 const COVERED = [
+  'agent_run_states.messages',
+  'agent_runs.context_manifest',
+  'agent_steps.payload',
   'app_settings.value',
   'attachments.variants',
   'audit_logs.metadata',
@@ -55,6 +62,36 @@ describe('jsonb columns hold real JSON', () => {
       sql`select table_name || '.' || column_name as name from information_schema.columns where table_schema = 'public' and data_type = 'jsonb' order by 1`,
     )) as unknown as Array<{ name: string }>
     expect(rows.map((row) => row.name)).toEqual(COVERED)
+  })
+
+  test('Agent manifests, resumable state and actual tool steps retain arrays and nested objects in SQL', async () => {
+    const deps = makeDeps(dbs.app.db)
+    await runBootstrap(deps.db, { ...deps.config.product, productName: deps.config.product.name })
+    const user = await createActiveUser(deps, { username: 'jsonbagent' })
+    const principal = await makePrincipal(deps, user)
+    const [profile] = await deps.db.select().from(users).where(eq(users.id, user.id))
+    const run = await createAgentRun(
+      deps,
+      principal,
+      {
+        trigger: 'agent_chat',
+        prompt: '读取可见消息',
+        mode: 'fast',
+        attachmentIds: [],
+        timezone: profile?.timezone ?? 'Asia/Singapore',
+      },
+      deps.newId(),
+    )
+    await executeAgentRun({ deps, config: loadAiConfig({ APP_ENV: 'test' }) }, run.id)
+    const manifest = await deps.db.execute(sql`select jsonb_typeof(context_manifest) as root,
+      jsonb_typeof(context_manifest->0) as item, context_manifest->0->>'type' as type from agent_runs`)
+    expect(manifest).toEqual([{ root: 'array', item: 'object', type: 'conversation' }])
+    const state = await deps.db.execute(sql`select jsonb_typeof(messages) as root,
+      jsonb_typeof(messages->0) as item, messages->0->>'role' as role from agent_run_states`)
+    expect(state).toEqual([{ root: 'array', item: 'object', role: 'user' }])
+    const steps = await deps.db.execute(sql`select jsonb_typeof(payload) as root,
+      jsonb_typeof(payload->'arguments') as args from agent_steps where type = 'tool_call'`)
+    expect(steps).toEqual([{ root: 'object', args: 'object' }])
   })
 
   test('attachment variant maps are JSON objects with nested numeric dimensions', async () => {

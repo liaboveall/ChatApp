@@ -12,7 +12,7 @@ import {
   UPLOAD_LIMITS,
 } from '@chatapp/contracts'
 import { useQuery } from '@tanstack/react-query'
-import { ArrowUp, Paperclip, Smile, X } from 'lucide-react'
+import { ArrowUp, Eye, Paperclip, Pencil, Smile, X } from 'lucide-react'
 import {
   type ChangeEvent,
   type KeyboardEvent,
@@ -20,18 +20,22 @@ import {
   useEffect,
   useId,
   useLayoutEffect,
+  useMemo,
   useRef,
   useState,
 } from 'react'
 import { engine, forScreen, outbox } from '@/app/sync.ts'
-import { IconButton } from '@/components/ui/button.tsx'
+import { MentionContext } from '@/components/markdown/mention-context.ts'
+import { MessageBody } from '@/components/markdown/message-body.tsx'
+import { Button, IconButton } from '@/components/ui/button.tsx'
 import { api } from '@/lib/api.ts'
 import { describeError } from '@/lib/error-messages.ts'
 import { messageText } from '@/lib/message-text.ts'
 import { meQuery } from '@/lib/queries.ts'
 import { serverNow } from '@/lib/realtime.ts'
+import { useShell } from '@/lib/shell-state.ts'
 import { endCompose, liveTarget, modeOf, useCompose } from '@/lib/sync/compose.ts'
-import { draftOf, setDraft, useDrafts } from '@/lib/sync/drafts.ts'
+import { draftOf, setDraft, setDraftPreview, useDrafts } from '@/lib/sync/drafts.ts'
 import { useTimelineWindow, useUsers } from '@/lib/sync/hooks.ts'
 import { displayName } from '@/lib/sync/selectors.ts'
 import {
@@ -44,12 +48,15 @@ import {
 } from '@/lib/sync/uploads.ts'
 import { showToast } from '@/lib/toast.ts'
 import { m } from '@/paraglide/messages.js'
+import { startRun } from '../agent/api.ts'
+import { useAgent } from '../agent/store.ts'
 import { uploadFile } from '../attachments/upload.ts'
 import { saveEdit } from '../message-actions/actions.ts'
 import { lastEditable } from '../message-actions/eligibility.ts'
 import { useMessageCommands } from '../message-actions/use-message-commands.ts'
 import type { TimelineHandle } from '../timeline/timeline.tsx'
 import { type CompositionState, initialComposition, shouldSend } from './enter-key.ts'
+import { editMentionDraft, mentionDraft, rawDraftOffset } from './mention-draft.ts'
 import { MentionPicker } from './mention-picker.tsx'
 import { useTypingSignal } from './use-typing-signal.ts'
 
@@ -69,6 +76,7 @@ export function Composer({
   const uploads = useUploads((state) => uploadsOf(state, id))
   const picker = useRef<HTMLInputElement>(null)
   const [emoji, setEmoji] = useState(false)
+  const [agentSending, setAgentSending] = useState(false)
   const [caret, setCaret] = useState(0)
   const listId = useId()
   const [activeMention, setActiveMention] = useState<string | undefined>()
@@ -76,11 +84,27 @@ export function Composer({
   const me = conversation.me
   const membershipId = me?.membershipId
   const draft = useDrafts((state) => draftOf(state, id))
+  const preview = useDrafts((state) => state.previews[id] ?? false)
+  const selectedPanel = useAgent((s) => s.panels[id])
+  const agentMode = useAgent((s) => s.modes[selectedPanel || id])
+  const agentScope = useAgent((s) => s.scopes[selectedPanel || id] ?? 'current')
+  const attachmentKey = uploads.map((u) => u.attachment?.id ?? u.id).join(',')
+  const requestKey = useMemo(() => {
+    void draft
+    void agentMode
+    void agentScope
+    void attachmentKey
+    void selectedPanel
+    return crypto.randomUUID()
+  }, [draft, agentMode, agentScope, attachmentKey, selectedPanel])
   const stored = useCompose((state) => modeOf(state, id, membershipId))
   const win = useTimelineWindow(id)
   const { data: account } = useQuery(meQuery)
   const commands = useMessageCommands(id)
   const users = useUsers()
+  const view = mentionDraft(draft, (userId) =>
+    users[userId]?.deleted ? m.user_deleted() : (users[userId]?.displayName ?? m.user_member()),
+  )
   const field = useRef<HTMLTextAreaElement>(null)
   const composition = useRef<CompositionState>(initialComposition())
   useTypingSignal(id, draft)
@@ -92,7 +116,7 @@ export function Composer({
     if (element === null) return
     element.style.height = 'auto'
     element.style.height = `${element.scrollHeight}px`
-  }, [draft])
+  }, [view.text, preview])
 
   // The message a reply or an edit stands on is read from the timeline as it is now: the quoted text follows an edit, and
   // one that was recalled, deleted or hidden since is no target any more, so the mode ends (D-171).
@@ -104,16 +128,26 @@ export function Composer({
   const canSend =
     (parsed.success ||
       (mode?.type !== 'edit' &&
+        conversation.kind !== 'agent' &&
         draft.trim() === '' &&
         uploads.some((entry) => entry.status === 'ready'))) &&
     me !== null &&
     uploads.every((entry) => entry.status === 'ready') &&
+    !agentSending &&
     !tooLong
-  const mention = /(?:^|\s)@([^\s@<>]*)$/.exec(draft.slice(0, caret))
+  const mention = /(?:^|\s)@([^\s@<>]*)$/.exec(view.text.slice(0, caret))
+  const insideMention = view.mentions.some((item) => item.start < caret && caret <= item.end)
   const addFiles = (files: File[]): void => {
     if (mode?.type === 'edit') return
-    if (uploadsOf(useUploads.getState(), id).length + files.length > 10) {
+    if (
+      uploadsOf(useUploads.getState(), id).length + files.length >
+      (conversation.kind === 'agent' ? 4 : 10)
+    ) {
       showToast(m.media_too_many())
+      return
+    }
+    if (conversation.kind === 'agent' && files.some((file) => !file.type.startsWith('image/'))) {
+      showToast(m.agent_images_only())
       return
     }
     for (const file of files) {
@@ -153,15 +187,26 @@ export function Composer({
         () => undefined,
       )
   }
-  const insert = (text: string, start = field.current?.selectionStart ?? draft.length): void => {
-    const end = field.current?.selectionEnd ?? start
-    setDraft(id, draft.slice(0, start) + text + draft.slice(end))
+  const insert = (
+    text: string,
+    start = field.current?.selectionStart ?? view.text.length,
+    shown = text,
+  ): void => {
+    if (preview) start = view.text.length
+    const end = preview ? start : (field.current?.selectionEnd ?? start)
+    setDraft(
+      id,
+      draft.slice(0, rawDraftOffset(view, start, 'start')) +
+        text +
+        draft.slice(rawDraftOffset(view, end, 'end')),
+    )
+    setDraftPreview(id, false)
     const ticket = engine.ticket(id)
     requestAnimationFrame(() => {
       if (!engine.isCurrent(ticket)) return
       field.current?.focus()
-      field.current?.setSelectionRange(start + text.length, start + text.length)
-      setCaret(start + text.length)
+      field.current?.setSelectionRange(start + shown.length, start + shown.length)
+      setCaret(start + shown.length)
     })
   }
 
@@ -188,6 +233,58 @@ export function Composer({
       // The answer comes after this render has been replaced, and maybe after this screen is gone, so what it finishes is
       // not decided here: the edit that went out and the text that was sent are named, and the stores are asked (D-173).
       await saveEdit(mode, draft)
+      return
+    }
+    const slash = /^\/(summary|translate|draft)\s*$/.exec(draft)?.[1]
+    if (slash && uploads.length) {
+      showToast(m.agent_command_attachments())
+      return
+    }
+    if ((conversation.kind === 'agent' || slash) && account) {
+      if (!draft.trim()) return
+      const prompt =
+        slash === 'summary'
+          ? m.agent_summary_prompt()
+          : slash === 'translate'
+            ? m.agent_translate_prompt()
+            : slash === 'draft'
+              ? m.agent_draft_prompt()
+              : draft
+      setAgentSending(true)
+      try {
+        const panelContext =
+          conversation.panelForConversationId ?? (conversation.kind !== 'agent' ? id : undefined)
+        const destinationPanel = slash ? selectedPanel : undefined
+        const response = await startRun(
+          {
+            trigger: slash ? 'command' : panelContext ? 'panel' : 'agent_chat',
+            conversationId: conversation.kind === 'agent' ? id : destinationPanel || undefined,
+            newConversation: destinationPanel === '' ? true : undefined,
+            contextConversationId: panelContext ?? undefined,
+            prompt,
+            mode: agentMode ?? (account.settings.agentMode === 'deep' ? 'deep' : 'fast'),
+            scope: panelContext ? agentScope : undefined,
+            timezone: account.timezone,
+            attachmentIds: uploads.flatMap((u) => (u.attachment ? [u.attachment.id] : [])),
+          },
+          requestKey,
+        )
+        if (response) {
+          if (draftOf(useDrafts.getState(), id) === draft) setDraft(id, '')
+          for (const entry of uploads) removeUpload(id, entry.id)
+          if (slash) {
+            if (useAgent.getState().panels[id] === destinationPanel && response.run.conversationId)
+              useAgent.setState((state) => ({
+                panels: { ...state.panels, [id]: response.run.conversationId ?? '' },
+              }))
+            useShell.getState().setInspector('assistant')
+          }
+        }
+      } catch (error) {
+        showToast(describeError(error))
+      } finally {
+        setAgentSending(false)
+      }
       return
     }
     const quote =
@@ -357,7 +454,25 @@ export function Composer({
           ))}
         </div>
       ) : null}
-      {mention && dismissedMention !== `${draft}:${caret}` ? (
+      {draft === '/' ? (
+        <div className="agent-controls">
+          {[
+            ['/summary', m.agent_summary()],
+            ['/translate', m.agent_translate()],
+            ['/draft', m.agent_draft()],
+          ].map(([command, label]) => (
+            <button
+              key={command}
+              type="button"
+              className="btn btn--plain btn--sm"
+              onClick={() => setDraft(id, command ?? '')}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
+      ) : null}
+      {!preview && mention && !insideMention && dismissedMention !== `${draft}:${caret}` ? (
         <MentionPicker
           conversationId={id}
           membershipVersion={conversation.membershipVersion}
@@ -365,7 +480,14 @@ export function Composer({
           listId={listId}
           active={setActiveMention}
           dismiss={() => setDismissedMention(`${draft}:${caret}`)}
-          choose={(user) => insert(`<@user:${user.id}> `, caret - (mention[1]?.length ?? 0) - 1)}
+          choose={(user) => {
+            engine.ingestUsers([user], engine.ticket(id))
+            insert(
+              `<@user:${user.id}> `,
+              caret - (mention[1]?.length ?? 0) - 1,
+              `@${user.displayName} `,
+            )
+          }}
         />
       ) : null}
       {emoji ? (
@@ -480,6 +602,21 @@ export function Composer({
           <IconButton label={m.common_cancel()} icon={X} small onClick={leaveMode} />
         </div>
       ) : null}
+      {draft.trim() ? (
+        <div className="composer__formatbar">
+          <Button
+            kind="plain"
+            size="sm"
+            icon={preview ? Pencil : Eye}
+            onClick={() => {
+              setDraftPreview(id, !preview)
+              if (preview) requestAnimationFrame(() => field.current?.focus())
+            }}
+          >
+            {preview ? m.composer_edit_text() : m.composer_preview()}
+          </Button>
+        </div>
+      ) : null}
       <div className="composer__row">
         <IconButton
           label={m.media_attach()}
@@ -501,11 +638,12 @@ export function Composer({
           aria-controls={activeMention ? listId : undefined}
           aria-activedescendant={activeMention}
           rows={1}
-          value={draft}
+          hidden={preview}
+          value={view.text}
           aria-label={m.composer_label({ name })}
           placeholder={m.composer_placeholder({ name })}
           onChange={(event: ChangeEvent<HTMLTextAreaElement>) => {
-            setDraft(id, event.target.value)
+            setDraft(id, editMentionDraft(draft, view, event.target.value))
             setDismissedMention(null)
             setCaret(event.target.selectionStart)
           }}
@@ -524,6 +662,19 @@ export function Composer({
             composition.current = { composing: false, endedAt: performance.now() }
           }}
         />
+        {preview ? (
+          <section className="composer__preview scroll" aria-label={m.composer_preview()}>
+            <MentionContext
+              value={{
+                users,
+                meId: account?.id ?? '',
+                valid: view.mentions.map((item) => item.id),
+              }}
+            >
+              <MessageBody text={draft} />
+            </MentionContext>
+          </section>
+        ) : null}
         <IconButton
           label={m.composer_send()}
           icon={ArrowUp}

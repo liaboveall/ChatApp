@@ -21,6 +21,7 @@ import {
   type UsersDictionary,
 } from '@chatapp/contracts'
 import {
+  agentContexts,
   attachments,
   conversationMembers,
   conversations,
@@ -33,6 +34,7 @@ import {
 } from '@chatapp/db'
 import { and, asc, desc, eq, gt, inArray, lt, notExists, sql } from 'drizzle-orm'
 import { fingerprint } from '../lib/crypto.ts'
+import { enqueueRunForSource } from './agent-runs.ts'
 import { attachmentDto, lockStorage } from './attachment-common.ts'
 import { writeAudit } from './audit.ts'
 import { enforce, loadAccess, type MemberRow } from './authorize.ts'
@@ -610,6 +612,37 @@ export async function sendMessage(
       }
     }
 
+    if (conversation.kind === 'agent') {
+      const [context] = await tx
+        .select()
+        .from(agentContexts)
+        .where(eq(agentContexts.conversationId, conversationId))
+      await enqueueRunForSource(tx, deps, principal, row, {
+        trigger: conversation.panelForConversationId ? 'panel' : 'agent_chat',
+        mode: user.settings.agentMode === 'deep' ? 'deep' : 'fast',
+        scope: conversation.panelForConversationId
+          ? (context?.readScope ?? 'current_conversation')
+          : 'all_accessible',
+        contextId: conversation.panelForConversationId ?? null,
+        allowRefusal: true,
+      })
+    } else if (
+      ['group', 'channel'].includes(conversation.kind) &&
+      conversation.settings.agentEnabled !== false
+    ) {
+      const [bot] = await tx
+        .select({ id: users.id })
+        .from(users)
+        .where(and(eq(users.username, deps.config.product.agentUsername), eq(users.isBot, true)))
+      if (bot && mentionIds(body).includes(bot.id))
+        await enqueueRunForSource(tx, deps, principal, row, {
+          trigger: 'mention',
+          mode: 'fast',
+          scope: 'current_conversation',
+          contextId: conversationId,
+          allowRefusal: true,
+        })
+    }
     const projected = await projectMessages(tx, viewer, [row])
     const message = projected.messages[0]
     if (!message) throw new Error('message projection failed')

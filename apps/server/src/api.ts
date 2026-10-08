@@ -6,6 +6,7 @@ import { LIMITS } from '@chatapp/contracts'
 import { createDatabase } from '@chatapp/db/client'
 import { createAuth } from './auth/better-auth.ts'
 import { sdkPasswords } from './auth/passwords.ts'
+import { loadAiConfig } from './config/ai.ts'
 import { type Config, ConfigError, loadConfig } from './config/index.ts'
 import type { Deps } from './domain/deps.ts'
 import { createReadiness } from './health.ts'
@@ -38,6 +39,7 @@ async function main(): Promise<void> {
     throw error
   }
   const log = createLogger({ level: config.logLevel, service: 'api' })
+  const { apiKey: _apiKey, ...aiPolicy } = loadAiConfig(process.env, { requireKey: false })
 
   const database = createDatabase(config.databaseUrl, { max: 10, applicationName: 'chatapp-api' })
   await assertDatabaseReady(database.db, config, log)
@@ -60,6 +62,7 @@ async function main(): Promise<void> {
         restoreEpoch: config.auth.restoreEpoch,
       },
       product: config.product,
+      ai: aiPolicy,
     },
     blobs: createBlobStore(config.s3),
     passwords: sdkPasswords,

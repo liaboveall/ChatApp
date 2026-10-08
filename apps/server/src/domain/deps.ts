@@ -3,6 +3,7 @@
  * Bun, HTTP or the auth SDK; the composition roots (api.ts, worker.ts, cli.ts) build this object.
  */
 import type { Db } from '@chatapp/db'
+import type { AiConfig } from '../config/ai.ts'
 import type { Clock } from '../lib/clock.ts'
 import type { Logger } from '../lib/logger.ts'
 import type { MediaClient } from '../runtime/media.ts'
@@ -21,6 +22,7 @@ export type DomainConfig = {
     restoreEpoch: string
   }
   product: { name: string; agentDisplayName: string; agentUsername: string }
+  ai?: Omit<AiConfig, 'apiKey'>
 }
 
 /** Hashing is CPU-heavy and belongs to the auth SDK; the domain only sees this port. */

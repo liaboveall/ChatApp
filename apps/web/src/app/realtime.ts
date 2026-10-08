@@ -1,5 +1,6 @@
 import { meSchema, WS_PROTOCOL_VERSION } from '@chatapp/contracts'
 import { engine } from '@/app/sync.ts'
+import { agentEvent } from '@/features/agent/api.ts'
 import { getProfile } from '@/features/conversations/api.ts'
 import { ApiError, api } from '@/lib/api.ts'
 import { writeMe } from '@/lib/queries.ts'
@@ -61,6 +62,7 @@ export const realtime: RealtimeClient = new RealtimeClient({
   onEvent: (message) => {
     // Hints only raise what the engine has heard of; it decides what to read and when (docs/05 section 4.5, D-150).
     engine.onEvent(message)
+    agentEvent(message)
     if (message.type === 'attachment.updated') attachmentHint(message.data.attachmentId)
     // Typing and presence are transient and live in their own small stores.
     if (message.type === 'typing') {

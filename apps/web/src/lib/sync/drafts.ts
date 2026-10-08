@@ -5,9 +5,9 @@
 import { create } from 'zustand'
 import { registerConversationReset, registerStoreReset } from './stores.ts'
 
-type DraftState = { byConversation: Record<string, string> }
+type DraftState = { byConversation: Record<string, string>; previews: Record<string, boolean> }
 
-export const useDrafts = create<DraftState>()(() => ({ byConversation: {} }))
+export const useDrafts = create<DraftState>()(() => ({ byConversation: {}, previews: {} }))
 
 export const draftOf = (state: DraftState, conversationId: string): string =>
   state.byConversation[conversationId] ?? ''
@@ -17,11 +17,16 @@ export function setDraft(conversationId: string, text: string): void {
     if (text === '') {
       if (!(conversationId in state.byConversation)) return state
       const { [conversationId]: _gone, ...rest } = state.byConversation
-      return { byConversation: rest }
+      const { [conversationId]: _preview, ...previews } = state.previews
+      return { byConversation: rest, previews }
     }
     return { byConversation: { ...state.byConversation, [conversationId]: text } }
   })
 }
 
-registerStoreReset(() => useDrafts.setState({ byConversation: {} }))
+export function setDraftPreview(conversationId: string, preview: boolean): void {
+  useDrafts.setState((state) => ({ previews: { ...state.previews, [conversationId]: preview } }))
+}
+
+registerStoreReset(() => useDrafts.setState({ byConversation: {}, previews: {} }))
 registerConversationReset((conversationId) => setDraft(conversationId, ''))

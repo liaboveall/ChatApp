@@ -320,7 +320,10 @@ export async function mentionCandidates(
         isNull(users.deletedAt),
         eq(users.activationStatus, 'active'),
         or(
-          eq(users.isBot, true),
+          ['group', 'channel'].includes(access.conversation.kind) &&
+            access.conversation.settings.agentEnabled !== false
+            ? and(eq(users.isBot, true), eq(users.username, deps.config.product.agentUsername))
+            : sql`false`,
           exists(
             deps.db
               .select({ one: sql`1` })

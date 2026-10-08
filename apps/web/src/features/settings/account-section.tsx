@@ -33,6 +33,7 @@ import {
   renamePasskey,
 } from '@/lib/webauthn.ts'
 import { m } from '@/paraglide/messages.js'
+import { AgentUsage } from '../agent/usage.tsx'
 import { EditProfileDialog } from './profile-dialog.tsx'
 import { Box, Group, Row } from './settings-ui.tsx'
 
@@ -621,6 +622,7 @@ export function AccountSection({ me, onSignOut }: { me: Me; onSignOut: () => voi
   return (
     <>
       <ProfileGroup me={me} />
+      <AgentUsage />
       <Group title={m.settings_signin()}>
         <Box>
           <Row title={m.settings_password()} help={m.settings_password_help()}>

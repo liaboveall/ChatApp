@@ -7,6 +7,7 @@
  */
 import { AppError, type OriginRevokeReason } from '@chatapp/contracts'
 import {
+  agentRuns,
   authorizationOrigins,
   type DbOrTx,
   executionDelegations,
@@ -235,6 +236,27 @@ export async function revokeOrigins(
         inArray(
           executionDelegations.id,
           delegations.map((row) => row.id),
+        ),
+      )
+    await tx
+      .update(agentRuns)
+      .set({
+        status: 'cancelled',
+        cancelRequestedAt: now,
+        finishedAt: now,
+        leaseEpoch: sql`${agentRuns.leaseEpoch} + 1`,
+        stateVersion: sql`${agentRuns.stateVersion} + 1`,
+        leaseUntil: null,
+        errorCode: 'UNAUTHENTICATED',
+        errorMessage: 'Execution authorization is no longer valid',
+      })
+      .where(
+        and(
+          inArray(
+            agentRuns.delegationId,
+            delegations.map((d) => d.id),
+          ),
+          inArray(agentRuns.status, ['queued', 'running', 'awaiting_approval']),
         ),
       )
   }

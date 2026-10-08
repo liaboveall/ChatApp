@@ -121,7 +121,7 @@ test('scenario 6: real images and GIF, file card, mention, lightbox, shared file
   await composer(page).fill('@bobby')
   await expect(page.locator('.mention-picker')).toBeVisible()
   await composer(page).press('Enter')
-  await expect(composer(page)).toHaveValue(`<@user:${bob.id}> `)
+  await expect(composer(page)).toHaveValue('@bobby ')
   await composer(page).press('Enter')
   await expect(page.locator('.upload-draft')).toHaveCount(0)
   const bubble = page.locator('.msg-article').filter({ has: page.locator('.file-card') })
@@ -135,6 +135,9 @@ test('scenario 6: real images and GIF, file card, mention, lightbox, shared file
       .toBeGreaterThan(0)
   }
   await expect(bubble.locator('.mention')).toHaveText('@bobby')
+  expect(
+    await bubble.locator('.mention').evaluate((element) => getComputedStyle(element).color),
+  ).toBe(await bubble.locator('.bubble').evaluate((element) => getComputedStyle(element).color))
   await expect(
     page.locator('.s-item__preview').filter({ hasText: '@bobby' }).first(),
   ).not.toContainText('<@user:')
@@ -218,6 +221,20 @@ test('avatar crop and a real video player survive reload', async ({ page, reques
       page.locator('.avatar-crop img').evaluate((image: HTMLImageElement) => image.naturalWidth),
     )
     .toBeGreaterThan(0)
+  const crop = page.locator('.avatar-crop')
+  await page.getByRole('dialog').getByRole('slider', { name: '缩放', exact: true }).press('End')
+  const bounds = await crop.boundingBox()
+  if (!bounds) throw new Error('crop is not visible')
+  await page.mouse.move(bounds.x + 128, bounds.y + 128)
+  await page.mouse.down()
+  await page.mouse.move(bounds.x + 64, bounds.y + 96, { steps: 4 })
+  await page.mouse.up()
+  await expect(page.getByRole('dialog').getByRole('slider', { name: '水平位置' })).not.toHaveValue(
+    '0',
+  )
+  await expect(page.getByRole('dialog').getByRole('slider', { name: '垂直位置' })).not.toHaveValue(
+    '0',
+  )
   const heldAvatar = await holdRequest(
     page,
     /\/api\/uploads\/reservations$/,

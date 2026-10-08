@@ -1,0 +1,44 @@
+name: eval
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: '30 2 * * 1'
+permissions:
+  contents: read
+concurrency:
+  group: eval-provider
+  cancel-in-progress: false
+jobs:
+  eval:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    env:
+      AI_PROVIDER: soclaas
+      SOCLAAS_API_KEY: ${{ secrets.SOCLAAS_API_KEY }}
+      AI_MODEL_FAST: x-test-1
+      AI_MODEL_DEEP: x-test-1
+    steps:
+      - uses: actions/checkout@v7
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version-file: package.json
+      - run: bun install --frozen-lockfile
+      - run: bun run setup
+      - run: bun run infra:up
+      - run: bun run infra:bootstrap
+      - run: bun run db:migrate:test
+      - name: Frozen corpus and genuine provider evaluation
+        run: bun run eval --concurrency 1
+      - name: Preserve every attempt and human review worksheet
+        if: always()
+        uses: actions/upload-artifact@v6
+        with:
+          name: agent-eval-results
+          path: |
+            apps/server/evals/results/
+            .test-runs/m4/*usage.sqlite*
+          if-no-files-found: error
+          retention-days: 30
+      - name: Stop isolated services
+        if: always()
+        run: bun run infra:down

@@ -10,6 +10,7 @@ import {
   LIMITS,
   type Me,
   type Message,
+  markdownPreviewText,
   type ReplyTo,
   truncateCodePoints,
   type UserSummary,
@@ -31,6 +32,14 @@ import type {
 export function mergeMessage(current: Message | undefined, incoming: Message): Message {
   if (current === undefined) return incoming
   if (incoming.changeSeq > current.changeSeq) return incoming
+  if (
+    incoming.changeSeq === current.changeSeq &&
+    incoming.meta.agent?.runId === current.meta.agent?.runId &&
+    incoming.status === 'streaming' &&
+    current.status === 'streaming' &&
+    (incoming.meta.agent?.streamIndex ?? 0) < (current.meta.agent?.streamIndex ?? 0)
+  )
+    return current
   if (incoming.changeSeq === current.changeSeq && incoming.streamRevision > current.streamRevision)
     return incoming
   return current
@@ -189,7 +198,10 @@ export function previewOf(message: Message): LastMessagePreview {
     message.deletedAt !== null ? 'deleted' : message.recalledAt !== null ? 'recalled' : 'ok'
   return {
     senderId: message.senderId,
-    text: state === 'ok' && message.kind !== 'system' ? excerptOf(message.body) : null,
+    text:
+      state === 'ok' && message.kind !== 'system'
+        ? excerptOf(markdownPreviewText(message.body))
+        : null,
     ...(state === 'ok' && message.attachments[0]
       ? { attachmentKind: message.attachments[0].kind }
       : {}),

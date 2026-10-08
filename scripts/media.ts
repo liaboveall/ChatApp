@@ -68,6 +68,20 @@ const DEFAULTS = {
   AGENT_DISPLAY_NAME: '助手',
   AGENT_USERNAME: 'assistant',
   LOG_LEVEL: 'info',
+  AI_PROVIDER: 'soclaas',
+  SOCLAAS_API_KEY: '',
+  DEEPSEEK_API_KEY: '',
+  AI_MODEL_FAST: '',
+  AI_MODEL_DEEP: '',
+  AI_USER_DAILY_TOKENS: '500000',
+  AI_MONTHLY_BUDGET_USD: '20',
+  AI_EXPERIMENT_BUDGET_USD: '0',
+  AI_PRICE_FAST_INPUT_CACHE_HIT: '0.006',
+  AI_PRICE_FAST_INPUT: '0.3',
+  AI_PRICE_FAST_OUTPUT: '1.2',
+  AI_PRICE_DEEP_INPUT_CACHE_HIT: '0.006',
+  AI_PRICE_DEEP_INPUT: '0.3',
+  AI_PRICE_DEEP_OUTPUT: '1.2',
 }
 const DOCKER_ENV = [
   'PATH',
@@ -153,7 +167,7 @@ function localUrl(value: string, key: string, protocols: string[]): URL {
   return url
 }
 
-/** No spread of process.env, owner connection, test credentials or model keys into a container. */
+/** Explicit worker allowlist. Model credentials never enter the network-isolated decoder. */
 export function workerEnvironment(source: Source): Record<string, string> {
   const env: Record<string, string> = {}
   for (const key of REQUIRED) {
@@ -165,6 +179,12 @@ export function workerEnvironment(source: Source): Record<string, string> {
     env[key] = value
   }
   for (const [key, fallback] of Object.entries(DEFAULTS)) env[key] = source[key] || fallback
+  if (!env.AI_MODEL_FAST)
+    env.AI_MODEL_FAST = env.AI_PROVIDER === 'soclaas' ? 'x-test-1' : 'deepseek-flash'
+  if (!env.AI_MODEL_DEEP)
+    env.AI_MODEL_DEEP = env.AI_PROVIDER === 'soclaas' ? 'x-test-1' : 'deepseek-flash'
+  if (env.AI_PROVIDER === 'soclaas') env.DEEPSEEK_API_KEY = ''
+  else env.SOCLAAS_API_KEY = ''
   requireCondition(
     env.APP_ORIGIN === 'http://localhost:5173',
     'APP_ORIGIN must be http://localhost:5173 for this development stack',

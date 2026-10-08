@@ -136,6 +136,7 @@ export function decide(
       return needsLive() ?? ok
 
     case 'update':
+      if (c.kind === 'agent') return isOwner ? (needsLive() ?? ok) : forbidden('requires_owner')
       if (!managed) return forbidden('not_applicable')
       if (!isAdminOrOwner && !siteAdmin) return forbidden('requires_admin')
       return needsLive() ?? ok

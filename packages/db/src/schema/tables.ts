@@ -571,7 +571,7 @@ export const conversations = pgTable(
     index('conversations_channel_name_trgm_idx')
       .using('gin', t.name.op('gin_trgm_ops'))
       .where(sql`${t.kind} = 'channel'`),
-    uniqueIndex('conversations_panel_uidx')
+    index('conversations_panel_idx')
       .on(t.ownerId, t.panelForConversationId)
       .where(sql`${t.panelForConversationId} is not null`),
     index('conversations_owner_archived_idx').on(t.ownerId).where(sql`${t.archivedAt} is not null`),
@@ -811,6 +811,9 @@ export const messages = pgTable(
   (t) => [
     uniqueIndex('messages_conversation_seq_uidx').on(t.conversationId, t.seq),
     index('messages_conversation_change_idx').on(t.conversationId, t.changeSeq),
+    index('messages_body_trgm_idx')
+      .using('gin', t.body.op('gin_trgm_ops'))
+      .where(sql`${t.body} is not null`),
     uniqueIndex('messages_sender_client_uidx')
       .on(t.senderId, t.clientId)
       .where(sql`${t.clientId} is not null`),

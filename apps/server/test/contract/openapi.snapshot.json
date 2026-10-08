@@ -4161,7 +4161,7 @@
                 "properties": {
                   "kind": {
                     "type": "string",
-                    "enum": ["channel", "group"]
+                    "enum": ["channel", "group", "agent"]
                   },
                   "name": {
                     "type": "string",
@@ -7695,6 +7695,450 @@
           },
           "429": {
             "description": "Rate limited (Retry-After says when to try again)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "object",
+                      "properties": {
+                        "code": {
+                          "type": "string",
+                          "enum": [
+                            "UNAUTHENTICATED",
+                            "FORBIDDEN",
+                            "NOT_FOUND",
+                            "VALIDATION_FAILED",
+                            "CONFLICT",
+                            "RATE_LIMITED",
+                            "QUOTA_EXCEEDED",
+                            "AI_BUDGET_EXHAUSTED",
+                            "AI_KEY_INVALID",
+                            "CONVERSATION_BANNED",
+                            "PAYLOAD_TOO_LARGE",
+                            "UNSUPPORTED_MEDIA_TYPE",
+                            "REQUEST_TIMEOUT",
+                            "INVALID_REQUEST_FRAMING",
+                            "AUTH_CHALLENGE_INVALID",
+                            "WINDOW_EXPIRED",
+                            "INVITE_INVALID",
+                            "IDEMPOTENCY_CONFLICT",
+                            "VERSION_CONFLICT",
+                            "RESOURCE_GONE",
+                            "CONTEXT_CHANGED",
+                            "CALL_OUTCOME_UNKNOWN",
+                            "CAPACITY_UNAVAILABLE",
+                            "INTERNAL"
+                          ]
+                        },
+                        "message": {
+                          "type": "string"
+                        },
+                        "details": {
+                          "type": "object",
+                          "additionalProperties": {}
+                        },
+                        "requestId": {
+                          "type": "string"
+                        }
+                      },
+                      "required": ["code", "message", "requestId"]
+                    }
+                  },
+                  "required": ["error"]
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": ["agent"],
+        "security": [
+          {
+            "cookieAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "required": true,
+            "name": "id",
+            "in": "path"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Assistant conversation and content removed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "status": {
+                      "type": "string",
+                      "enum": ["ok"]
+                    }
+                  },
+                  "required": ["status"]
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Not signed in",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "object",
+                      "properties": {
+                        "code": {
+                          "type": "string",
+                          "enum": [
+                            "UNAUTHENTICATED",
+                            "FORBIDDEN",
+                            "NOT_FOUND",
+                            "VALIDATION_FAILED",
+                            "CONFLICT",
+                            "RATE_LIMITED",
+                            "QUOTA_EXCEEDED",
+                            "AI_BUDGET_EXHAUSTED",
+                            "AI_KEY_INVALID",
+                            "CONVERSATION_BANNED",
+                            "PAYLOAD_TOO_LARGE",
+                            "UNSUPPORTED_MEDIA_TYPE",
+                            "REQUEST_TIMEOUT",
+                            "INVALID_REQUEST_FRAMING",
+                            "AUTH_CHALLENGE_INVALID",
+                            "WINDOW_EXPIRED",
+                            "INVITE_INVALID",
+                            "IDEMPOTENCY_CONFLICT",
+                            "VERSION_CONFLICT",
+                            "RESOURCE_GONE",
+                            "CONTEXT_CHANGED",
+                            "CALL_OUTCOME_UNKNOWN",
+                            "CAPACITY_UNAVAILABLE",
+                            "INTERNAL"
+                          ]
+                        },
+                        "message": {
+                          "type": "string"
+                        },
+                        "details": {
+                          "type": "object",
+                          "additionalProperties": {}
+                        },
+                        "requestId": {
+                          "type": "string"
+                        }
+                      },
+                      "required": ["code", "message", "requestId"]
+                    }
+                  },
+                  "required": ["error"]
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Visible, but not allowed (the reason is in details)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "object",
+                      "properties": {
+                        "code": {
+                          "type": "string",
+                          "enum": [
+                            "UNAUTHENTICATED",
+                            "FORBIDDEN",
+                            "NOT_FOUND",
+                            "VALIDATION_FAILED",
+                            "CONFLICT",
+                            "RATE_LIMITED",
+                            "QUOTA_EXCEEDED",
+                            "AI_BUDGET_EXHAUSTED",
+                            "AI_KEY_INVALID",
+                            "CONVERSATION_BANNED",
+                            "PAYLOAD_TOO_LARGE",
+                            "UNSUPPORTED_MEDIA_TYPE",
+                            "REQUEST_TIMEOUT",
+                            "INVALID_REQUEST_FRAMING",
+                            "AUTH_CHALLENGE_INVALID",
+                            "WINDOW_EXPIRED",
+                            "INVITE_INVALID",
+                            "IDEMPOTENCY_CONFLICT",
+                            "VERSION_CONFLICT",
+                            "RESOURCE_GONE",
+                            "CONTEXT_CHANGED",
+                            "CALL_OUTCOME_UNKNOWN",
+                            "CAPACITY_UNAVAILABLE",
+                            "INTERNAL"
+                          ]
+                        },
+                        "message": {
+                          "type": "string"
+                        },
+                        "details": {
+                          "type": "object",
+                          "additionalProperties": {}
+                        },
+                        "requestId": {
+                          "type": "string"
+                        }
+                      },
+                      "required": ["code", "message", "requestId"]
+                    }
+                  },
+                  "required": ["error"]
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found, or not visible to you",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "object",
+                      "properties": {
+                        "code": {
+                          "type": "string",
+                          "enum": [
+                            "UNAUTHENTICATED",
+                            "FORBIDDEN",
+                            "NOT_FOUND",
+                            "VALIDATION_FAILED",
+                            "CONFLICT",
+                            "RATE_LIMITED",
+                            "QUOTA_EXCEEDED",
+                            "AI_BUDGET_EXHAUSTED",
+                            "AI_KEY_INVALID",
+                            "CONVERSATION_BANNED",
+                            "PAYLOAD_TOO_LARGE",
+                            "UNSUPPORTED_MEDIA_TYPE",
+                            "REQUEST_TIMEOUT",
+                            "INVALID_REQUEST_FRAMING",
+                            "AUTH_CHALLENGE_INVALID",
+                            "WINDOW_EXPIRED",
+                            "INVITE_INVALID",
+                            "IDEMPOTENCY_CONFLICT",
+                            "VERSION_CONFLICT",
+                            "RESOURCE_GONE",
+                            "CONTEXT_CHANGED",
+                            "CALL_OUTCOME_UNKNOWN",
+                            "CAPACITY_UNAVAILABLE",
+                            "INTERNAL"
+                          ]
+                        },
+                        "message": {
+                          "type": "string"
+                        },
+                        "details": {
+                          "type": "object",
+                          "additionalProperties": {}
+                        },
+                        "requestId": {
+                          "type": "string"
+                        }
+                      },
+                      "required": ["code", "message", "requestId"]
+                    }
+                  },
+                  "required": ["error"]
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "State or context changed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "object",
+                      "properties": {
+                        "code": {
+                          "type": "string",
+                          "enum": [
+                            "UNAUTHENTICATED",
+                            "FORBIDDEN",
+                            "NOT_FOUND",
+                            "VALIDATION_FAILED",
+                            "CONFLICT",
+                            "RATE_LIMITED",
+                            "QUOTA_EXCEEDED",
+                            "AI_BUDGET_EXHAUSTED",
+                            "AI_KEY_INVALID",
+                            "CONVERSATION_BANNED",
+                            "PAYLOAD_TOO_LARGE",
+                            "UNSUPPORTED_MEDIA_TYPE",
+                            "REQUEST_TIMEOUT",
+                            "INVALID_REQUEST_FRAMING",
+                            "AUTH_CHALLENGE_INVALID",
+                            "WINDOW_EXPIRED",
+                            "INVITE_INVALID",
+                            "IDEMPOTENCY_CONFLICT",
+                            "VERSION_CONFLICT",
+                            "RESOURCE_GONE",
+                            "CONTEXT_CHANGED",
+                            "CALL_OUTCOME_UNKNOWN",
+                            "CAPACITY_UNAVAILABLE",
+                            "INTERNAL"
+                          ]
+                        },
+                        "message": {
+                          "type": "string"
+                        },
+                        "details": {
+                          "type": "object",
+                          "additionalProperties": {}
+                        },
+                        "requestId": {
+                          "type": "string"
+                        }
+                      },
+                      "required": ["code", "message", "requestId"]
+                    }
+                  },
+                  "required": ["error"]
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Invalid request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "object",
+                      "properties": {
+                        "code": {
+                          "type": "string",
+                          "enum": [
+                            "UNAUTHENTICATED",
+                            "FORBIDDEN",
+                            "NOT_FOUND",
+                            "VALIDATION_FAILED",
+                            "CONFLICT",
+                            "RATE_LIMITED",
+                            "QUOTA_EXCEEDED",
+                            "AI_BUDGET_EXHAUSTED",
+                            "AI_KEY_INVALID",
+                            "CONVERSATION_BANNED",
+                            "PAYLOAD_TOO_LARGE",
+                            "UNSUPPORTED_MEDIA_TYPE",
+                            "REQUEST_TIMEOUT",
+                            "INVALID_REQUEST_FRAMING",
+                            "AUTH_CHALLENGE_INVALID",
+                            "WINDOW_EXPIRED",
+                            "INVITE_INVALID",
+                            "IDEMPOTENCY_CONFLICT",
+                            "VERSION_CONFLICT",
+                            "RESOURCE_GONE",
+                            "CONTEXT_CHANGED",
+                            "CALL_OUTCOME_UNKNOWN",
+                            "CAPACITY_UNAVAILABLE",
+                            "INTERNAL"
+                          ]
+                        },
+                        "message": {
+                          "type": "string"
+                        },
+                        "details": {
+                          "type": "object",
+                          "additionalProperties": {}
+                        },
+                        "requestId": {
+                          "type": "string"
+                        }
+                      },
+                      "required": ["code", "message", "requestId"]
+                    }
+                  },
+                  "required": ["error"]
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Rate limited (Retry-After says when to try again)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "object",
+                      "properties": {
+                        "code": {
+                          "type": "string",
+                          "enum": [
+                            "UNAUTHENTICATED",
+                            "FORBIDDEN",
+                            "NOT_FOUND",
+                            "VALIDATION_FAILED",
+                            "CONFLICT",
+                            "RATE_LIMITED",
+                            "QUOTA_EXCEEDED",
+                            "AI_BUDGET_EXHAUSTED",
+                            "AI_KEY_INVALID",
+                            "CONVERSATION_BANNED",
+                            "PAYLOAD_TOO_LARGE",
+                            "UNSUPPORTED_MEDIA_TYPE",
+                            "REQUEST_TIMEOUT",
+                            "INVALID_REQUEST_FRAMING",
+                            "AUTH_CHALLENGE_INVALID",
+                            "WINDOW_EXPIRED",
+                            "INVITE_INVALID",
+                            "IDEMPOTENCY_CONFLICT",
+                            "VERSION_CONFLICT",
+                            "RESOURCE_GONE",
+                            "CONTEXT_CHANGED",
+                            "CALL_OUTCOME_UNKNOWN",
+                            "CAPACITY_UNAVAILABLE",
+                            "INTERNAL"
+                          ]
+                        },
+                        "message": {
+                          "type": "string"
+                        },
+                        "details": {
+                          "type": "object",
+                          "additionalProperties": {}
+                        },
+                        "requestId": {
+                          "type": "string"
+                        }
+                      },
+                      "required": ["code", "message", "requestId"]
+                    }
+                  },
+                  "required": ["error"]
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Model budget or service unavailable",
             "content": {
               "application/json": {
                 "schema": {
@@ -16914,6 +17358,17 @@
                                   "streamIndex": {
                                     "type": "integer",
                                     "minimum": 0
+                                  },
+                                  "resumeSeq": {
+                                    "type": "integer",
+                                    "minimum": 0
+                                  },
+                                  "contextEpoch": {
+                                    "type": "string",
+                                    "format": "uuid"
+                                  },
+                                  "truncated": {
+                                    "type": "boolean"
                                   }
                                 },
                                 "required": ["runId", "mode", "keySource"]
@@ -17606,6 +18061,17 @@
                                 "streamIndex": {
                                   "type": "integer",
                                   "minimum": 0
+                                },
+                                "resumeSeq": {
+                                  "type": "integer",
+                                  "minimum": 0
+                                },
+                                "contextEpoch": {
+                                  "type": "string",
+                                  "format": "uuid"
+                                },
+                                "truncated": {
+                                  "type": "boolean"
                                 }
                               },
                               "required": ["runId", "mode", "keySource"]
@@ -18003,6 +18469,17 @@
                                 "streamIndex": {
                                   "type": "integer",
                                   "minimum": 0
+                                },
+                                "resumeSeq": {
+                                  "type": "integer",
+                                  "minimum": 0
+                                },
+                                "contextEpoch": {
+                                  "type": "string",
+                                  "format": "uuid"
+                                },
+                                "truncated": {
+                                  "type": "boolean"
                                 }
                               },
                               "required": ["runId", "mode", "keySource"]
@@ -18803,6 +19280,17 @@
                                   "streamIndex": {
                                     "type": "integer",
                                     "minimum": 0
+                                  },
+                                  "resumeSeq": {
+                                    "type": "integer",
+                                    "minimum": 0
+                                  },
+                                  "contextEpoch": {
+                                    "type": "string",
+                                    "format": "uuid"
+                                  },
+                                  "truncated": {
+                                    "type": "boolean"
                                   }
                                 },
                                 "required": ["runId", "mode", "keySource"]
@@ -19498,6 +19986,17 @@
                                       "streamIndex": {
                                         "type": "integer",
                                         "minimum": 0
+                                      },
+                                      "resumeSeq": {
+                                        "type": "integer",
+                                        "minimum": 0
+                                      },
+                                      "contextEpoch": {
+                                        "type": "string",
+                                        "format": "uuid"
+                                      },
+                                      "truncated": {
+                                        "type": "boolean"
                                       }
                                     },
                                     "required": ["runId", "mode", "keySource"]
@@ -20241,6 +20740,17 @@
                                 "streamIndex": {
                                   "type": "integer",
                                   "minimum": 0
+                                },
+                                "resumeSeq": {
+                                  "type": "integer",
+                                  "minimum": 0
+                                },
+                                "contextEpoch": {
+                                  "type": "string",
+                                  "format": "uuid"
+                                },
+                                "truncated": {
+                                  "type": "boolean"
                                 }
                               },
                               "required": ["runId", "mode", "keySource"]
@@ -20914,6 +21424,17 @@
                                 "streamIndex": {
                                   "type": "integer",
                                   "minimum": 0
+                                },
+                                "resumeSeq": {
+                                  "type": "integer",
+                                  "minimum": 0
+                                },
+                                "contextEpoch": {
+                                  "type": "string",
+                                  "format": "uuid"
+                                },
+                                "truncated": {
+                                  "type": "boolean"
                                 }
                               },
                               "required": ["runId", "mode", "keySource"]
@@ -21954,6 +22475,17 @@
                                 "streamIndex": {
                                   "type": "integer",
                                   "minimum": 0
+                                },
+                                "resumeSeq": {
+                                  "type": "integer",
+                                  "minimum": 0
+                                },
+                                "contextEpoch": {
+                                  "type": "string",
+                                  "format": "uuid"
+                                },
+                                "truncated": {
+                                  "type": "boolean"
                                 }
                               },
                               "required": ["runId", "mode", "keySource"]
@@ -28740,6 +29272,3860 @@
           },
           "503": {
             "description": "Storage unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "object",
+                      "properties": {
+                        "code": {
+                          "type": "string",
+                          "enum": [
+                            "UNAUTHENTICATED",
+                            "FORBIDDEN",
+                            "NOT_FOUND",
+                            "VALIDATION_FAILED",
+                            "CONFLICT",
+                            "RATE_LIMITED",
+                            "QUOTA_EXCEEDED",
+                            "AI_BUDGET_EXHAUSTED",
+                            "AI_KEY_INVALID",
+                            "CONVERSATION_BANNED",
+                            "PAYLOAD_TOO_LARGE",
+                            "UNSUPPORTED_MEDIA_TYPE",
+                            "REQUEST_TIMEOUT",
+                            "INVALID_REQUEST_FRAMING",
+                            "AUTH_CHALLENGE_INVALID",
+                            "WINDOW_EXPIRED",
+                            "INVITE_INVALID",
+                            "IDEMPOTENCY_CONFLICT",
+                            "VERSION_CONFLICT",
+                            "RESOURCE_GONE",
+                            "CONTEXT_CHANGED",
+                            "CALL_OUTCOME_UNKNOWN",
+                            "CAPACITY_UNAVAILABLE",
+                            "INTERNAL"
+                          ]
+                        },
+                        "message": {
+                          "type": "string"
+                        },
+                        "details": {
+                          "type": "object",
+                          "additionalProperties": {}
+                        },
+                        "requestId": {
+                          "type": "string"
+                        }
+                      },
+                      "required": ["code", "message", "requestId"]
+                    }
+                  },
+                  "required": ["error"]
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/agent/runs": {
+      "post": {
+        "tags": ["agent"],
+        "security": [
+          {
+            "cookieAuth": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "trigger": {
+                    "type": "string",
+                    "enum": ["agent_chat", "panel", "command"]
+                  },
+                  "conversationId": {
+                    "type": "string",
+                    "format": "uuid"
+                  },
+                  "contextConversationId": {
+                    "type": "string",
+                    "format": "uuid"
+                  },
+                  "newConversation": {
+                    "type": "boolean"
+                  },
+                  "prompt": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 20000
+                  },
+                  "mode": {
+                    "type": "string",
+                    "enum": ["fast", "deep"],
+                    "default": "fast"
+                  },
+                  "scope": {
+                    "type": "string",
+                    "enum": ["current", "all"]
+                  },
+                  "attachmentIds": {
+                    "type": "array",
+                    "items": {
+                      "type": "string",
+                      "format": "uuid"
+                    },
+                    "maxItems": 4,
+                    "default": []
+                  },
+                  "timezone": {
+                    "type": "string"
+                  }
+                },
+                "required": ["trigger", "prompt", "timezone"],
+                "additionalProperties": false
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Queued run, or idempotent replay",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "run": {
+                      "type": "object",
+                      "properties": {
+                        "id": {
+                          "type": "string",
+                          "format": "uuid"
+                        },
+                        "userId": {
+                          "type": "string",
+                          "format": "uuid"
+                        },
+                        "trigger": {
+                          "type": "string"
+                        },
+                        "conversationId": {
+                          "type": ["string", "null"],
+                          "format": "uuid"
+                        },
+                        "contextConversationId": {
+                          "type": ["string", "null"],
+                          "format": "uuid"
+                        },
+                        "sourceMessageId": {
+                          "type": ["string", "null"],
+                          "format": "uuid"
+                        },
+                        "outputMessageId": {
+                          "type": ["string", "null"],
+                          "format": "uuid"
+                        },
+                        "status": {
+                          "type": "string",
+                          "enum": [
+                            "queued",
+                            "running",
+                            "awaiting_approval",
+                            "completed",
+                            "failed",
+                            "cancelled"
+                          ]
+                        },
+                        "mode": {
+                          "type": "string",
+                          "enum": ["fast", "deep"]
+                        },
+                        "provider": {
+                          "type": "string"
+                        },
+                        "model": {
+                          "type": "string"
+                        },
+                        "actualModel": {
+                          "type": ["string", "null"]
+                        },
+                        "keySource": {
+                          "type": "string",
+                          "enum": ["site", "user"]
+                        },
+                        "readScope": {
+                          "type": "string",
+                          "enum": ["current_conversation", "all_accessible"]
+                        },
+                        "privacyClass": {
+                          "type": "string",
+                          "enum": ["standard", "byok_private"]
+                        },
+                        "contextEpoch": {
+                          "type": "string",
+                          "format": "uuid"
+                        },
+                        "stateVersion": {
+                          "type": "integer",
+                          "minimum": 0
+                        },
+                        "resumeSeq": {
+                          "type": "integer",
+                          "minimum": 0
+                        },
+                        "stepCount": {
+                          "type": "integer",
+                          "minimum": 0
+                        },
+                        "regeneratedFromRunId": {
+                          "type": ["string", "null"],
+                          "format": "uuid"
+                        },
+                        "usage": {
+                          "type": "object",
+                          "properties": {
+                            "inputTokens": {
+                              "type": "integer",
+                              "minimum": 0
+                            },
+                            "outputTokens": {
+                              "type": "integer",
+                              "minimum": 0
+                            },
+                            "cachedTokens": {
+                              "type": "integer",
+                              "minimum": 0
+                            },
+                            "costUsd": {
+                              "type": "string"
+                            }
+                          },
+                          "required": ["inputTokens", "outputTokens", "cachedTokens", "costUsd"]
+                        },
+                        "createdAt": {
+                          "type": "string",
+                          "format": "date-time"
+                        },
+                        "finishedAt": {
+                          "type": ["string", "null"],
+                          "format": "date-time"
+                        },
+                        "error": {
+                          "type": ["object", "null"],
+                          "properties": {
+                            "code": {
+                              "type": "string"
+                            },
+                            "message": {
+                              "type": "string"
+                            }
+                          },
+                          "required": ["code", "message"]
+                        }
+                      },
+                      "required": [
+                        "id",
+                        "userId",
+                        "trigger",
+                        "conversationId",
+                        "contextConversationId",
+                        "sourceMessageId",
+                        "outputMessageId",
+                        "status",
+                        "mode",
+                        "provider",
+                        "model",
+                        "actualModel",
+                        "keySource",
+                        "readScope",
+                        "privacyClass",
+                        "contextEpoch",
+                        "stateVersion",
+                        "resumeSeq",
+                        "stepCount",
+                        "regeneratedFromRunId",
+                        "usage",
+                        "createdAt",
+                        "finishedAt",
+                        "error"
+                      ]
+                    }
+                  },
+                  "required": ["run"]
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Not signed in",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "object",
+                      "properties": {
+                        "code": {
+                          "type": "string",
+                          "enum": [
+                            "UNAUTHENTICATED",
+                            "FORBIDDEN",
+                            "NOT_FOUND",
+                            "VALIDATION_FAILED",
+                            "CONFLICT",
+                            "RATE_LIMITED",
+                            "QUOTA_EXCEEDED",
+                            "AI_BUDGET_EXHAUSTED",
+                            "AI_KEY_INVALID",
+                            "CONVERSATION_BANNED",
+                            "PAYLOAD_TOO_LARGE",
+                            "UNSUPPORTED_MEDIA_TYPE",
+                            "REQUEST_TIMEOUT",
+                            "INVALID_REQUEST_FRAMING",
+                            "AUTH_CHALLENGE_INVALID",
+                            "WINDOW_EXPIRED",
+                            "INVITE_INVALID",
+                            "IDEMPOTENCY_CONFLICT",
+                            "VERSION_CONFLICT",
+                            "RESOURCE_GONE",
+                            "CONTEXT_CHANGED",
+                            "CALL_OUTCOME_UNKNOWN",
+                            "CAPACITY_UNAVAILABLE",
+                            "INTERNAL"
+                          ]
+                        },
+                        "message": {
+                          "type": "string"
+                        },
+                        "details": {
+                          "type": "object",
+                          "additionalProperties": {}
+                        },
+                        "requestId": {
+                          "type": "string"
+                        }
+                      },
+                      "required": ["code", "message", "requestId"]
+                    }
+                  },
+                  "required": ["error"]
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Visible, but not allowed (the reason is in details)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "object",
+                      "properties": {
+                        "code": {
+                          "type": "string",
+                          "enum": [
+                            "UNAUTHENTICATED",
+                            "FORBIDDEN",
+                            "NOT_FOUND",
+                            "VALIDATION_FAILED",
+                            "CONFLICT",
+                            "RATE_LIMITED",
+                            "QUOTA_EXCEEDED",
+                            "AI_BUDGET_EXHAUSTED",
+                            "AI_KEY_INVALID",
+                            "CONVERSATION_BANNED",
+                            "PAYLOAD_TOO_LARGE",
+                            "UNSUPPORTED_MEDIA_TYPE",
+                            "REQUEST_TIMEOUT",
+                            "INVALID_REQUEST_FRAMING",
+                            "AUTH_CHALLENGE_INVALID",
+                            "WINDOW_EXPIRED",
+                            "INVITE_INVALID",
+                            "IDEMPOTENCY_CONFLICT",
+                            "VERSION_CONFLICT",
+                            "RESOURCE_GONE",
+                            "CONTEXT_CHANGED",
+                            "CALL_OUTCOME_UNKNOWN",
+                            "CAPACITY_UNAVAILABLE",
+                            "INTERNAL"
+                          ]
+                        },
+                        "message": {
+                          "type": "string"
+                        },
+                        "details": {
+                          "type": "object",
+                          "additionalProperties": {}
+                        },
+                        "requestId": {
+                          "type": "string"
+                        }
+                      },
+                      "required": ["code", "message", "requestId"]
+                    }
+                  },
+                  "required": ["error"]
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found, or not visible to you",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "object",
+                      "properties": {
+                        "code": {
+                          "type": "string",
+                          "enum": [
+                            "UNAUTHENTICATED",
+                            "FORBIDDEN",
+                            "NOT_FOUND",
+                            "VALIDATION_FAILED",
+                            "CONFLICT",
+                            "RATE_LIMITED",
+                            "QUOTA_EXCEEDED",
+                            "AI_BUDGET_EXHAUSTED",
+                            "AI_KEY_INVALID",
+                            "CONVERSATION_BANNED",
+                            "PAYLOAD_TOO_LARGE",
+                            "UNSUPPORTED_MEDIA_TYPE",
+                            "REQUEST_TIMEOUT",
+                            "INVALID_REQUEST_FRAMING",
+                            "AUTH_CHALLENGE_INVALID",
+                            "WINDOW_EXPIRED",
+                            "INVITE_INVALID",
+                            "IDEMPOTENCY_CONFLICT",
+                            "VERSION_CONFLICT",
+                            "RESOURCE_GONE",
+                            "CONTEXT_CHANGED",
+                            "CALL_OUTCOME_UNKNOWN",
+                            "CAPACITY_UNAVAILABLE",
+                            "INTERNAL"
+                          ]
+                        },
+                        "message": {
+                          "type": "string"
+                        },
+                        "details": {
+                          "type": "object",
+                          "additionalProperties": {}
+                        },
+                        "requestId": {
+                          "type": "string"
+                        }
+                      },
+                      "required": ["code", "message", "requestId"]
+                    }
+                  },
+                  "required": ["error"]
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "State or context changed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "object",
+                      "properties": {
+                        "code": {
+                          "type": "string",
+                          "enum": [
+                            "UNAUTHENTICATED",
+                            "FORBIDDEN",
+                            "NOT_FOUND",
+                            "VALIDATION_FAILED",
+                            "CONFLICT",
+                            "RATE_LIMITED",
+                            "QUOTA_EXCEEDED",
+                            "AI_BUDGET_EXHAUSTED",
+                            "AI_KEY_INVALID",
+                            "CONVERSATION_BANNED",
+                            "PAYLOAD_TOO_LARGE",
+                            "UNSUPPORTED_MEDIA_TYPE",
+                            "REQUEST_TIMEOUT",
+                            "INVALID_REQUEST_FRAMING",
+                            "AUTH_CHALLENGE_INVALID",
+                            "WINDOW_EXPIRED",
+                            "INVITE_INVALID",
+                            "IDEMPOTENCY_CONFLICT",
+                            "VERSION_CONFLICT",
+                            "RESOURCE_GONE",
+                            "CONTEXT_CHANGED",
+                            "CALL_OUTCOME_UNKNOWN",
+                            "CAPACITY_UNAVAILABLE",
+                            "INTERNAL"
+                          ]
+                        },
+                        "message": {
+                          "type": "string"
+                        },
+                        "details": {
+                          "type": "object",
+                          "additionalProperties": {}
+                        },
+                        "requestId": {
+                          "type": "string"
+                        }
+                      },
+                      "required": ["code", "message", "requestId"]
+                    }
+                  },
+                  "required": ["error"]
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Invalid request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "object",
+                      "properties": {
+                        "code": {
+                          "type": "string",
+                          "enum": [
+                            "UNAUTHENTICATED",
+                            "FORBIDDEN",
+                            "NOT_FOUND",
+                            "VALIDATION_FAILED",
+                            "CONFLICT",
+                            "RATE_LIMITED",
+                            "QUOTA_EXCEEDED",
+                            "AI_BUDGET_EXHAUSTED",
+                            "AI_KEY_INVALID",
+                            "CONVERSATION_BANNED",
+                            "PAYLOAD_TOO_LARGE",
+                            "UNSUPPORTED_MEDIA_TYPE",
+                            "REQUEST_TIMEOUT",
+                            "INVALID_REQUEST_FRAMING",
+                            "AUTH_CHALLENGE_INVALID",
+                            "WINDOW_EXPIRED",
+                            "INVITE_INVALID",
+                            "IDEMPOTENCY_CONFLICT",
+                            "VERSION_CONFLICT",
+                            "RESOURCE_GONE",
+                            "CONTEXT_CHANGED",
+                            "CALL_OUTCOME_UNKNOWN",
+                            "CAPACITY_UNAVAILABLE",
+                            "INTERNAL"
+                          ]
+                        },
+                        "message": {
+                          "type": "string"
+                        },
+                        "details": {
+                          "type": "object",
+                          "additionalProperties": {}
+                        },
+                        "requestId": {
+                          "type": "string"
+                        }
+                      },
+                      "required": ["code", "message", "requestId"]
+                    }
+                  },
+                  "required": ["error"]
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Rate limited (Retry-After says when to try again)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "object",
+                      "properties": {
+                        "code": {
+                          "type": "string",
+                          "enum": [
+                            "UNAUTHENTICATED",
+                            "FORBIDDEN",
+                            "NOT_FOUND",
+                            "VALIDATION_FAILED",
+                            "CONFLICT",
+                            "RATE_LIMITED",
+                            "QUOTA_EXCEEDED",
+                            "AI_BUDGET_EXHAUSTED",
+                            "AI_KEY_INVALID",
+                            "CONVERSATION_BANNED",
+                            "PAYLOAD_TOO_LARGE",
+                            "UNSUPPORTED_MEDIA_TYPE",
+                            "REQUEST_TIMEOUT",
+                            "INVALID_REQUEST_FRAMING",
+                            "AUTH_CHALLENGE_INVALID",
+                            "WINDOW_EXPIRED",
+                            "INVITE_INVALID",
+                            "IDEMPOTENCY_CONFLICT",
+                            "VERSION_CONFLICT",
+                            "RESOURCE_GONE",
+                            "CONTEXT_CHANGED",
+                            "CALL_OUTCOME_UNKNOWN",
+                            "CAPACITY_UNAVAILABLE",
+                            "INTERNAL"
+                          ]
+                        },
+                        "message": {
+                          "type": "string"
+                        },
+                        "details": {
+                          "type": "object",
+                          "additionalProperties": {}
+                        },
+                        "requestId": {
+                          "type": "string"
+                        }
+                      },
+                      "required": ["code", "message", "requestId"]
+                    }
+                  },
+                  "required": ["error"]
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Model budget or service unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "object",
+                      "properties": {
+                        "code": {
+                          "type": "string",
+                          "enum": [
+                            "UNAUTHENTICATED",
+                            "FORBIDDEN",
+                            "NOT_FOUND",
+                            "VALIDATION_FAILED",
+                            "CONFLICT",
+                            "RATE_LIMITED",
+                            "QUOTA_EXCEEDED",
+                            "AI_BUDGET_EXHAUSTED",
+                            "AI_KEY_INVALID",
+                            "CONVERSATION_BANNED",
+                            "PAYLOAD_TOO_LARGE",
+                            "UNSUPPORTED_MEDIA_TYPE",
+                            "REQUEST_TIMEOUT",
+                            "INVALID_REQUEST_FRAMING",
+                            "AUTH_CHALLENGE_INVALID",
+                            "WINDOW_EXPIRED",
+                            "INVITE_INVALID",
+                            "IDEMPOTENCY_CONFLICT",
+                            "VERSION_CONFLICT",
+                            "RESOURCE_GONE",
+                            "CONTEXT_CHANGED",
+                            "CALL_OUTCOME_UNKNOWN",
+                            "CAPACITY_UNAVAILABLE",
+                            "INTERNAL"
+                          ]
+                        },
+                        "message": {
+                          "type": "string"
+                        },
+                        "details": {
+                          "type": "object",
+                          "additionalProperties": {}
+                        },
+                        "requestId": {
+                          "type": "string"
+                        }
+                      },
+                      "required": ["code", "message", "requestId"]
+                    }
+                  },
+                  "required": ["error"]
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/agent/runs/{id}": {
+      "get": {
+        "tags": ["agent"],
+        "security": [
+          {
+            "cookieAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "required": true,
+            "name": "id",
+            "in": "path"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Owner-only run and tool steps",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "run": {
+                      "type": "object",
+                      "properties": {
+                        "id": {
+                          "type": "string",
+                          "format": "uuid"
+                        },
+                        "userId": {
+                          "type": "string",
+                          "format": "uuid"
+                        },
+                        "trigger": {
+                          "type": "string"
+                        },
+                        "conversationId": {
+                          "type": ["string", "null"],
+                          "format": "uuid"
+                        },
+                        "contextConversationId": {
+                          "type": ["string", "null"],
+                          "format": "uuid"
+                        },
+                        "sourceMessageId": {
+                          "type": ["string", "null"],
+                          "format": "uuid"
+                        },
+                        "outputMessageId": {
+                          "type": ["string", "null"],
+                          "format": "uuid"
+                        },
+                        "status": {
+                          "type": "string",
+                          "enum": [
+                            "queued",
+                            "running",
+                            "awaiting_approval",
+                            "completed",
+                            "failed",
+                            "cancelled"
+                          ]
+                        },
+                        "mode": {
+                          "type": "string",
+                          "enum": ["fast", "deep"]
+                        },
+                        "provider": {
+                          "type": "string"
+                        },
+                        "model": {
+                          "type": "string"
+                        },
+                        "actualModel": {
+                          "type": ["string", "null"]
+                        },
+                        "keySource": {
+                          "type": "string",
+                          "enum": ["site", "user"]
+                        },
+                        "readScope": {
+                          "type": "string",
+                          "enum": ["current_conversation", "all_accessible"]
+                        },
+                        "privacyClass": {
+                          "type": "string",
+                          "enum": ["standard", "byok_private"]
+                        },
+                        "contextEpoch": {
+                          "type": "string",
+                          "format": "uuid"
+                        },
+                        "stateVersion": {
+                          "type": "integer",
+                          "minimum": 0
+                        },
+                        "resumeSeq": {
+                          "type": "integer",
+                          "minimum": 0
+                        },
+                        "stepCount": {
+                          "type": "integer",
+                          "minimum": 0
+                        },
+                        "regeneratedFromRunId": {
+                          "type": ["string", "null"],
+                          "format": "uuid"
+                        },
+                        "usage": {
+                          "type": "object",
+                          "properties": {
+                            "inputTokens": {
+                              "type": "integer",
+                              "minimum": 0
+                            },
+                            "outputTokens": {
+                              "type": "integer",
+                              "minimum": 0
+                            },
+                            "cachedTokens": {
+                              "type": "integer",
+                              "minimum": 0
+                            },
+                            "costUsd": {
+                              "type": "string"
+                            }
+                          },
+                          "required": ["inputTokens", "outputTokens", "cachedTokens", "costUsd"]
+                        },
+                        "createdAt": {
+                          "type": "string",
+                          "format": "date-time"
+                        },
+                        "finishedAt": {
+                          "type": ["string", "null"],
+                          "format": "date-time"
+                        },
+                        "error": {
+                          "type": ["object", "null"],
+                          "properties": {
+                            "code": {
+                              "type": "string"
+                            },
+                            "message": {
+                              "type": "string"
+                            }
+                          },
+                          "required": ["code", "message"]
+                        }
+                      },
+                      "required": [
+                        "id",
+                        "userId",
+                        "trigger",
+                        "conversationId",
+                        "contextConversationId",
+                        "sourceMessageId",
+                        "outputMessageId",
+                        "status",
+                        "mode",
+                        "provider",
+                        "model",
+                        "actualModel",
+                        "keySource",
+                        "readScope",
+                        "privacyClass",
+                        "contextEpoch",
+                        "stateVersion",
+                        "resumeSeq",
+                        "stepCount",
+                        "regeneratedFromRunId",
+                        "usage",
+                        "createdAt",
+                        "finishedAt",
+                        "error"
+                      ]
+                    },
+                    "steps": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "index": {
+                            "type": "integer",
+                            "minimum": 0
+                          },
+                          "type": {
+                            "type": "string",
+                            "enum": ["model", "tool_call", "tool_result", "error"]
+                          },
+                          "toolName": {
+                            "type": ["string", "null"]
+                          },
+                          "status": {
+                            "type": ["string", "null"],
+                            "enum": ["pending", "done", "failed", null]
+                          },
+                          "payload": {},
+                          "createdAt": {
+                            "type": "string",
+                            "format": "date-time"
+                          }
+                        },
+                        "required": ["index", "type", "toolName", "status", "createdAt"]
+                      }
+                    }
+                  },
+                  "required": ["run", "steps"]
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Not signed in",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "object",
+                      "properties": {
+                        "code": {
+                          "type": "string",
+                          "enum": [
+                            "UNAUTHENTICATED",
+                            "FORBIDDEN",
+                            "NOT_FOUND",
+                            "VALIDATION_FAILED",
+                            "CONFLICT",
+                            "RATE_LIMITED",
+                            "QUOTA_EXCEEDED",
+                            "AI_BUDGET_EXHAUSTED",
+                            "AI_KEY_INVALID",
+                            "CONVERSATION_BANNED",
+                            "PAYLOAD_TOO_LARGE",
+                            "UNSUPPORTED_MEDIA_TYPE",
+                            "REQUEST_TIMEOUT",
+                            "INVALID_REQUEST_FRAMING",
+                            "AUTH_CHALLENGE_INVALID",
+                            "WINDOW_EXPIRED",
+                            "INVITE_INVALID",
+                            "IDEMPOTENCY_CONFLICT",
+                            "VERSION_CONFLICT",
+                            "RESOURCE_GONE",
+                            "CONTEXT_CHANGED",
+                            "CALL_OUTCOME_UNKNOWN",
+                            "CAPACITY_UNAVAILABLE",
+                            "INTERNAL"
+                          ]
+                        },
+                        "message": {
+                          "type": "string"
+                        },
+                        "details": {
+                          "type": "object",
+                          "additionalProperties": {}
+                        },
+                        "requestId": {
+                          "type": "string"
+                        }
+                      },
+                      "required": ["code", "message", "requestId"]
+                    }
+                  },
+                  "required": ["error"]
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Visible, but not allowed (the reason is in details)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "object",
+                      "properties": {
+                        "code": {
+                          "type": "string",
+                          "enum": [
+                            "UNAUTHENTICATED",
+                            "FORBIDDEN",
+                            "NOT_FOUND",
+                            "VALIDATION_FAILED",
+                            "CONFLICT",
+                            "RATE_LIMITED",
+                            "QUOTA_EXCEEDED",
+                            "AI_BUDGET_EXHAUSTED",
+                            "AI_KEY_INVALID",
+                            "CONVERSATION_BANNED",
+                            "PAYLOAD_TOO_LARGE",
+                            "UNSUPPORTED_MEDIA_TYPE",
+                            "REQUEST_TIMEOUT",
+                            "INVALID_REQUEST_FRAMING",
+                            "AUTH_CHALLENGE_INVALID",
+                            "WINDOW_EXPIRED",
+                            "INVITE_INVALID",
+                            "IDEMPOTENCY_CONFLICT",
+                            "VERSION_CONFLICT",
+                            "RESOURCE_GONE",
+                            "CONTEXT_CHANGED",
+                            "CALL_OUTCOME_UNKNOWN",
+                            "CAPACITY_UNAVAILABLE",
+                            "INTERNAL"
+                          ]
+                        },
+                        "message": {
+                          "type": "string"
+                        },
+                        "details": {
+                          "type": "object",
+                          "additionalProperties": {}
+                        },
+                        "requestId": {
+                          "type": "string"
+                        }
+                      },
+                      "required": ["code", "message", "requestId"]
+                    }
+                  },
+                  "required": ["error"]
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found, or not visible to you",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "object",
+                      "properties": {
+                        "code": {
+                          "type": "string",
+                          "enum": [
+                            "UNAUTHENTICATED",
+                            "FORBIDDEN",
+                            "NOT_FOUND",
+                            "VALIDATION_FAILED",
+                            "CONFLICT",
+                            "RATE_LIMITED",
+                            "QUOTA_EXCEEDED",
+                            "AI_BUDGET_EXHAUSTED",
+                            "AI_KEY_INVALID",
+                            "CONVERSATION_BANNED",
+                            "PAYLOAD_TOO_LARGE",
+                            "UNSUPPORTED_MEDIA_TYPE",
+                            "REQUEST_TIMEOUT",
+                            "INVALID_REQUEST_FRAMING",
+                            "AUTH_CHALLENGE_INVALID",
+                            "WINDOW_EXPIRED",
+                            "INVITE_INVALID",
+                            "IDEMPOTENCY_CONFLICT",
+                            "VERSION_CONFLICT",
+                            "RESOURCE_GONE",
+                            "CONTEXT_CHANGED",
+                            "CALL_OUTCOME_UNKNOWN",
+                            "CAPACITY_UNAVAILABLE",
+                            "INTERNAL"
+                          ]
+                        },
+                        "message": {
+                          "type": "string"
+                        },
+                        "details": {
+                          "type": "object",
+                          "additionalProperties": {}
+                        },
+                        "requestId": {
+                          "type": "string"
+                        }
+                      },
+                      "required": ["code", "message", "requestId"]
+                    }
+                  },
+                  "required": ["error"]
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "State or context changed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "object",
+                      "properties": {
+                        "code": {
+                          "type": "string",
+                          "enum": [
+                            "UNAUTHENTICATED",
+                            "FORBIDDEN",
+                            "NOT_FOUND",
+                            "VALIDATION_FAILED",
+                            "CONFLICT",
+                            "RATE_LIMITED",
+                            "QUOTA_EXCEEDED",
+                            "AI_BUDGET_EXHAUSTED",
+                            "AI_KEY_INVALID",
+                            "CONVERSATION_BANNED",
+                            "PAYLOAD_TOO_LARGE",
+                            "UNSUPPORTED_MEDIA_TYPE",
+                            "REQUEST_TIMEOUT",
+                            "INVALID_REQUEST_FRAMING",
+                            "AUTH_CHALLENGE_INVALID",
+                            "WINDOW_EXPIRED",
+                            "INVITE_INVALID",
+                            "IDEMPOTENCY_CONFLICT",
+                            "VERSION_CONFLICT",
+                            "RESOURCE_GONE",
+                            "CONTEXT_CHANGED",
+                            "CALL_OUTCOME_UNKNOWN",
+                            "CAPACITY_UNAVAILABLE",
+                            "INTERNAL"
+                          ]
+                        },
+                        "message": {
+                          "type": "string"
+                        },
+                        "details": {
+                          "type": "object",
+                          "additionalProperties": {}
+                        },
+                        "requestId": {
+                          "type": "string"
+                        }
+                      },
+                      "required": ["code", "message", "requestId"]
+                    }
+                  },
+                  "required": ["error"]
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Invalid request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "object",
+                      "properties": {
+                        "code": {
+                          "type": "string",
+                          "enum": [
+                            "UNAUTHENTICATED",
+                            "FORBIDDEN",
+                            "NOT_FOUND",
+                            "VALIDATION_FAILED",
+                            "CONFLICT",
+                            "RATE_LIMITED",
+                            "QUOTA_EXCEEDED",
+                            "AI_BUDGET_EXHAUSTED",
+                            "AI_KEY_INVALID",
+                            "CONVERSATION_BANNED",
+                            "PAYLOAD_TOO_LARGE",
+                            "UNSUPPORTED_MEDIA_TYPE",
+                            "REQUEST_TIMEOUT",
+                            "INVALID_REQUEST_FRAMING",
+                            "AUTH_CHALLENGE_INVALID",
+                            "WINDOW_EXPIRED",
+                            "INVITE_INVALID",
+                            "IDEMPOTENCY_CONFLICT",
+                            "VERSION_CONFLICT",
+                            "RESOURCE_GONE",
+                            "CONTEXT_CHANGED",
+                            "CALL_OUTCOME_UNKNOWN",
+                            "CAPACITY_UNAVAILABLE",
+                            "INTERNAL"
+                          ]
+                        },
+                        "message": {
+                          "type": "string"
+                        },
+                        "details": {
+                          "type": "object",
+                          "additionalProperties": {}
+                        },
+                        "requestId": {
+                          "type": "string"
+                        }
+                      },
+                      "required": ["code", "message", "requestId"]
+                    }
+                  },
+                  "required": ["error"]
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Rate limited (Retry-After says when to try again)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "object",
+                      "properties": {
+                        "code": {
+                          "type": "string",
+                          "enum": [
+                            "UNAUTHENTICATED",
+                            "FORBIDDEN",
+                            "NOT_FOUND",
+                            "VALIDATION_FAILED",
+                            "CONFLICT",
+                            "RATE_LIMITED",
+                            "QUOTA_EXCEEDED",
+                            "AI_BUDGET_EXHAUSTED",
+                            "AI_KEY_INVALID",
+                            "CONVERSATION_BANNED",
+                            "PAYLOAD_TOO_LARGE",
+                            "UNSUPPORTED_MEDIA_TYPE",
+                            "REQUEST_TIMEOUT",
+                            "INVALID_REQUEST_FRAMING",
+                            "AUTH_CHALLENGE_INVALID",
+                            "WINDOW_EXPIRED",
+                            "INVITE_INVALID",
+                            "IDEMPOTENCY_CONFLICT",
+                            "VERSION_CONFLICT",
+                            "RESOURCE_GONE",
+                            "CONTEXT_CHANGED",
+                            "CALL_OUTCOME_UNKNOWN",
+                            "CAPACITY_UNAVAILABLE",
+                            "INTERNAL"
+                          ]
+                        },
+                        "message": {
+                          "type": "string"
+                        },
+                        "details": {
+                          "type": "object",
+                          "additionalProperties": {}
+                        },
+                        "requestId": {
+                          "type": "string"
+                        }
+                      },
+                      "required": ["code", "message", "requestId"]
+                    }
+                  },
+                  "required": ["error"]
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Model budget or service unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "object",
+                      "properties": {
+                        "code": {
+                          "type": "string",
+                          "enum": [
+                            "UNAUTHENTICATED",
+                            "FORBIDDEN",
+                            "NOT_FOUND",
+                            "VALIDATION_FAILED",
+                            "CONFLICT",
+                            "RATE_LIMITED",
+                            "QUOTA_EXCEEDED",
+                            "AI_BUDGET_EXHAUSTED",
+                            "AI_KEY_INVALID",
+                            "CONVERSATION_BANNED",
+                            "PAYLOAD_TOO_LARGE",
+                            "UNSUPPORTED_MEDIA_TYPE",
+                            "REQUEST_TIMEOUT",
+                            "INVALID_REQUEST_FRAMING",
+                            "AUTH_CHALLENGE_INVALID",
+                            "WINDOW_EXPIRED",
+                            "INVITE_INVALID",
+                            "IDEMPOTENCY_CONFLICT",
+                            "VERSION_CONFLICT",
+                            "RESOURCE_GONE",
+                            "CONTEXT_CHANGED",
+                            "CALL_OUTCOME_UNKNOWN",
+                            "CAPACITY_UNAVAILABLE",
+                            "INTERNAL"
+                          ]
+                        },
+                        "message": {
+                          "type": "string"
+                        },
+                        "details": {
+                          "type": "object",
+                          "additionalProperties": {}
+                        },
+                        "requestId": {
+                          "type": "string"
+                        }
+                      },
+                      "required": ["code", "message", "requestId"]
+                    }
+                  },
+                  "required": ["error"]
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/agent/runs/{id}/cancel": {
+      "post": {
+        "tags": ["agent"],
+        "security": [
+          {
+            "cookieAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "required": true,
+            "name": "id",
+            "in": "path"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Durably cancelled",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "run": {
+                      "type": "object",
+                      "properties": {
+                        "id": {
+                          "type": "string",
+                          "format": "uuid"
+                        },
+                        "userId": {
+                          "type": "string",
+                          "format": "uuid"
+                        },
+                        "trigger": {
+                          "type": "string"
+                        },
+                        "conversationId": {
+                          "type": ["string", "null"],
+                          "format": "uuid"
+                        },
+                        "contextConversationId": {
+                          "type": ["string", "null"],
+                          "format": "uuid"
+                        },
+                        "sourceMessageId": {
+                          "type": ["string", "null"],
+                          "format": "uuid"
+                        },
+                        "outputMessageId": {
+                          "type": ["string", "null"],
+                          "format": "uuid"
+                        },
+                        "status": {
+                          "type": "string",
+                          "enum": [
+                            "queued",
+                            "running",
+                            "awaiting_approval",
+                            "completed",
+                            "failed",
+                            "cancelled"
+                          ]
+                        },
+                        "mode": {
+                          "type": "string",
+                          "enum": ["fast", "deep"]
+                        },
+                        "provider": {
+                          "type": "string"
+                        },
+                        "model": {
+                          "type": "string"
+                        },
+                        "actualModel": {
+                          "type": ["string", "null"]
+                        },
+                        "keySource": {
+                          "type": "string",
+                          "enum": ["site", "user"]
+                        },
+                        "readScope": {
+                          "type": "string",
+                          "enum": ["current_conversation", "all_accessible"]
+                        },
+                        "privacyClass": {
+                          "type": "string",
+                          "enum": ["standard", "byok_private"]
+                        },
+                        "contextEpoch": {
+                          "type": "string",
+                          "format": "uuid"
+                        },
+                        "stateVersion": {
+                          "type": "integer",
+                          "minimum": 0
+                        },
+                        "resumeSeq": {
+                          "type": "integer",
+                          "minimum": 0
+                        },
+                        "stepCount": {
+                          "type": "integer",
+                          "minimum": 0
+                        },
+                        "regeneratedFromRunId": {
+                          "type": ["string", "null"],
+                          "format": "uuid"
+                        },
+                        "usage": {
+                          "type": "object",
+                          "properties": {
+                            "inputTokens": {
+                              "type": "integer",
+                              "minimum": 0
+                            },
+                            "outputTokens": {
+                              "type": "integer",
+                              "minimum": 0
+                            },
+                            "cachedTokens": {
+                              "type": "integer",
+                              "minimum": 0
+                            },
+                            "costUsd": {
+                              "type": "string"
+                            }
+                          },
+                          "required": ["inputTokens", "outputTokens", "cachedTokens", "costUsd"]
+                        },
+                        "createdAt": {
+                          "type": "string",
+                          "format": "date-time"
+                        },
+                        "finishedAt": {
+                          "type": ["string", "null"],
+                          "format": "date-time"
+                        },
+                        "error": {
+                          "type": ["object", "null"],
+                          "properties": {
+                            "code": {
+                              "type": "string"
+                            },
+                            "message": {
+                              "type": "string"
+                            }
+                          },
+                          "required": ["code", "message"]
+                        }
+                      },
+                      "required": [
+                        "id",
+                        "userId",
+                        "trigger",
+                        "conversationId",
+                        "contextConversationId",
+                        "sourceMessageId",
+                        "outputMessageId",
+                        "status",
+                        "mode",
+                        "provider",
+                        "model",
+                        "actualModel",
+                        "keySource",
+                        "readScope",
+                        "privacyClass",
+                        "contextEpoch",
+                        "stateVersion",
+                        "resumeSeq",
+                        "stepCount",
+                        "regeneratedFromRunId",
+                        "usage",
+                        "createdAt",
+                        "finishedAt",
+                        "error"
+                      ]
+                    }
+                  },
+                  "required": ["run"]
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Not signed in",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "object",
+                      "properties": {
+                        "code": {
+                          "type": "string",
+                          "enum": [
+                            "UNAUTHENTICATED",
+                            "FORBIDDEN",
+                            "NOT_FOUND",
+                            "VALIDATION_FAILED",
+                            "CONFLICT",
+                            "RATE_LIMITED",
+                            "QUOTA_EXCEEDED",
+                            "AI_BUDGET_EXHAUSTED",
+                            "AI_KEY_INVALID",
+                            "CONVERSATION_BANNED",
+                            "PAYLOAD_TOO_LARGE",
+                            "UNSUPPORTED_MEDIA_TYPE",
+                            "REQUEST_TIMEOUT",
+                            "INVALID_REQUEST_FRAMING",
+                            "AUTH_CHALLENGE_INVALID",
+                            "WINDOW_EXPIRED",
+                            "INVITE_INVALID",
+                            "IDEMPOTENCY_CONFLICT",
+                            "VERSION_CONFLICT",
+                            "RESOURCE_GONE",
+                            "CONTEXT_CHANGED",
+                            "CALL_OUTCOME_UNKNOWN",
+                            "CAPACITY_UNAVAILABLE",
+                            "INTERNAL"
+                          ]
+                        },
+                        "message": {
+                          "type": "string"
+                        },
+                        "details": {
+                          "type": "object",
+                          "additionalProperties": {}
+                        },
+                        "requestId": {
+                          "type": "string"
+                        }
+                      },
+                      "required": ["code", "message", "requestId"]
+                    }
+                  },
+                  "required": ["error"]
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Visible, but not allowed (the reason is in details)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "object",
+                      "properties": {
+                        "code": {
+                          "type": "string",
+                          "enum": [
+                            "UNAUTHENTICATED",
+                            "FORBIDDEN",
+                            "NOT_FOUND",
+                            "VALIDATION_FAILED",
+                            "CONFLICT",
+                            "RATE_LIMITED",
+                            "QUOTA_EXCEEDED",
+                            "AI_BUDGET_EXHAUSTED",
+                            "AI_KEY_INVALID",
+                            "CONVERSATION_BANNED",
+                            "PAYLOAD_TOO_LARGE",
+                            "UNSUPPORTED_MEDIA_TYPE",
+                            "REQUEST_TIMEOUT",
+                            "INVALID_REQUEST_FRAMING",
+                            "AUTH_CHALLENGE_INVALID",
+                            "WINDOW_EXPIRED",
+                            "INVITE_INVALID",
+                            "IDEMPOTENCY_CONFLICT",
+                            "VERSION_CONFLICT",
+                            "RESOURCE_GONE",
+                            "CONTEXT_CHANGED",
+                            "CALL_OUTCOME_UNKNOWN",
+                            "CAPACITY_UNAVAILABLE",
+                            "INTERNAL"
+                          ]
+                        },
+                        "message": {
+                          "type": "string"
+                        },
+                        "details": {
+                          "type": "object",
+                          "additionalProperties": {}
+                        },
+                        "requestId": {
+                          "type": "string"
+                        }
+                      },
+                      "required": ["code", "message", "requestId"]
+                    }
+                  },
+                  "required": ["error"]
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found, or not visible to you",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "object",
+                      "properties": {
+                        "code": {
+                          "type": "string",
+                          "enum": [
+                            "UNAUTHENTICATED",
+                            "FORBIDDEN",
+                            "NOT_FOUND",
+                            "VALIDATION_FAILED",
+                            "CONFLICT",
+                            "RATE_LIMITED",
+                            "QUOTA_EXCEEDED",
+                            "AI_BUDGET_EXHAUSTED",
+                            "AI_KEY_INVALID",
+                            "CONVERSATION_BANNED",
+                            "PAYLOAD_TOO_LARGE",
+                            "UNSUPPORTED_MEDIA_TYPE",
+                            "REQUEST_TIMEOUT",
+                            "INVALID_REQUEST_FRAMING",
+                            "AUTH_CHALLENGE_INVALID",
+                            "WINDOW_EXPIRED",
+                            "INVITE_INVALID",
+                            "IDEMPOTENCY_CONFLICT",
+                            "VERSION_CONFLICT",
+                            "RESOURCE_GONE",
+                            "CONTEXT_CHANGED",
+                            "CALL_OUTCOME_UNKNOWN",
+                            "CAPACITY_UNAVAILABLE",
+                            "INTERNAL"
+                          ]
+                        },
+                        "message": {
+                          "type": "string"
+                        },
+                        "details": {
+                          "type": "object",
+                          "additionalProperties": {}
+                        },
+                        "requestId": {
+                          "type": "string"
+                        }
+                      },
+                      "required": ["code", "message", "requestId"]
+                    }
+                  },
+                  "required": ["error"]
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "State or context changed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "object",
+                      "properties": {
+                        "code": {
+                          "type": "string",
+                          "enum": [
+                            "UNAUTHENTICATED",
+                            "FORBIDDEN",
+                            "NOT_FOUND",
+                            "VALIDATION_FAILED",
+                            "CONFLICT",
+                            "RATE_LIMITED",
+                            "QUOTA_EXCEEDED",
+                            "AI_BUDGET_EXHAUSTED",
+                            "AI_KEY_INVALID",
+                            "CONVERSATION_BANNED",
+                            "PAYLOAD_TOO_LARGE",
+                            "UNSUPPORTED_MEDIA_TYPE",
+                            "REQUEST_TIMEOUT",
+                            "INVALID_REQUEST_FRAMING",
+                            "AUTH_CHALLENGE_INVALID",
+                            "WINDOW_EXPIRED",
+                            "INVITE_INVALID",
+                            "IDEMPOTENCY_CONFLICT",
+                            "VERSION_CONFLICT",
+                            "RESOURCE_GONE",
+                            "CONTEXT_CHANGED",
+                            "CALL_OUTCOME_UNKNOWN",
+                            "CAPACITY_UNAVAILABLE",
+                            "INTERNAL"
+                          ]
+                        },
+                        "message": {
+                          "type": "string"
+                        },
+                        "details": {
+                          "type": "object",
+                          "additionalProperties": {}
+                        },
+                        "requestId": {
+                          "type": "string"
+                        }
+                      },
+                      "required": ["code", "message", "requestId"]
+                    }
+                  },
+                  "required": ["error"]
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Invalid request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "object",
+                      "properties": {
+                        "code": {
+                          "type": "string",
+                          "enum": [
+                            "UNAUTHENTICATED",
+                            "FORBIDDEN",
+                            "NOT_FOUND",
+                            "VALIDATION_FAILED",
+                            "CONFLICT",
+                            "RATE_LIMITED",
+                            "QUOTA_EXCEEDED",
+                            "AI_BUDGET_EXHAUSTED",
+                            "AI_KEY_INVALID",
+                            "CONVERSATION_BANNED",
+                            "PAYLOAD_TOO_LARGE",
+                            "UNSUPPORTED_MEDIA_TYPE",
+                            "REQUEST_TIMEOUT",
+                            "INVALID_REQUEST_FRAMING",
+                            "AUTH_CHALLENGE_INVALID",
+                            "WINDOW_EXPIRED",
+                            "INVITE_INVALID",
+                            "IDEMPOTENCY_CONFLICT",
+                            "VERSION_CONFLICT",
+                            "RESOURCE_GONE",
+                            "CONTEXT_CHANGED",
+                            "CALL_OUTCOME_UNKNOWN",
+                            "CAPACITY_UNAVAILABLE",
+                            "INTERNAL"
+                          ]
+                        },
+                        "message": {
+                          "type": "string"
+                        },
+                        "details": {
+                          "type": "object",
+                          "additionalProperties": {}
+                        },
+                        "requestId": {
+                          "type": "string"
+                        }
+                      },
+                      "required": ["code", "message", "requestId"]
+                    }
+                  },
+                  "required": ["error"]
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Rate limited (Retry-After says when to try again)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "object",
+                      "properties": {
+                        "code": {
+                          "type": "string",
+                          "enum": [
+                            "UNAUTHENTICATED",
+                            "FORBIDDEN",
+                            "NOT_FOUND",
+                            "VALIDATION_FAILED",
+                            "CONFLICT",
+                            "RATE_LIMITED",
+                            "QUOTA_EXCEEDED",
+                            "AI_BUDGET_EXHAUSTED",
+                            "AI_KEY_INVALID",
+                            "CONVERSATION_BANNED",
+                            "PAYLOAD_TOO_LARGE",
+                            "UNSUPPORTED_MEDIA_TYPE",
+                            "REQUEST_TIMEOUT",
+                            "INVALID_REQUEST_FRAMING",
+                            "AUTH_CHALLENGE_INVALID",
+                            "WINDOW_EXPIRED",
+                            "INVITE_INVALID",
+                            "IDEMPOTENCY_CONFLICT",
+                            "VERSION_CONFLICT",
+                            "RESOURCE_GONE",
+                            "CONTEXT_CHANGED",
+                            "CALL_OUTCOME_UNKNOWN",
+                            "CAPACITY_UNAVAILABLE",
+                            "INTERNAL"
+                          ]
+                        },
+                        "message": {
+                          "type": "string"
+                        },
+                        "details": {
+                          "type": "object",
+                          "additionalProperties": {}
+                        },
+                        "requestId": {
+                          "type": "string"
+                        }
+                      },
+                      "required": ["code", "message", "requestId"]
+                    }
+                  },
+                  "required": ["error"]
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Model budget or service unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "object",
+                      "properties": {
+                        "code": {
+                          "type": "string",
+                          "enum": [
+                            "UNAUTHENTICATED",
+                            "FORBIDDEN",
+                            "NOT_FOUND",
+                            "VALIDATION_FAILED",
+                            "CONFLICT",
+                            "RATE_LIMITED",
+                            "QUOTA_EXCEEDED",
+                            "AI_BUDGET_EXHAUSTED",
+                            "AI_KEY_INVALID",
+                            "CONVERSATION_BANNED",
+                            "PAYLOAD_TOO_LARGE",
+                            "UNSUPPORTED_MEDIA_TYPE",
+                            "REQUEST_TIMEOUT",
+                            "INVALID_REQUEST_FRAMING",
+                            "AUTH_CHALLENGE_INVALID",
+                            "WINDOW_EXPIRED",
+                            "INVITE_INVALID",
+                            "IDEMPOTENCY_CONFLICT",
+                            "VERSION_CONFLICT",
+                            "RESOURCE_GONE",
+                            "CONTEXT_CHANGED",
+                            "CALL_OUTCOME_UNKNOWN",
+                            "CAPACITY_UNAVAILABLE",
+                            "INTERNAL"
+                          ]
+                        },
+                        "message": {
+                          "type": "string"
+                        },
+                        "details": {
+                          "type": "object",
+                          "additionalProperties": {}
+                        },
+                        "requestId": {
+                          "type": "string"
+                        }
+                      },
+                      "required": ["code", "message", "requestId"]
+                    }
+                  },
+                  "required": ["error"]
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/agent/runs/{id}/regenerate": {
+      "post": {
+        "tags": ["agent"],
+        "security": [
+          {
+            "cookieAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "required": true,
+            "name": "id",
+            "in": "path"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "New run bound to the original reply",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "run": {
+                      "type": "object",
+                      "properties": {
+                        "id": {
+                          "type": "string",
+                          "format": "uuid"
+                        },
+                        "userId": {
+                          "type": "string",
+                          "format": "uuid"
+                        },
+                        "trigger": {
+                          "type": "string"
+                        },
+                        "conversationId": {
+                          "type": ["string", "null"],
+                          "format": "uuid"
+                        },
+                        "contextConversationId": {
+                          "type": ["string", "null"],
+                          "format": "uuid"
+                        },
+                        "sourceMessageId": {
+                          "type": ["string", "null"],
+                          "format": "uuid"
+                        },
+                        "outputMessageId": {
+                          "type": ["string", "null"],
+                          "format": "uuid"
+                        },
+                        "status": {
+                          "type": "string",
+                          "enum": [
+                            "queued",
+                            "running",
+                            "awaiting_approval",
+                            "completed",
+                            "failed",
+                            "cancelled"
+                          ]
+                        },
+                        "mode": {
+                          "type": "string",
+                          "enum": ["fast", "deep"]
+                        },
+                        "provider": {
+                          "type": "string"
+                        },
+                        "model": {
+                          "type": "string"
+                        },
+                        "actualModel": {
+                          "type": ["string", "null"]
+                        },
+                        "keySource": {
+                          "type": "string",
+                          "enum": ["site", "user"]
+                        },
+                        "readScope": {
+                          "type": "string",
+                          "enum": ["current_conversation", "all_accessible"]
+                        },
+                        "privacyClass": {
+                          "type": "string",
+                          "enum": ["standard", "byok_private"]
+                        },
+                        "contextEpoch": {
+                          "type": "string",
+                          "format": "uuid"
+                        },
+                        "stateVersion": {
+                          "type": "integer",
+                          "minimum": 0
+                        },
+                        "resumeSeq": {
+                          "type": "integer",
+                          "minimum": 0
+                        },
+                        "stepCount": {
+                          "type": "integer",
+                          "minimum": 0
+                        },
+                        "regeneratedFromRunId": {
+                          "type": ["string", "null"],
+                          "format": "uuid"
+                        },
+                        "usage": {
+                          "type": "object",
+                          "properties": {
+                            "inputTokens": {
+                              "type": "integer",
+                              "minimum": 0
+                            },
+                            "outputTokens": {
+                              "type": "integer",
+                              "minimum": 0
+                            },
+                            "cachedTokens": {
+                              "type": "integer",
+                              "minimum": 0
+                            },
+                            "costUsd": {
+                              "type": "string"
+                            }
+                          },
+                          "required": ["inputTokens", "outputTokens", "cachedTokens", "costUsd"]
+                        },
+                        "createdAt": {
+                          "type": "string",
+                          "format": "date-time"
+                        },
+                        "finishedAt": {
+                          "type": ["string", "null"],
+                          "format": "date-time"
+                        },
+                        "error": {
+                          "type": ["object", "null"],
+                          "properties": {
+                            "code": {
+                              "type": "string"
+                            },
+                            "message": {
+                              "type": "string"
+                            }
+                          },
+                          "required": ["code", "message"]
+                        }
+                      },
+                      "required": [
+                        "id",
+                        "userId",
+                        "trigger",
+                        "conversationId",
+                        "contextConversationId",
+                        "sourceMessageId",
+                        "outputMessageId",
+                        "status",
+                        "mode",
+                        "provider",
+                        "model",
+                        "actualModel",
+                        "keySource",
+                        "readScope",
+                        "privacyClass",
+                        "contextEpoch",
+                        "stateVersion",
+                        "resumeSeq",
+                        "stepCount",
+                        "regeneratedFromRunId",
+                        "usage",
+                        "createdAt",
+                        "finishedAt",
+                        "error"
+                      ]
+                    }
+                  },
+                  "required": ["run"]
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Not signed in",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "object",
+                      "properties": {
+                        "code": {
+                          "type": "string",
+                          "enum": [
+                            "UNAUTHENTICATED",
+                            "FORBIDDEN",
+                            "NOT_FOUND",
+                            "VALIDATION_FAILED",
+                            "CONFLICT",
+                            "RATE_LIMITED",
+                            "QUOTA_EXCEEDED",
+                            "AI_BUDGET_EXHAUSTED",
+                            "AI_KEY_INVALID",
+                            "CONVERSATION_BANNED",
+                            "PAYLOAD_TOO_LARGE",
+                            "UNSUPPORTED_MEDIA_TYPE",
+                            "REQUEST_TIMEOUT",
+                            "INVALID_REQUEST_FRAMING",
+                            "AUTH_CHALLENGE_INVALID",
+                            "WINDOW_EXPIRED",
+                            "INVITE_INVALID",
+                            "IDEMPOTENCY_CONFLICT",
+                            "VERSION_CONFLICT",
+                            "RESOURCE_GONE",
+                            "CONTEXT_CHANGED",
+                            "CALL_OUTCOME_UNKNOWN",
+                            "CAPACITY_UNAVAILABLE",
+                            "INTERNAL"
+                          ]
+                        },
+                        "message": {
+                          "type": "string"
+                        },
+                        "details": {
+                          "type": "object",
+                          "additionalProperties": {}
+                        },
+                        "requestId": {
+                          "type": "string"
+                        }
+                      },
+                      "required": ["code", "message", "requestId"]
+                    }
+                  },
+                  "required": ["error"]
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Visible, but not allowed (the reason is in details)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "object",
+                      "properties": {
+                        "code": {
+                          "type": "string",
+                          "enum": [
+                            "UNAUTHENTICATED",
+                            "FORBIDDEN",
+                            "NOT_FOUND",
+                            "VALIDATION_FAILED",
+                            "CONFLICT",
+                            "RATE_LIMITED",
+                            "QUOTA_EXCEEDED",
+                            "AI_BUDGET_EXHAUSTED",
+                            "AI_KEY_INVALID",
+                            "CONVERSATION_BANNED",
+                            "PAYLOAD_TOO_LARGE",
+                            "UNSUPPORTED_MEDIA_TYPE",
+                            "REQUEST_TIMEOUT",
+                            "INVALID_REQUEST_FRAMING",
+                            "AUTH_CHALLENGE_INVALID",
+                            "WINDOW_EXPIRED",
+                            "INVITE_INVALID",
+                            "IDEMPOTENCY_CONFLICT",
+                            "VERSION_CONFLICT",
+                            "RESOURCE_GONE",
+                            "CONTEXT_CHANGED",
+                            "CALL_OUTCOME_UNKNOWN",
+                            "CAPACITY_UNAVAILABLE",
+                            "INTERNAL"
+                          ]
+                        },
+                        "message": {
+                          "type": "string"
+                        },
+                        "details": {
+                          "type": "object",
+                          "additionalProperties": {}
+                        },
+                        "requestId": {
+                          "type": "string"
+                        }
+                      },
+                      "required": ["code", "message", "requestId"]
+                    }
+                  },
+                  "required": ["error"]
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found, or not visible to you",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "object",
+                      "properties": {
+                        "code": {
+                          "type": "string",
+                          "enum": [
+                            "UNAUTHENTICATED",
+                            "FORBIDDEN",
+                            "NOT_FOUND",
+                            "VALIDATION_FAILED",
+                            "CONFLICT",
+                            "RATE_LIMITED",
+                            "QUOTA_EXCEEDED",
+                            "AI_BUDGET_EXHAUSTED",
+                            "AI_KEY_INVALID",
+                            "CONVERSATION_BANNED",
+                            "PAYLOAD_TOO_LARGE",
+                            "UNSUPPORTED_MEDIA_TYPE",
+                            "REQUEST_TIMEOUT",
+                            "INVALID_REQUEST_FRAMING",
+                            "AUTH_CHALLENGE_INVALID",
+                            "WINDOW_EXPIRED",
+                            "INVITE_INVALID",
+                            "IDEMPOTENCY_CONFLICT",
+                            "VERSION_CONFLICT",
+                            "RESOURCE_GONE",
+                            "CONTEXT_CHANGED",
+                            "CALL_OUTCOME_UNKNOWN",
+                            "CAPACITY_UNAVAILABLE",
+                            "INTERNAL"
+                          ]
+                        },
+                        "message": {
+                          "type": "string"
+                        },
+                        "details": {
+                          "type": "object",
+                          "additionalProperties": {}
+                        },
+                        "requestId": {
+                          "type": "string"
+                        }
+                      },
+                      "required": ["code", "message", "requestId"]
+                    }
+                  },
+                  "required": ["error"]
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "State or context changed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "object",
+                      "properties": {
+                        "code": {
+                          "type": "string",
+                          "enum": [
+                            "UNAUTHENTICATED",
+                            "FORBIDDEN",
+                            "NOT_FOUND",
+                            "VALIDATION_FAILED",
+                            "CONFLICT",
+                            "RATE_LIMITED",
+                            "QUOTA_EXCEEDED",
+                            "AI_BUDGET_EXHAUSTED",
+                            "AI_KEY_INVALID",
+                            "CONVERSATION_BANNED",
+                            "PAYLOAD_TOO_LARGE",
+                            "UNSUPPORTED_MEDIA_TYPE",
+                            "REQUEST_TIMEOUT",
+                            "INVALID_REQUEST_FRAMING",
+                            "AUTH_CHALLENGE_INVALID",
+                            "WINDOW_EXPIRED",
+                            "INVITE_INVALID",
+                            "IDEMPOTENCY_CONFLICT",
+                            "VERSION_CONFLICT",
+                            "RESOURCE_GONE",
+                            "CONTEXT_CHANGED",
+                            "CALL_OUTCOME_UNKNOWN",
+                            "CAPACITY_UNAVAILABLE",
+                            "INTERNAL"
+                          ]
+                        },
+                        "message": {
+                          "type": "string"
+                        },
+                        "details": {
+                          "type": "object",
+                          "additionalProperties": {}
+                        },
+                        "requestId": {
+                          "type": "string"
+                        }
+                      },
+                      "required": ["code", "message", "requestId"]
+                    }
+                  },
+                  "required": ["error"]
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Invalid request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "object",
+                      "properties": {
+                        "code": {
+                          "type": "string",
+                          "enum": [
+                            "UNAUTHENTICATED",
+                            "FORBIDDEN",
+                            "NOT_FOUND",
+                            "VALIDATION_FAILED",
+                            "CONFLICT",
+                            "RATE_LIMITED",
+                            "QUOTA_EXCEEDED",
+                            "AI_BUDGET_EXHAUSTED",
+                            "AI_KEY_INVALID",
+                            "CONVERSATION_BANNED",
+                            "PAYLOAD_TOO_LARGE",
+                            "UNSUPPORTED_MEDIA_TYPE",
+                            "REQUEST_TIMEOUT",
+                            "INVALID_REQUEST_FRAMING",
+                            "AUTH_CHALLENGE_INVALID",
+                            "WINDOW_EXPIRED",
+                            "INVITE_INVALID",
+                            "IDEMPOTENCY_CONFLICT",
+                            "VERSION_CONFLICT",
+                            "RESOURCE_GONE",
+                            "CONTEXT_CHANGED",
+                            "CALL_OUTCOME_UNKNOWN",
+                            "CAPACITY_UNAVAILABLE",
+                            "INTERNAL"
+                          ]
+                        },
+                        "message": {
+                          "type": "string"
+                        },
+                        "details": {
+                          "type": "object",
+                          "additionalProperties": {}
+                        },
+                        "requestId": {
+                          "type": "string"
+                        }
+                      },
+                      "required": ["code", "message", "requestId"]
+                    }
+                  },
+                  "required": ["error"]
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Rate limited (Retry-After says when to try again)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "object",
+                      "properties": {
+                        "code": {
+                          "type": "string",
+                          "enum": [
+                            "UNAUTHENTICATED",
+                            "FORBIDDEN",
+                            "NOT_FOUND",
+                            "VALIDATION_FAILED",
+                            "CONFLICT",
+                            "RATE_LIMITED",
+                            "QUOTA_EXCEEDED",
+                            "AI_BUDGET_EXHAUSTED",
+                            "AI_KEY_INVALID",
+                            "CONVERSATION_BANNED",
+                            "PAYLOAD_TOO_LARGE",
+                            "UNSUPPORTED_MEDIA_TYPE",
+                            "REQUEST_TIMEOUT",
+                            "INVALID_REQUEST_FRAMING",
+                            "AUTH_CHALLENGE_INVALID",
+                            "WINDOW_EXPIRED",
+                            "INVITE_INVALID",
+                            "IDEMPOTENCY_CONFLICT",
+                            "VERSION_CONFLICT",
+                            "RESOURCE_GONE",
+                            "CONTEXT_CHANGED",
+                            "CALL_OUTCOME_UNKNOWN",
+                            "CAPACITY_UNAVAILABLE",
+                            "INTERNAL"
+                          ]
+                        },
+                        "message": {
+                          "type": "string"
+                        },
+                        "details": {
+                          "type": "object",
+                          "additionalProperties": {}
+                        },
+                        "requestId": {
+                          "type": "string"
+                        }
+                      },
+                      "required": ["code", "message", "requestId"]
+                    }
+                  },
+                  "required": ["error"]
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Model budget or service unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "object",
+                      "properties": {
+                        "code": {
+                          "type": "string",
+                          "enum": [
+                            "UNAUTHENTICATED",
+                            "FORBIDDEN",
+                            "NOT_FOUND",
+                            "VALIDATION_FAILED",
+                            "CONFLICT",
+                            "RATE_LIMITED",
+                            "QUOTA_EXCEEDED",
+                            "AI_BUDGET_EXHAUSTED",
+                            "AI_KEY_INVALID",
+                            "CONVERSATION_BANNED",
+                            "PAYLOAD_TOO_LARGE",
+                            "UNSUPPORTED_MEDIA_TYPE",
+                            "REQUEST_TIMEOUT",
+                            "INVALID_REQUEST_FRAMING",
+                            "AUTH_CHALLENGE_INVALID",
+                            "WINDOW_EXPIRED",
+                            "INVITE_INVALID",
+                            "IDEMPOTENCY_CONFLICT",
+                            "VERSION_CONFLICT",
+                            "RESOURCE_GONE",
+                            "CONTEXT_CHANGED",
+                            "CALL_OUTCOME_UNKNOWN",
+                            "CAPACITY_UNAVAILABLE",
+                            "INTERNAL"
+                          ]
+                        },
+                        "message": {
+                          "type": "string"
+                        },
+                        "details": {
+                          "type": "object",
+                          "additionalProperties": {}
+                        },
+                        "requestId": {
+                          "type": "string"
+                        }
+                      },
+                      "required": ["code", "message", "requestId"]
+                    }
+                  },
+                  "required": ["error"]
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/agent/usage": {
+      "get": {
+        "tags": ["agent"],
+        "security": [
+          {
+            "cookieAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Own usage and shared remaining budget",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "provider": {
+                      "type": "string"
+                    },
+                    "day": {
+                      "type": "string"
+                    },
+                    "month": {
+                      "type": "string"
+                    },
+                    "daily": {
+                      "type": "object",
+                      "properties": {
+                        "limit": {
+                          "type": "integer",
+                          "minimum": 0
+                        },
+                        "settled": {
+                          "type": "integer",
+                          "minimum": 0
+                        },
+                        "reserved": {
+                          "type": "integer",
+                          "minimum": 0
+                        },
+                        "unknown": {
+                          "type": "integer",
+                          "minimum": 0
+                        },
+                        "available": {
+                          "type": "integer",
+                          "minimum": 0
+                        },
+                        "resetAt": {
+                          "type": "string",
+                          "format": "date-time"
+                        }
+                      },
+                      "required": [
+                        "limit",
+                        "settled",
+                        "reserved",
+                        "unknown",
+                        "available",
+                        "resetAt"
+                      ]
+                    },
+                    "monthly": {
+                      "type": "object",
+                      "properties": {
+                        "limitMicroUsd": {
+                          "type": "integer",
+                          "minimum": 0
+                        },
+                        "settledMicroUsd": {
+                          "type": "integer",
+                          "minimum": 0
+                        },
+                        "reservedMicroUsd": {
+                          "type": "integer",
+                          "minimum": 0
+                        },
+                        "unknownMicroUsd": {
+                          "type": "integer",
+                          "minimum": 0
+                        },
+                        "availableMicroUsd": {
+                          "type": "integer",
+                          "minimum": 0
+                        },
+                        "resetAt": {
+                          "type": "string",
+                          "format": "date-time"
+                        }
+                      },
+                      "required": [
+                        "limitMicroUsd",
+                        "settledMicroUsd",
+                        "reservedMicroUsd",
+                        "unknownMicroUsd",
+                        "availableMicroUsd",
+                        "resetAt"
+                      ]
+                    },
+                    "warning": {
+                      "type": "boolean"
+                    },
+                    "paused": {
+                      "type": "boolean"
+                    }
+                  },
+                  "required": ["provider", "day", "month", "daily", "monthly", "warning", "paused"]
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Not signed in",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "object",
+                      "properties": {
+                        "code": {
+                          "type": "string",
+                          "enum": [
+                            "UNAUTHENTICATED",
+                            "FORBIDDEN",
+                            "NOT_FOUND",
+                            "VALIDATION_FAILED",
+                            "CONFLICT",
+                            "RATE_LIMITED",
+                            "QUOTA_EXCEEDED",
+                            "AI_BUDGET_EXHAUSTED",
+                            "AI_KEY_INVALID",
+                            "CONVERSATION_BANNED",
+                            "PAYLOAD_TOO_LARGE",
+                            "UNSUPPORTED_MEDIA_TYPE",
+                            "REQUEST_TIMEOUT",
+                            "INVALID_REQUEST_FRAMING",
+                            "AUTH_CHALLENGE_INVALID",
+                            "WINDOW_EXPIRED",
+                            "INVITE_INVALID",
+                            "IDEMPOTENCY_CONFLICT",
+                            "VERSION_CONFLICT",
+                            "RESOURCE_GONE",
+                            "CONTEXT_CHANGED",
+                            "CALL_OUTCOME_UNKNOWN",
+                            "CAPACITY_UNAVAILABLE",
+                            "INTERNAL"
+                          ]
+                        },
+                        "message": {
+                          "type": "string"
+                        },
+                        "details": {
+                          "type": "object",
+                          "additionalProperties": {}
+                        },
+                        "requestId": {
+                          "type": "string"
+                        }
+                      },
+                      "required": ["code", "message", "requestId"]
+                    }
+                  },
+                  "required": ["error"]
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Visible, but not allowed (the reason is in details)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "object",
+                      "properties": {
+                        "code": {
+                          "type": "string",
+                          "enum": [
+                            "UNAUTHENTICATED",
+                            "FORBIDDEN",
+                            "NOT_FOUND",
+                            "VALIDATION_FAILED",
+                            "CONFLICT",
+                            "RATE_LIMITED",
+                            "QUOTA_EXCEEDED",
+                            "AI_BUDGET_EXHAUSTED",
+                            "AI_KEY_INVALID",
+                            "CONVERSATION_BANNED",
+                            "PAYLOAD_TOO_LARGE",
+                            "UNSUPPORTED_MEDIA_TYPE",
+                            "REQUEST_TIMEOUT",
+                            "INVALID_REQUEST_FRAMING",
+                            "AUTH_CHALLENGE_INVALID",
+                            "WINDOW_EXPIRED",
+                            "INVITE_INVALID",
+                            "IDEMPOTENCY_CONFLICT",
+                            "VERSION_CONFLICT",
+                            "RESOURCE_GONE",
+                            "CONTEXT_CHANGED",
+                            "CALL_OUTCOME_UNKNOWN",
+                            "CAPACITY_UNAVAILABLE",
+                            "INTERNAL"
+                          ]
+                        },
+                        "message": {
+                          "type": "string"
+                        },
+                        "details": {
+                          "type": "object",
+                          "additionalProperties": {}
+                        },
+                        "requestId": {
+                          "type": "string"
+                        }
+                      },
+                      "required": ["code", "message", "requestId"]
+                    }
+                  },
+                  "required": ["error"]
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found, or not visible to you",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "object",
+                      "properties": {
+                        "code": {
+                          "type": "string",
+                          "enum": [
+                            "UNAUTHENTICATED",
+                            "FORBIDDEN",
+                            "NOT_FOUND",
+                            "VALIDATION_FAILED",
+                            "CONFLICT",
+                            "RATE_LIMITED",
+                            "QUOTA_EXCEEDED",
+                            "AI_BUDGET_EXHAUSTED",
+                            "AI_KEY_INVALID",
+                            "CONVERSATION_BANNED",
+                            "PAYLOAD_TOO_LARGE",
+                            "UNSUPPORTED_MEDIA_TYPE",
+                            "REQUEST_TIMEOUT",
+                            "INVALID_REQUEST_FRAMING",
+                            "AUTH_CHALLENGE_INVALID",
+                            "WINDOW_EXPIRED",
+                            "INVITE_INVALID",
+                            "IDEMPOTENCY_CONFLICT",
+                            "VERSION_CONFLICT",
+                            "RESOURCE_GONE",
+                            "CONTEXT_CHANGED",
+                            "CALL_OUTCOME_UNKNOWN",
+                            "CAPACITY_UNAVAILABLE",
+                            "INTERNAL"
+                          ]
+                        },
+                        "message": {
+                          "type": "string"
+                        },
+                        "details": {
+                          "type": "object",
+                          "additionalProperties": {}
+                        },
+                        "requestId": {
+                          "type": "string"
+                        }
+                      },
+                      "required": ["code", "message", "requestId"]
+                    }
+                  },
+                  "required": ["error"]
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "State or context changed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "object",
+                      "properties": {
+                        "code": {
+                          "type": "string",
+                          "enum": [
+                            "UNAUTHENTICATED",
+                            "FORBIDDEN",
+                            "NOT_FOUND",
+                            "VALIDATION_FAILED",
+                            "CONFLICT",
+                            "RATE_LIMITED",
+                            "QUOTA_EXCEEDED",
+                            "AI_BUDGET_EXHAUSTED",
+                            "AI_KEY_INVALID",
+                            "CONVERSATION_BANNED",
+                            "PAYLOAD_TOO_LARGE",
+                            "UNSUPPORTED_MEDIA_TYPE",
+                            "REQUEST_TIMEOUT",
+                            "INVALID_REQUEST_FRAMING",
+                            "AUTH_CHALLENGE_INVALID",
+                            "WINDOW_EXPIRED",
+                            "INVITE_INVALID",
+                            "IDEMPOTENCY_CONFLICT",
+                            "VERSION_CONFLICT",
+                            "RESOURCE_GONE",
+                            "CONTEXT_CHANGED",
+                            "CALL_OUTCOME_UNKNOWN",
+                            "CAPACITY_UNAVAILABLE",
+                            "INTERNAL"
+                          ]
+                        },
+                        "message": {
+                          "type": "string"
+                        },
+                        "details": {
+                          "type": "object",
+                          "additionalProperties": {}
+                        },
+                        "requestId": {
+                          "type": "string"
+                        }
+                      },
+                      "required": ["code", "message", "requestId"]
+                    }
+                  },
+                  "required": ["error"]
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Invalid request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "object",
+                      "properties": {
+                        "code": {
+                          "type": "string",
+                          "enum": [
+                            "UNAUTHENTICATED",
+                            "FORBIDDEN",
+                            "NOT_FOUND",
+                            "VALIDATION_FAILED",
+                            "CONFLICT",
+                            "RATE_LIMITED",
+                            "QUOTA_EXCEEDED",
+                            "AI_BUDGET_EXHAUSTED",
+                            "AI_KEY_INVALID",
+                            "CONVERSATION_BANNED",
+                            "PAYLOAD_TOO_LARGE",
+                            "UNSUPPORTED_MEDIA_TYPE",
+                            "REQUEST_TIMEOUT",
+                            "INVALID_REQUEST_FRAMING",
+                            "AUTH_CHALLENGE_INVALID",
+                            "WINDOW_EXPIRED",
+                            "INVITE_INVALID",
+                            "IDEMPOTENCY_CONFLICT",
+                            "VERSION_CONFLICT",
+                            "RESOURCE_GONE",
+                            "CONTEXT_CHANGED",
+                            "CALL_OUTCOME_UNKNOWN",
+                            "CAPACITY_UNAVAILABLE",
+                            "INTERNAL"
+                          ]
+                        },
+                        "message": {
+                          "type": "string"
+                        },
+                        "details": {
+                          "type": "object",
+                          "additionalProperties": {}
+                        },
+                        "requestId": {
+                          "type": "string"
+                        }
+                      },
+                      "required": ["code", "message", "requestId"]
+                    }
+                  },
+                  "required": ["error"]
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Rate limited (Retry-After says when to try again)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "object",
+                      "properties": {
+                        "code": {
+                          "type": "string",
+                          "enum": [
+                            "UNAUTHENTICATED",
+                            "FORBIDDEN",
+                            "NOT_FOUND",
+                            "VALIDATION_FAILED",
+                            "CONFLICT",
+                            "RATE_LIMITED",
+                            "QUOTA_EXCEEDED",
+                            "AI_BUDGET_EXHAUSTED",
+                            "AI_KEY_INVALID",
+                            "CONVERSATION_BANNED",
+                            "PAYLOAD_TOO_LARGE",
+                            "UNSUPPORTED_MEDIA_TYPE",
+                            "REQUEST_TIMEOUT",
+                            "INVALID_REQUEST_FRAMING",
+                            "AUTH_CHALLENGE_INVALID",
+                            "WINDOW_EXPIRED",
+                            "INVITE_INVALID",
+                            "IDEMPOTENCY_CONFLICT",
+                            "VERSION_CONFLICT",
+                            "RESOURCE_GONE",
+                            "CONTEXT_CHANGED",
+                            "CALL_OUTCOME_UNKNOWN",
+                            "CAPACITY_UNAVAILABLE",
+                            "INTERNAL"
+                          ]
+                        },
+                        "message": {
+                          "type": "string"
+                        },
+                        "details": {
+                          "type": "object",
+                          "additionalProperties": {}
+                        },
+                        "requestId": {
+                          "type": "string"
+                        }
+                      },
+                      "required": ["code", "message", "requestId"]
+                    }
+                  },
+                  "required": ["error"]
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Model budget or service unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "object",
+                      "properties": {
+                        "code": {
+                          "type": "string",
+                          "enum": [
+                            "UNAUTHENTICATED",
+                            "FORBIDDEN",
+                            "NOT_FOUND",
+                            "VALIDATION_FAILED",
+                            "CONFLICT",
+                            "RATE_LIMITED",
+                            "QUOTA_EXCEEDED",
+                            "AI_BUDGET_EXHAUSTED",
+                            "AI_KEY_INVALID",
+                            "CONVERSATION_BANNED",
+                            "PAYLOAD_TOO_LARGE",
+                            "UNSUPPORTED_MEDIA_TYPE",
+                            "REQUEST_TIMEOUT",
+                            "INVALID_REQUEST_FRAMING",
+                            "AUTH_CHALLENGE_INVALID",
+                            "WINDOW_EXPIRED",
+                            "INVITE_INVALID",
+                            "IDEMPOTENCY_CONFLICT",
+                            "VERSION_CONFLICT",
+                            "RESOURCE_GONE",
+                            "CONTEXT_CHANGED",
+                            "CALL_OUTCOME_UNKNOWN",
+                            "CAPACITY_UNAVAILABLE",
+                            "INTERNAL"
+                          ]
+                        },
+                        "message": {
+                          "type": "string"
+                        },
+                        "details": {
+                          "type": "object",
+                          "additionalProperties": {}
+                        },
+                        "requestId": {
+                          "type": "string"
+                        }
+                      },
+                      "required": ["code", "message", "requestId"]
+                    }
+                  },
+                  "required": ["error"]
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/search/messages": {
+      "get": {
+        "tags": ["search"],
+        "security": [
+          {
+            "cookieAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 200
+            },
+            "required": true,
+            "name": "query",
+            "in": "query"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "required": false,
+            "name": "conversationId",
+            "in": "query"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "maxLength": 4096
+            },
+            "required": false,
+            "name": "cursor",
+            "in": "query"
+          },
+          {
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 50,
+              "default": 20
+            },
+            "required": false,
+            "name": "limit",
+            "in": "query"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Authorized keyword hits",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "messages": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "id": {
+                            "type": "string",
+                            "format": "uuid"
+                          },
+                          "conversationId": {
+                            "type": "string",
+                            "format": "uuid"
+                          },
+                          "seq": {
+                            "type": "integer",
+                            "minimum": 0
+                          },
+                          "changeSeq": {
+                            "type": "integer",
+                            "minimum": 0
+                          },
+                          "kind": {
+                            "type": "string",
+                            "enum": ["user", "system", "agent"]
+                          },
+                          "status": {
+                            "type": "string",
+                            "enum": ["sent", "streaming", "failed"]
+                          },
+                          "senderId": {
+                            "type": ["string", "null"],
+                            "format": "uuid"
+                          },
+                          "body": {
+                            "type": ["string", "null"]
+                          },
+                          "replyTo": {
+                            "anyOf": [
+                              {
+                                "type": "object",
+                                "properties": {
+                                  "state": {
+                                    "type": "string",
+                                    "enum": ["unavailable"]
+                                  }
+                                },
+                                "required": ["state"]
+                              },
+                              {
+                                "type": "object",
+                                "properties": {
+                                  "id": {
+                                    "type": "string",
+                                    "format": "uuid"
+                                  },
+                                  "seq": {
+                                    "type": "integer",
+                                    "minimum": 0
+                                  },
+                                  "senderId": {
+                                    "type": ["string", "null"],
+                                    "format": "uuid"
+                                  },
+                                  "excerpt": {
+                                    "type": ["string", "null"]
+                                  },
+                                  "attachmentKind": {
+                                    "type": ["string", "null"],
+                                    "enum": ["image", "video", "audio", "file", null]
+                                  },
+                                  "state": {
+                                    "type": "string",
+                                    "enum": ["ok", "recalled", "deleted"]
+                                  }
+                                },
+                                "required": ["id", "seq", "senderId", "excerpt", "state"]
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ]
+                          },
+                          "attachments": {
+                            "type": "array",
+                            "items": {
+                              "type": "object",
+                              "properties": {
+                                "id": {
+                                  "type": "string",
+                                  "format": "uuid"
+                                },
+                                "version": {
+                                  "type": "integer",
+                                  "minimum": 0
+                                },
+                                "generation": {
+                                  "type": "integer",
+                                  "minimum": 0
+                                },
+                                "kind": {
+                                  "type": "string",
+                                  "enum": ["image", "video", "audio", "file"]
+                                },
+                                "mime": {
+                                  "type": "string"
+                                },
+                                "name": {
+                                  "type": "string"
+                                },
+                                "sizeBytes": {
+                                  "type": "integer",
+                                  "minimum": 0
+                                },
+                                "width": {
+                                  "type": ["integer", "null"],
+                                  "minimum": 0
+                                },
+                                "height": {
+                                  "type": ["integer", "null"],
+                                  "minimum": 0
+                                },
+                                "durationMs": {
+                                  "type": ["integer", "null"],
+                                  "minimum": 0
+                                },
+                                "metadataCleared": {
+                                  "type": ["boolean", "null"]
+                                },
+                                "thumbhash": {
+                                  "type": ["string", "null"]
+                                },
+                                "status": {
+                                  "type": "string",
+                                  "enum": ["processing", "ready", "failed"]
+                                },
+                                "urls": {
+                                  "type": "object",
+                                  "properties": {
+                                    "original": {
+                                      "type": "string"
+                                    },
+                                    "thumb": {
+                                      "type": ["string", "null"]
+                                    },
+                                    "preview": {
+                                      "type": ["string", "null"]
+                                    }
+                                  },
+                                  "required": ["original", "thumb", "preview"]
+                                }
+                              },
+                              "required": [
+                                "id",
+                                "version",
+                                "generation",
+                                "kind",
+                                "mime",
+                                "name",
+                                "sizeBytes",
+                                "width",
+                                "height",
+                                "durationMs",
+                                "thumbhash",
+                                "status",
+                                "urls"
+                              ]
+                            }
+                          },
+                          "mentions": {
+                            "type": "array",
+                            "items": {
+                              "type": "string",
+                              "format": "uuid"
+                            }
+                          },
+                          "streamRevision": {
+                            "type": "integer",
+                            "minimum": 0
+                          },
+                          "editedAt": {
+                            "type": ["string", "null"],
+                            "format": "date-time"
+                          },
+                          "recalledAt": {
+                            "type": ["string", "null"],
+                            "format": "date-time"
+                          },
+                          "deletedAt": {
+                            "type": ["string", "null"],
+                            "format": "date-time"
+                          },
+                          "createdAt": {
+                            "type": "string",
+                            "format": "date-time"
+                          },
+                          "meta": {
+                            "type": "object",
+                            "properties": {
+                              "system": {
+                                "oneOf": [
+                                  {
+                                    "type": "object",
+                                    "properties": {
+                                      "type": {
+                                        "type": "string",
+                                        "enum": ["member_joined"]
+                                      },
+                                      "userId": {
+                                        "type": "string",
+                                        "format": "uuid"
+                                      },
+                                      "addedBy": {
+                                        "type": ["string", "null"],
+                                        "format": "uuid"
+                                      }
+                                    },
+                                    "required": ["type", "userId", "addedBy"]
+                                  },
+                                  {
+                                    "type": "object",
+                                    "properties": {
+                                      "type": {
+                                        "type": "string",
+                                        "enum": ["member_left"]
+                                      },
+                                      "userId": {
+                                        "type": "string",
+                                        "format": "uuid"
+                                      }
+                                    },
+                                    "required": ["type", "userId"]
+                                  },
+                                  {
+                                    "type": "object",
+                                    "properties": {
+                                      "type": {
+                                        "type": "string",
+                                        "enum": ["member_removed"]
+                                      },
+                                      "userId": {
+                                        "type": "string",
+                                        "format": "uuid"
+                                      },
+                                      "actorId": {
+                                        "type": "string",
+                                        "format": "uuid"
+                                      },
+                                      "banned": {
+                                        "type": "boolean"
+                                      }
+                                    },
+                                    "required": ["type", "userId", "actorId", "banned"]
+                                  },
+                                  {
+                                    "type": "object",
+                                    "properties": {
+                                      "type": {
+                                        "type": "string",
+                                        "enum": ["conversation_renamed"]
+                                      },
+                                      "actorId": {
+                                        "type": "string",
+                                        "format": "uuid"
+                                      },
+                                      "from": {
+                                        "type": "string"
+                                      },
+                                      "to": {
+                                        "type": "string"
+                                      }
+                                    },
+                                    "required": ["type", "actorId", "from", "to"]
+                                  },
+                                  {
+                                    "type": "object",
+                                    "properties": {
+                                      "type": {
+                                        "type": "string",
+                                        "enum": ["owner_transferred"]
+                                      },
+                                      "actorId": {
+                                        "type": "string",
+                                        "format": "uuid"
+                                      },
+                                      "userId": {
+                                        "type": "string",
+                                        "format": "uuid"
+                                      }
+                                    },
+                                    "required": ["type", "actorId", "userId"]
+                                  }
+                                ]
+                              },
+                              "agent": {
+                                "type": "object",
+                                "properties": {
+                                  "runId": {
+                                    "type": "string",
+                                    "format": "uuid"
+                                  },
+                                  "mode": {
+                                    "type": "string"
+                                  },
+                                  "keySource": {
+                                    "type": "string",
+                                    "enum": ["site", "user"]
+                                  },
+                                  "streamIndex": {
+                                    "type": "integer",
+                                    "minimum": 0
+                                  },
+                                  "resumeSeq": {
+                                    "type": "integer",
+                                    "minimum": 0
+                                  },
+                                  "contextEpoch": {
+                                    "type": "string",
+                                    "format": "uuid"
+                                  },
+                                  "truncated": {
+                                    "type": "boolean"
+                                  }
+                                },
+                                "required": ["runId", "mode", "keySource"]
+                              },
+                              "viaAgent": {
+                                "type": "object",
+                                "properties": {
+                                  "runId": {
+                                    "type": "string",
+                                    "format": "uuid"
+                                  }
+                                },
+                                "required": ["runId"]
+                              }
+                            }
+                          }
+                        },
+                        "required": [
+                          "id",
+                          "conversationId",
+                          "seq",
+                          "changeSeq",
+                          "kind",
+                          "status",
+                          "senderId",
+                          "body",
+                          "replyTo",
+                          "attachments",
+                          "mentions",
+                          "streamRevision",
+                          "editedAt",
+                          "recalledAt",
+                          "deletedAt",
+                          "createdAt",
+                          "meta"
+                        ]
+                      }
+                    },
+                    "users": {
+                      "type": "object",
+                      "additionalProperties": {
+                        "type": "object",
+                        "properties": {
+                          "id": {
+                            "type": "string",
+                            "format": "uuid"
+                          },
+                          "profileVersion": {
+                            "type": "integer"
+                          },
+                          "username": {
+                            "type": "string"
+                          },
+                          "displayName": {
+                            "type": "string"
+                          },
+                          "avatarUrl": {
+                            "type": ["string", "null"]
+                          },
+                          "isBot": {
+                            "type": "boolean"
+                          },
+                          "deleted": {
+                            "type": "boolean"
+                          }
+                        },
+                        "required": [
+                          "id",
+                          "profileVersion",
+                          "username",
+                          "displayName",
+                          "avatarUrl",
+                          "isBot",
+                          "deleted"
+                        ]
+                      }
+                    },
+                    "nextCursor": {
+                      "type": ["string", "null"]
+                    }
+                  },
+                  "required": ["messages", "users", "nextCursor"]
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Not signed in",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "object",
+                      "properties": {
+                        "code": {
+                          "type": "string",
+                          "enum": [
+                            "UNAUTHENTICATED",
+                            "FORBIDDEN",
+                            "NOT_FOUND",
+                            "VALIDATION_FAILED",
+                            "CONFLICT",
+                            "RATE_LIMITED",
+                            "QUOTA_EXCEEDED",
+                            "AI_BUDGET_EXHAUSTED",
+                            "AI_KEY_INVALID",
+                            "CONVERSATION_BANNED",
+                            "PAYLOAD_TOO_LARGE",
+                            "UNSUPPORTED_MEDIA_TYPE",
+                            "REQUEST_TIMEOUT",
+                            "INVALID_REQUEST_FRAMING",
+                            "AUTH_CHALLENGE_INVALID",
+                            "WINDOW_EXPIRED",
+                            "INVITE_INVALID",
+                            "IDEMPOTENCY_CONFLICT",
+                            "VERSION_CONFLICT",
+                            "RESOURCE_GONE",
+                            "CONTEXT_CHANGED",
+                            "CALL_OUTCOME_UNKNOWN",
+                            "CAPACITY_UNAVAILABLE",
+                            "INTERNAL"
+                          ]
+                        },
+                        "message": {
+                          "type": "string"
+                        },
+                        "details": {
+                          "type": "object",
+                          "additionalProperties": {}
+                        },
+                        "requestId": {
+                          "type": "string"
+                        }
+                      },
+                      "required": ["code", "message", "requestId"]
+                    }
+                  },
+                  "required": ["error"]
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Visible, but not allowed (the reason is in details)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "object",
+                      "properties": {
+                        "code": {
+                          "type": "string",
+                          "enum": [
+                            "UNAUTHENTICATED",
+                            "FORBIDDEN",
+                            "NOT_FOUND",
+                            "VALIDATION_FAILED",
+                            "CONFLICT",
+                            "RATE_LIMITED",
+                            "QUOTA_EXCEEDED",
+                            "AI_BUDGET_EXHAUSTED",
+                            "AI_KEY_INVALID",
+                            "CONVERSATION_BANNED",
+                            "PAYLOAD_TOO_LARGE",
+                            "UNSUPPORTED_MEDIA_TYPE",
+                            "REQUEST_TIMEOUT",
+                            "INVALID_REQUEST_FRAMING",
+                            "AUTH_CHALLENGE_INVALID",
+                            "WINDOW_EXPIRED",
+                            "INVITE_INVALID",
+                            "IDEMPOTENCY_CONFLICT",
+                            "VERSION_CONFLICT",
+                            "RESOURCE_GONE",
+                            "CONTEXT_CHANGED",
+                            "CALL_OUTCOME_UNKNOWN",
+                            "CAPACITY_UNAVAILABLE",
+                            "INTERNAL"
+                          ]
+                        },
+                        "message": {
+                          "type": "string"
+                        },
+                        "details": {
+                          "type": "object",
+                          "additionalProperties": {}
+                        },
+                        "requestId": {
+                          "type": "string"
+                        }
+                      },
+                      "required": ["code", "message", "requestId"]
+                    }
+                  },
+                  "required": ["error"]
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found, or not visible to you",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "object",
+                      "properties": {
+                        "code": {
+                          "type": "string",
+                          "enum": [
+                            "UNAUTHENTICATED",
+                            "FORBIDDEN",
+                            "NOT_FOUND",
+                            "VALIDATION_FAILED",
+                            "CONFLICT",
+                            "RATE_LIMITED",
+                            "QUOTA_EXCEEDED",
+                            "AI_BUDGET_EXHAUSTED",
+                            "AI_KEY_INVALID",
+                            "CONVERSATION_BANNED",
+                            "PAYLOAD_TOO_LARGE",
+                            "UNSUPPORTED_MEDIA_TYPE",
+                            "REQUEST_TIMEOUT",
+                            "INVALID_REQUEST_FRAMING",
+                            "AUTH_CHALLENGE_INVALID",
+                            "WINDOW_EXPIRED",
+                            "INVITE_INVALID",
+                            "IDEMPOTENCY_CONFLICT",
+                            "VERSION_CONFLICT",
+                            "RESOURCE_GONE",
+                            "CONTEXT_CHANGED",
+                            "CALL_OUTCOME_UNKNOWN",
+                            "CAPACITY_UNAVAILABLE",
+                            "INTERNAL"
+                          ]
+                        },
+                        "message": {
+                          "type": "string"
+                        },
+                        "details": {
+                          "type": "object",
+                          "additionalProperties": {}
+                        },
+                        "requestId": {
+                          "type": "string"
+                        }
+                      },
+                      "required": ["code", "message", "requestId"]
+                    }
+                  },
+                  "required": ["error"]
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "State or context changed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "object",
+                      "properties": {
+                        "code": {
+                          "type": "string",
+                          "enum": [
+                            "UNAUTHENTICATED",
+                            "FORBIDDEN",
+                            "NOT_FOUND",
+                            "VALIDATION_FAILED",
+                            "CONFLICT",
+                            "RATE_LIMITED",
+                            "QUOTA_EXCEEDED",
+                            "AI_BUDGET_EXHAUSTED",
+                            "AI_KEY_INVALID",
+                            "CONVERSATION_BANNED",
+                            "PAYLOAD_TOO_LARGE",
+                            "UNSUPPORTED_MEDIA_TYPE",
+                            "REQUEST_TIMEOUT",
+                            "INVALID_REQUEST_FRAMING",
+                            "AUTH_CHALLENGE_INVALID",
+                            "WINDOW_EXPIRED",
+                            "INVITE_INVALID",
+                            "IDEMPOTENCY_CONFLICT",
+                            "VERSION_CONFLICT",
+                            "RESOURCE_GONE",
+                            "CONTEXT_CHANGED",
+                            "CALL_OUTCOME_UNKNOWN",
+                            "CAPACITY_UNAVAILABLE",
+                            "INTERNAL"
+                          ]
+                        },
+                        "message": {
+                          "type": "string"
+                        },
+                        "details": {
+                          "type": "object",
+                          "additionalProperties": {}
+                        },
+                        "requestId": {
+                          "type": "string"
+                        }
+                      },
+                      "required": ["code", "message", "requestId"]
+                    }
+                  },
+                  "required": ["error"]
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Invalid request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "object",
+                      "properties": {
+                        "code": {
+                          "type": "string",
+                          "enum": [
+                            "UNAUTHENTICATED",
+                            "FORBIDDEN",
+                            "NOT_FOUND",
+                            "VALIDATION_FAILED",
+                            "CONFLICT",
+                            "RATE_LIMITED",
+                            "QUOTA_EXCEEDED",
+                            "AI_BUDGET_EXHAUSTED",
+                            "AI_KEY_INVALID",
+                            "CONVERSATION_BANNED",
+                            "PAYLOAD_TOO_LARGE",
+                            "UNSUPPORTED_MEDIA_TYPE",
+                            "REQUEST_TIMEOUT",
+                            "INVALID_REQUEST_FRAMING",
+                            "AUTH_CHALLENGE_INVALID",
+                            "WINDOW_EXPIRED",
+                            "INVITE_INVALID",
+                            "IDEMPOTENCY_CONFLICT",
+                            "VERSION_CONFLICT",
+                            "RESOURCE_GONE",
+                            "CONTEXT_CHANGED",
+                            "CALL_OUTCOME_UNKNOWN",
+                            "CAPACITY_UNAVAILABLE",
+                            "INTERNAL"
+                          ]
+                        },
+                        "message": {
+                          "type": "string"
+                        },
+                        "details": {
+                          "type": "object",
+                          "additionalProperties": {}
+                        },
+                        "requestId": {
+                          "type": "string"
+                        }
+                      },
+                      "required": ["code", "message", "requestId"]
+                    }
+                  },
+                  "required": ["error"]
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Rate limited (Retry-After says when to try again)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "object",
+                      "properties": {
+                        "code": {
+                          "type": "string",
+                          "enum": [
+                            "UNAUTHENTICATED",
+                            "FORBIDDEN",
+                            "NOT_FOUND",
+                            "VALIDATION_FAILED",
+                            "CONFLICT",
+                            "RATE_LIMITED",
+                            "QUOTA_EXCEEDED",
+                            "AI_BUDGET_EXHAUSTED",
+                            "AI_KEY_INVALID",
+                            "CONVERSATION_BANNED",
+                            "PAYLOAD_TOO_LARGE",
+                            "UNSUPPORTED_MEDIA_TYPE",
+                            "REQUEST_TIMEOUT",
+                            "INVALID_REQUEST_FRAMING",
+                            "AUTH_CHALLENGE_INVALID",
+                            "WINDOW_EXPIRED",
+                            "INVITE_INVALID",
+                            "IDEMPOTENCY_CONFLICT",
+                            "VERSION_CONFLICT",
+                            "RESOURCE_GONE",
+                            "CONTEXT_CHANGED",
+                            "CALL_OUTCOME_UNKNOWN",
+                            "CAPACITY_UNAVAILABLE",
+                            "INTERNAL"
+                          ]
+                        },
+                        "message": {
+                          "type": "string"
+                        },
+                        "details": {
+                          "type": "object",
+                          "additionalProperties": {}
+                        },
+                        "requestId": {
+                          "type": "string"
+                        }
+                      },
+                      "required": ["code", "message", "requestId"]
+                    }
+                  },
+                  "required": ["error"]
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Model budget or service unavailable",
             "content": {
               "application/json": {
                 "schema": {

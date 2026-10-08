@@ -7,11 +7,14 @@
     "typecheck": "tsc -p tsconfig.json"
   },
   "dependencies": {
+    "@ai-sdk/deepseek": "3.0.61",
+    "@ai-sdk/openai-compatible": "3.0.65",
     "@better-auth/passkey": "1.7.7",
     "@chatapp/contracts": "workspace:*",
     "@chatapp/db": "workspace:*",
     "@hono/zod-openapi": "1.6.3",
     "@scalar/hono-api-reference": "0.12.8",
+    "ai": "7.0.130",
     "better-auth": "1.7.7",
     "bullmq": "6.3.11",
     "drizzle-orm": "0.45.3",

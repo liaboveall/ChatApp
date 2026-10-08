@@ -27,6 +27,7 @@ import { useSyncUi } from '@/lib/sync/state.ts'
 import { showToast } from '@/lib/toast.ts'
 import { useTime } from '@/lib/use-time.ts'
 import { m } from '@/paraglide/messages.js'
+import { AgentChatControls } from '../agent/controls.tsx'
 import { joinConversation } from './api.ts'
 import { joinErrorText } from './join-error.ts'
 import { presenceText } from './presence-text.ts'
@@ -195,15 +196,23 @@ export function ConversationScreen({ id, meId }: { id: string; meId: string }) {
         meId={meId}
         handleRef={timeline}
       />
-      <div>
+      <div className="composer-stack">
+        {conversation.kind === 'agent' ? (
+          <AgentChatControls conversation={conversation} showDisclosure={false} />
+        ) : null}
         <TypingIndicator conversationId={id} />
         <Composer conversation={conversation} timeline={timeline} />
+        {conversation.kind === 'agent' ||
+        (['group', 'channel'].includes(conversation.kind) &&
+          conversation.settings.agentEnabled !== false) ? (
+          <p className="agent-disclosure">{m.agent_disclosure()}</p>
+        ) : null}
       </div>
     </ConvoFrame>
   )
 }
 
-/** The frame: the list fills it, the composer floats at the bottom, and the list learns how tall the composer is. */
+/** The list fills the space above the dock; floating timeline controls also use the measured dock height. */
 function ConvoFrame({ children }: { children: React.ReactNode[] }) {
   const frame = useRef<HTMLDivElement>(null)
   const dock = useRef<HTMLDivElement>(null)

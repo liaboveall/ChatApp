@@ -30,6 +30,7 @@ import { useSyncUi } from '@/lib/sync/state.ts'
 import type { TimelineWindow, UsersByid } from '@/lib/sync/types.ts'
 import { useTime } from '@/lib/use-time.ts'
 import { m } from '@/paraglide/messages.js'
+import { useAgent } from '../agent/store.ts'
 import { deleteAsModerator, hideMessage } from '../message-actions/actions.ts'
 import { actionsFor } from '../message-actions/eligibility.ts'
 import { type MenuTarget, MessageMenu } from '../message-actions/message-menu.tsx'
@@ -441,6 +442,23 @@ export function Timeline({ conversation, window: win, users, meId, handleRef }: 
       pendingJump.current = messageId
     }
   }
+
+  const searchJump = useAgent((s) => s.jumps[id])
+  // biome-ignore lint/correctness/useExhaustiveDependencies: consume one explicit search request; jumpTo uses the current render's list.
+  useEffect(() => {
+    if (searchJump === undefined) return
+    const ticket = engine.ticket(id)
+    useAgent.setState((s) => ({
+      jumps: Object.fromEntries(
+        Object.entries(s.jumps).filter(([key, seq]) => key !== id || seq !== searchJump),
+      ),
+    }))
+    void engine.jumpTo(id, searchJump).then(() => {
+      if (!engine.isCurrent(ticket)) return
+      const target = engine.windowOf(id)?.messages.find((msg) => msg.seq === searchJump)
+      if (target) void jumpTo(searchJump, target.id)
+    })
+  }, [id, searchJump])
 
   // Where each message stands among the ones that are loaded; the total is unknown while either end is not reached.
   const positions = useMemo(

@@ -1,4 +1,4 @@
-import type { Message, ReplyTo, UserSummary } from '@chatapp/contracts'
+import { assistantText, type Message, type ReplyTo, type UserSummary } from '@chatapp/contracts'
 import { AlertCircle, CornerUpLeft, Ellipsis, History } from 'lucide-react'
 import { LinkTabIndex } from '@/components/markdown/link-context.ts'
 import { MentionContext } from '@/components/markdown/mention-context.ts'
@@ -11,6 +11,7 @@ import { messageText } from '@/lib/message-text.ts'
 import type { PendingMessage } from '@/lib/sync/outbox.ts'
 import { dateTime, exactTime, separatorLabel } from '@/lib/time-format.ts'
 import { m } from '@/paraglide/messages.js'
+import { AgentRunCard } from '../agent/run-card.tsx'
 import { Attachments } from '../attachments/gallery.tsx'
 import { hasAny, type MessageActions } from '../message-actions/eligibility.ts'
 import type { MessageItem, PendingItem, StartItem, TimelineItem } from './items.ts'
@@ -237,10 +238,17 @@ function MessageRow({ item, context }: { item: MessageItem; context: RowContext 
               <MentionContext
                 value={{ users: context.users, meId: context.meId, valid: message.mentions }}
               >
-                <MessageBody text={message.body ?? ''} />
+                <MessageBody
+                  text={
+                    message.kind === 'agent'
+                      ? assistantText(message.body ?? '')
+                      : (message.body ?? '')
+                  }
+                />
               </MentionContext>
             </LinkTabIndex>
             {message.attachments.length ? <Attachments files={message.attachments} /> : null}
+            {message.kind === 'agent' ? <AgentRunCard message={message} /> : null}
             {message.editedAt ? (
               <span
                 className="bubble__edited"

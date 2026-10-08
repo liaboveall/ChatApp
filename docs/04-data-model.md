@@ -144,10 +144,10 @@ V-13 必须验证 adapter 创建事务可以实施上述锁和关联；否则先
 - `unique (lower(normalize(name, NFKC))) WHERE kind = 'channel' AND archived_at IS NULL`：频道名全站唯一，不区分大小写和全角半角；
 - `(kind, archived_at)`：用于发现页；
 - `gin (name gin_trgm_ops) WHERE kind = 'channel'`：频道搜索；
-- `unique (owner_id, panel_for_conversation_id) WHERE panel_for_conversation_id IS NOT NULL`：每个用户对每个会话最多一个面板对话；
+- `(owner_id, panel_for_conversation_id) WHERE panel_for_conversation_id IS NOT NULL` 非唯一索引：每个用户可为同一会话保留多个独立面板对话（0011、D-185）；
 - `(owner_id) WHERE archived_at IS NOT NULL`：已归档列表。
 
-**面板对话**：侧边助手面板里的对话，本质上是一个 `kind = 'agent'` 的会话，`panel_for_conversation_id` 指向当前会话。面板对话不出现在侧边栏的"助手"列表里。
+**面板对话**：侧边助手面板里的对话，本质上是一个 `kind = 'agent'` 的会话，`panel_for_conversation_id` 指向当前会话。面板对话不出现在侧边栏的"助手"列表里。面板提供新建、历史选择、重命名和删除；新建保留旧会话及其独立上下文，默认继续最近活跃的会话，显式选择时继续指定的本人会话。每段历史仍只属于其创建者。
 
 **删除 Agent 会话**：事务内先取消其未结束 run、使租约失效、拒绝待审批并取消关联未来任务；把附件标 deleting、message_id 置空但保留 tombstone/message identity，再删除消息/成员/会话。run 的 conversation_id/source_message_id/output_message_id 使用 ON DELETE SET NULL，只保留元数据；run_states、steps.payload、approval args、摘要立即清空，不等待 30 天。对象删除由持久工作完成。其他会话只归档。
 
@@ -328,31 +328,39 @@ V-13 必须验证 adapter 创建事务可以实施上述锁和关联；否则先
 
 ## 7. Agent（M4 / M5）
 
+M4 实际迁移为 0007–0010（D-183）；未来审批、BYOK 和记忆表继续按 M5 分期。货币账本统一整数微美元，HTTP 展示的 costUsd 由该整数格式化。
+
+### `agent_contexts`（M4）
+
+- conversation_id 主键/FK（删除级联）、context_epoch、read_scope、key_source、privacy_class、key_revision、updated_at。记录私有 Agent 会话/面板当前输入世代；切换范围创建新 epoch，旧世代历史不注入新运行。
+
 ### `agent_runs`（M4）
 | 列 | 类型 | 说明 |
 |---|---|---|
 | id | uuid PK | |
 | user_id | uuid → users | **调用者**：本次运行按此人的权限执行 |
 | delegation_id | uuid → execution_delegations | 创建 run 同事务签发；不能从 worker 裸 user_id 恢复权限 |
-| trigger | text | `agent_chat` / `mention` / `panel` / `command` / `scheduled` |
+| trigger | text | M4：`agent_chat` / `mention` / `panel` / `command`；scheduled 属于 M5 |
 | conversation_id | uuid null → conversations | 输出写到哪个会话；会话被删除时置为 null |
 | context_conversation_id | uuid null | 面板或命令所绑定的会话 |
 | source_message_id / output_message_id | uuid null | 触发运行的消息 / Agent 回复的消息 |
 | read_scope | text | `current_conversation` 或 `all_accessible`（见 06） |
 | key_source | text | `site`（站点 key）或 `user`（自带 key），决定内容是否对站点管理员可见（D-034） |
 | privacy_class / key_revision | text / bigint null | standard 或 byok_private；创建时固定 key_source 和自带 key 修订，删除/替换 key 使旧 run 停止 |
-| mode / model | text | `fast` 或 `deep`，以及实际使用的模型名 |
+| mode / provider / model / actual_model | text | `fast` 或 `deep`、供应商、请求模型别名、实际返回模型；实际模型另在每次 attempt 记录 |
 | timezone | text | 本次运行采用的时区 |
 | status | `agent_run_status` | `queued` / `running` / `awaiting_approval` / `completed` / `failed` / `cancelled` |
 | regenerated_from_run_id | uuid null | 重新生成时，指向被替换的那次运行（D-036） |
 | step_count | int | |
 | input_tokens / output_tokens / cached_tokens | int | |
-| cost_usd | numeric(12,6) | 估算费用 |
+| cost_micro_usd | bigint | 整数微美元估算费用，DTO 格式化为 costUsd 字符串 |
 | error_code / error_message | text null | 只存脱敏后的信息 |
 | heartbeat_at / lease_until | timestamptz null | 每 5 秒续租，默认 30 秒租期 |
 | resume_seq / lease_epoch | bigint | 逻辑续跑段号 / 每次领取递增的 fencing token |
 | cancel_requested_at | timestamptz null | 持久取消，终态不会因重复取消重新执行 |
 | context_epoch / context_manifest | uuid / jsonb | scope/key 世代及来源 id、content_version、privacy_class、membership_id、成员版本；包含传递来源，不存第二份正文 |
+| output_membership_version / shared_visible_from_seq | bigint | 输出会话版本 / 共享输入采用的全体当前成员最大水位 |
+| has_effects / pending_approval | boolean | M4 固定无业务效果/审批；为 M5 重新生成与恢复边界预留 |
 | state_version / elapsed_active_ms | bigint | 状态 CAS 版本 / 累计活跃时长，重试/续跑不重置总步数与时长 |
 | content_purged_at | timestamptz null | 内容按保留期清除的时间 |
 | created_at / started_at / finished_at | timestamptz | |
@@ -360,7 +368,7 @@ V-13 必须验证 adapter 创建事务可以实施上述锁和关联；否则先
 索引：
 - `(user_id, created_at desc)`；
 - `(status) WHERE status IN ('queued','running','awaiting_approval')`；
-- `(key_source, created_at desc)`：供管理后台查询。
+- 管理后台的 `(key_source, created_at desc)` 索引随 M5 管理查询补充；M4 未开放站点管理员读取 run 内容接口。
 
 ### `agent_run_states`（M4）
 - **列**：`run_id`（主键，→ agent_runs）、`state_version`、`resume_seq`、`context_epoch`、`messages`（完整模型消息及工具结果）、`updated_at`。
@@ -372,7 +380,7 @@ V-13 必须验证 adapter 创建事务可以实施上述锁和关联；否则先
 - 内容保留 30 天，之后清空，并写入 `agent_runs.content_purged_at`。
 
 ### `agent_steps`（M4）
-- **列**：`id`、`run_id`、`index`（与 `run_id` 联合唯一）、`type`（`model` / `tool_call` / `tool_result` / `approval_request` / `approval_response` / `error`）、`tool_name`、`status`（仅 `tool_call` 步骤使用：`pending` / `done` / `failed`）、`payload`（jsonb）、`input_tokens`、`output_tokens`、`duration_ms`、`created_at`。
+- **列**：`id`、`run_id`、`index`（与 `run_id` 联合唯一）、`type`（M4：`model` / `tool_call` / `tool_result` / `error`；审批类型在 M5 扩展）、`tool_name`、`status`（`pending` / `done` / `failed` 或 null；失败工具调用与错误结果均可记录 failed）、`payload`（jsonb）、`input_tokens`、`output_tokens`、`duration_ms`、`created_at`。每次模型的实际用量以 ai_call_attempts 为准。
 - `payload` 是**展示用的摘要**，不超过 32 KB，超出部分截断并加标记。完整内容在 `agent_run_states` 里，续跑也只从那里恢复。
 
 ### `agent_effects`（M5a）
@@ -407,12 +415,13 @@ V-13 必须验证 adapter 创建事务可以实施上述锁和关联；否则先
 - 两表均有version，创建为1，每次状态/展示字段变化同事务递增；列表/取消响应按version合并，不让旧scheduled覆盖终态。
 
 ### `ai_usage_daily`（M4）
-- **列**：`user_id`、`day`（date，按 `APP_TIMEZONE` 计算）、`key_source`、`input_tokens`、`output_tokens`、`cached_tokens`、`cost_usd`、`run_count`；主键为 `(user_id, day, key_source)`。
+- **列**：`user_id`、`day`（ISO 日文本，按 `APP_TIMEZONE` 计算）、`key_source`、`input_tokens`、`output_tokens`、`cached_tokens`、`cost_micro_usd`、`run_count`；主键为 `(user_id, day, key_source)`。
 - **全站月度费用**：从调用结算台账派生，可缓存展示，但准入只读锁内的 budget_accounts。不得用一分钟统计缓存决定是否发起收费调用。
 
 ### `budget_accounts` / `ai_call_attempts`（M4）
 - budget_accounts：scope（user_day/site_month）、owner_key、period_start、limit_units、reserved_units、settled_units；联合主键。token 整数、费用以整数微美元计，避免浮点。站点 key 调用锁定两级账户并原子检查 settled+reserved+本次预占 ≤ limit。
-- ai_call_attempts：id、run_id、step_index、attempt_no、key_source、provider_request_id、status（reserved/started/settled/unknown/released）、day、month、price_version、reserved_tokens/cost、actual_tokens/cost、started_at、settled_at；唯一 (run_id,step_index,attempt_no)。
+- ai_call_attempts：id、run_id、step_index、attempt_no、key_source、provider、model、actual_model、provider_request_id、http_status、retry_after_seconds、status（reserved/started/settled/unknown/released）、day、month、price_version、input_token_bound、max_output_tokens、reserved_tokens/cost、actual_tokens/cost、input/output/cached/reasoning_tokens、created_at、started_at、settled_at；唯一 (run_id,step_index,attempt_no)。输入与输出上界分别检查，reasoning 已包含在 output 总量，不重复加账。
+- app_settings 的 `ai.provider_cooldown.<provider>` 保存已知 429 的冷却截止；更新取较晚值。reserve 在预占前复核全 provider 冷却，不为限流期间的其他用户创建新调用。
 - reserve、标 started、usage 条件结算均为持久事务；unknown 仍占用上限，不按超时自动退款。日/月归属在 reserve 时冻结；reserved 未 started 可以超时释放。自带 key 只记 usage，不占站点预算。
 
 ### `user_ai_keys`（M5a）

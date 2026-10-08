@@ -1,12 +1,20 @@
 /**
- * Events carried on the environment's Pub/Sub channel (docs/03 section 6). They are hints, never authority or content:
- * identifiers and versions only. `busEventFromWork` turns a committed `realtime` work item into the event it stands for;
+ * Events carried on the environment's Pub/Sub channel (docs/03 section 6). Ordinary events carry identifiers and versions.
+ * Agent text deltas are the exception: the gateway checks live sessions, source manifests and the lease for every batch.
+ * `busEventFromWork` turns a committed `realtime` work item into the event it stands for;
  * typing and presence are published directly by the gateway and are allowed to be lost.
  */
-import { presenceStatusSchema } from '@chatapp/contracts'
+import { agentDeltaSchema, presenceStatusSchema } from '@chatapp/contracts'
 import { z } from 'zod'
 
 export const busEventSchema = z.discriminatedUnion('type', [
+  agentDeltaSchema.extend({ type: z.literal('agent.delta') }),
+  z.object({
+    type: z.literal('agent.run.updated'),
+    userId: z.uuid(),
+    runId: z.uuid(),
+    stateVersion: z.number().int().nonnegative(),
+  }),
   /** Some session, device or the whole account of this user was revoked: connections re-check right now. */
   z.object({ type: z.literal('auth.revoked'), userId: z.uuid() }),
   /** Work was committed: the dispatcher should look now instead of waiting for its next scan. */
@@ -72,6 +80,15 @@ export function busEventFromWork(work: {
   const version = work.entityVersion ?? null
   if (entityId === null) return null
   switch (payload.event) {
+    case 'agent.run.updated':
+      return typeof payload.runId === 'string' && version !== null
+        ? {
+            type: 'agent.run.updated',
+            userId: entityId,
+            runId: payload.runId,
+            stateVersion: version,
+          }
+        : null
     case 'auth.revoked':
       return { type: 'auth.revoked', userId: entityId }
     case 'message.changed':

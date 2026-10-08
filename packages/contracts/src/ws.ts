@@ -74,6 +74,22 @@ export const wsAttachmentUpdatedSchema = envelope(
   z.object({ attachmentId: z.uuid(), generation: count, version: count }),
 )
 export const wsUserChangedSchema = envelope('user.changed', z.object({ userChangeSeq: count }))
+export const agentDeltaSchema = z.object({
+  conversationId: z.uuid(),
+  runId: z.uuid(),
+  messageId: z.uuid(),
+  resumeSeq: count,
+  leaseEpoch: count,
+  index: count,
+  streamRevision: count,
+  text: z.string().max(20_000),
+})
+export type AgentDelta = z.infer<typeof agentDeltaSchema>
+export const wsAgentDeltaSchema = envelope('agent.delta', agentDeltaSchema)
+export const wsAgentRunUpdatedSchema = envelope(
+  'agent.run.updated',
+  z.object({ runId: z.uuid(), stateVersion: count }),
+)
 /** My membership in a conversation ended; the cache is cleared once a newer removal tombstone is confirmed. */
 export const wsConversationRemovedSchema = envelope(
   'conversation.removed',
@@ -110,6 +126,8 @@ export const wsServerMessageSchema = z.discriminatedUnion('type', [
   wsConversationChangedSchema,
   wsMemberChangedSchema,
   wsUserChangedSchema,
+  wsAgentDeltaSchema,
+  wsAgentRunUpdatedSchema,
   wsAttachmentUpdatedSchema,
   wsConversationRemovedSchema,
   wsTypingSchema,

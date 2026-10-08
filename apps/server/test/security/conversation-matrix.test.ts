@@ -329,6 +329,27 @@ const aimedAt = (f: Fixture, who: Person | null): Person =>
 
 const CASES: Case[] = [
   {
+    route: 'DELETE /api/conversations/{id}',
+    build: ({ f }) => ({ method: 'DELETE', path: `/api/conversations/${f.id}` }),
+    expect: {
+      group: row(404, 403, 403, 403, 403),
+      channel: row(403, 403, 403, 403, 403),
+      dm: row(404, 403, 404, 403, 404),
+    },
+  },
+  {
+    route: 'GET /api/search/messages',
+    build: ({ f }) => ({
+      method: 'GET',
+      path: `/api/search/messages?query=secret&conversationId=${f.id}`,
+    }),
+    expect: {
+      group: row(404, OK, OK, OK, 403),
+      channel: row(403, OK, OK, OK, 403),
+      dm: row(404, OK, 404, OK, 404),
+    },
+  },
+  {
     route: 'GET /api/conversations/{id}/mentions',
     build: ({ f }) => ({ method: 'GET', path: at(f, '/mentions') }),
     expect: {
@@ -816,6 +837,7 @@ describe('the table is complete', () => {
       '/api/users',
       '/api/sync',
       '/api/me/changes',
+      '/api/search/messages',
     ]
     const routes = new Set<string>()
     for (const [path, item] of Object.entries(document.paths ?? {})) {

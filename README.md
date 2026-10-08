@@ -13,9 +13,11 @@
 - Agent：总结未读、搜索和翻译消息、起草回复、看图；代发消息、建群等影响他人的操作需要批准；个人提醒显示结果并可撤销
 - 可以安装成桌面应用（PWA），支持浏览器推送、深色模式、中英双语
 
+M4 的只读助手已接入私有 Agent 会话、群/频道 `@Agent`、会话助手面板、⌘K 消息搜索和 `/总结`、`/翻译`、`/起草`。支持工具步骤、流式输出、停止、重新生成与用量查看；草稿由本人确认发送。审批操作、提醒、BYOK、记忆与语义搜索属于后续 M5。实现见 [M4 实施记录](docs/21-m4-implementation-2026-10-07.md)，修复后的本人复试与最新验证结果见 [M4 验收收尾](docs/23-m4-acceptance-2026-10-08.md)。
+
 ## 技术栈
 
-TypeScript 7 · Bun · Hono · zod · Drizzle · PostgreSQL 18（pgvector）· Valkey · BullMQ · Garage（S3）· Better Auth · AI SDK（DeepSeek）· React 19 · Vite 8 · TanStack Router/Query · Tailwind CSS 4 · Base UI
+TypeScript 7 · Bun · Hono · zod · Drizzle · PostgreSQL 18（pgvector）· Valkey · BullMQ · Garage（S3）· Better Auth · AI SDK（NUS SoCLaaS / GLM，D-182）· React 19 · Vite 8 · TanStack Router/Query · Tailwind CSS 4 · Base UI
 
 ## 本地开发
 
@@ -33,6 +35,8 @@ bun run dev              # api、worker 和前端一起启动；浏览器打开 
 ```
 
 也可以分开启动：`bun run dev:api`（http://127.0.0.1:3100/api/docs）、`bun run dev:worker`、`bun run dev:web`。管理员用 `bun run admin:create` 创建；邮件在 Mailpit（http://localhost:8025）里看。
+
+助手使用根目录 `.env.local` 的完整 `SOCLAAS_API_KEY`；默认 provider 为 SoCLaaS，快速/深度模型别名均为 `x-test-1`。检查接入用 `bun run doctor --ai` 和 `bun run test:m4:provider`；真实全量评测用 `bun run eval --concurrency 1`，人工标注校验用 `bun run eval:review <结果目录>`。评测使用独立临时数据库，并保存每次真实调用的账本；总结人工标注与用户试用仍须单独完成。
 
 详见 [docs/09-local-dev.md](docs/09-local-dev.md)。后端骨架（M1a）已完成并验收；前端骨架（M1b：登录、注册、验证邮箱、找回密码、设置、应用外壳）已完成并验收；聊天功能的后端（M2a：会话、成员、消息、同步、实时提示、在线状态）已完成并验收；聊天界面（M2b：侧栏与会话页、时间线、输入栏、详情面板、Markdown 消息、断线补齐、本地网关测试）已完成并验收。路线图见 [docs/11-roadmap.md](docs/11-roadmap.md)。
 

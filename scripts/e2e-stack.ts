@@ -27,6 +27,7 @@ const ORIGIN = process.env.E2E_APP_ORIGIN ?? 'http://localhost:4173'
 const env = {
   ...process.env,
   APP_ENV: 'test',
+  AI_PROVIDER: 'mock',
   API_PORT,
   APP_ORIGIN: ORIGIN,
   LOG_LEVEL: process.env.E2E_LOG_LEVEL ?? 'warn',

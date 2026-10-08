@@ -26,7 +26,7 @@ export const WORK_LIMITS = {
   /** Lease while the item waits in the queue, and while a consumer runs it. */
   dispatchLeaseMs: 60_000,
   runLeaseMs: 120_000,
-  maxAttempts: { realtime: 5, email: 5, media: 5 } as Record<WorkKind, number>,
+  maxAttempts: { realtime: 5, email: 5, media: 5, agent: 5 } as Record<WorkKind, number>,
   finishedRetentionDays: 7,
 } as const
 
@@ -124,6 +124,22 @@ export async function completeWork(deps: Deps, lease: WorkLease): Promise<boolea
         eq(workItems.id, lease.id),
         eq(workItems.leaseEpoch, lease.leaseEpoch),
         inArray(workItems.status, ['leased', 'running']),
+      ),
+    )
+    .returning({ id: workItems.id })
+  return rows.length === 1
+}
+
+/** Long Agent calls keep the durable work lease alive independently of BullMQ's lock. */
+export async function renewWork(deps: Deps, lease: WorkLease): Promise<boolean> {
+  const rows = await deps.db
+    .update(workItems)
+    .set({ leaseUntil: new Date(deps.clock.now().getTime() + WORK_LIMITS.runLeaseMs) })
+    .where(
+      and(
+        eq(workItems.id, lease.id),
+        eq(workItems.leaseEpoch, lease.leaseEpoch),
+        eq(workItems.status, 'running'),
       ),
     )
     .returning({ id: workItems.id })

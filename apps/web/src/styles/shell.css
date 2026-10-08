@@ -430,10 +430,16 @@
 }
 .inspector__head-row .seg {
   flex: 1;
+  min-width: 0;
+}
+.inspector__head-row .seg__item {
+  min-width: 0;
+  white-space: normal;
 }
 .inspector__body {
   flex: 1;
   min-height: 0;
+  min-width: 0;
   padding: 14px 14px 16px;
 }
 
