@@ -919,18 +919,24 @@ export async function runMediaTests(args: string[]): Promise<number> {
     assert(!settled, 'task cleanup only happened after the receiver disconnected')
     const response = await pending
     assert(
-      // Bun's native Unix read batch can overshoot the JS high-water mark, but must backpressure this 4 MiB output.
+      // The probe consumes the bounded protocol header before pausing the 4 MiB body.
+      // Bun's native read batch may overshoot the JS high-water mark; retain the original body limit.
       number(response.maxBufferedBytes) <= 8 * MEDIA_LIMITS.chunkBytes &&
+        number(response.responseHeaderBytes) > 4 &&
+        number(response.responseHeaderBytes) <= MEDIA_LIMITS.headerBytes + 4 &&
         response.transportTimedOut === false,
       'paused receiver buffering was unbounded',
       {
         bufferedBytes: response.maxBufferedBytes,
+        responseHeaderBytes: response.responseHeaderBytes,
         transportTimedOut: response.transportTimedOut,
         elapsedMs: response.elapsedMs,
       },
     )
     return {
       boundedSocketBytes: response.maxBufferedBytes,
+      responseHeaderBytes: response.responseHeaderBytes,
+      bodyBufferLimitBytes: 8 * MEDIA_LIMITS.chunkBytes,
       supervisorCleanedBeforeClientClose: true,
       taskDeadlineMs: FAULT_MS,
       business,
