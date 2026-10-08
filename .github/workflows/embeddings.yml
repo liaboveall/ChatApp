@@ -28,7 +28,7 @@ jobs:
           bun -e 'if (process.platform !== "linux" || process.arch !== "arm64") process.exit(1)'
           bun run setup
       - name: Prepare the pinned public model
-        run: bun run embeddings prepare bge
+        run: bun run embeddings prepare bge .test-runs/m5/models
       - name: Two-core Debian API, AI, media and indexing load
         run: bun run test:m5:mixed
       - name: Frozen development and holdout quality on the same Debian image

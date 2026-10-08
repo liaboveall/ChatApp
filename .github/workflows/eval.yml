@@ -28,7 +28,7 @@ jobs:
       - run: bun run infra:bootstrap
       - run: bun run db:migrate:test
       - name: Prepare fixed offline model for memory injection evaluation
-        run: bun run embeddings prepare bge
+        run: bun run embeddings prepare bge .test-runs/m5/models
       - name: M5 approval, edited effects, privacy and actual memory injection
         run: bun run eval:m5:agent
       - name: Frozen corpus and genuine provider evaluation
