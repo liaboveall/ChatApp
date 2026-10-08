@@ -112,6 +112,8 @@ function environmentFor(
   const e = instance.manifest.endpoints
   const own: Record<string, string> = {
     APP_ENV: 'test',
+    // A test process may only use the mock model; the developer's .env.local selects a real provider.
+    AI_PROVIDER: 'mock',
     LOG_LEVEL: 'warn',
     API_HOST: '127.0.0.1',
     DATABASE_URL: e.databaseUrl,
