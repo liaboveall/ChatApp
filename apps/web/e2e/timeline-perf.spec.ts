@@ -64,11 +64,21 @@ test('@perf T4: the group opens at the new-messages line beside seq 9,901, and t
         await timeline(page).evaluate((element) => {
           element.scrollTop = element.scrollHeight
         })
-        return page.getByRole('button', { name: /回到最新/ }).count()
+        // The button can briefly disappear before Virtua finishes measuring the newly drawn rows. Keep reading down
+        // through those commits until the actual bottom and the read claim agree, rather than stopping at that gap.
+        const atEnd = await timeline(page).evaluate(
+          (element) => element.scrollHeight - element.scrollTop - element.clientHeight <= 2,
+        )
+        return (
+          atEnd &&
+          (await page.locator('article[data-seq="10000"]').count()) > 0 &&
+          (await page.getByRole('button', { name: /回到最新/ }).count()) === 0 &&
+          !/未读/.test((await item.getAttribute('aria-label')) ?? '')
+        )
       },
       { timeout: 20_000 },
     )
-    .toBe(0)
+    .toBe(true)
   await expect(item).not.toHaveAccessibleName(/未读/, { timeout: 20_000 })
 })
 
