@@ -9,7 +9,10 @@ import {
 } from '@playwright/test'
 import { CSP } from '../../tools/csp.ts'
 import { fakeClientIp } from './accounts.ts'
-import { isWebKitReloadCancellation, type ReloadInterval } from './navigation-errors.ts'
+import {
+  type DocumentReplacementInterval,
+  isWebKitDocumentCancellation,
+} from './navigation-errors.ts'
 
 type StorageState = Awaited<ReturnType<BrowserContext['storageState']>>
 
@@ -80,8 +83,8 @@ class Registry {
   /** When each context had its network cut (`until` is infinite while it still is). */
   readonly outages = new Map<BrowserContext, { from: number; until: number }[]>()
   readonly pageErrors: { error: Error; page: Page | null; at: number }[] = []
-  /** Only the interval in which an explicit reload is replacing the old document, before the new one commits. */
-  readonly reloads = new WeakMap<Page, ReloadInterval[]>()
+  /** Only explicit navigation that replaces the old document, before the new one commits. */
+  readonly replacements = new WeakMap<Page, DocumentReplacementInterval[]>()
   /** Navigations that Firefox did not report and that were made again (see `repeatLostNavigations`). */
   readonly repeatedNavigations: string[] = []
   readonly problems: string[] = []
@@ -145,23 +148,33 @@ async function instrument(context: BrowserContext, registry: Registry): Promise<
     context.on('page', (page) => repeatLostNavigations(page, registry))
   if (registry.engine === 'webkit') {
     context.on('page', (page) => {
-      const intervals: ReloadInterval[] = []
-      registry.reloads.set(page, intervals)
+      const intervals: DocumentReplacementInterval[] = []
+      registry.replacements.set(page, intervals)
       const reload = page.reload.bind(page)
+      const goto = page.goto.bind(page)
       page.on('framenavigated', (frame) => {
         if (frame !== page.mainFrame()) return
         const current = intervals.at(-1)
         if (current?.committed === null) current.committed = Date.now()
       })
-      page.reload = async (options) => {
-        const current: ReloadInterval = { from: Date.now(), committed: null }
+      const replace = async (operation: () => ReturnType<Page['reload']>) => {
+        const current: DocumentReplacementInterval = {
+          from: Date.now(),
+          committed: null,
+          document: false,
+        }
         intervals.push(current)
         try {
-          return await reload(options)
+          const response = await operation()
+          // A fragment-only move returns null and leaves the old document alive. It must not exempt live-page errors.
+          current.document = response !== null
+          return response
         } finally {
           current.committed ??= Date.now()
         }
       }
+      page.reload = (options) => replace(() => reload(options))
+      page.goto = (url, options) => replace(() => goto(url, options))
     })
   }
   // Violations reach the test the moment they happen, so one on a page that is closed later is not lost.
@@ -432,12 +445,12 @@ async function check(registry: Registry, testInfo: TestInfo): Promise<void> {
       continue
     }
     if (
-      isWebKitReloadCancellation({
+      isWebKitDocumentCancellation({
         engine: registry.engine,
         origin: registry.origin,
         stack: error.stack,
         at,
-        reloads: page === null ? [] : (registry.reloads.get(page) ?? []),
+        replacements: page === null ? [] : (registry.replacements.get(page) ?? []),
       })
     ) {
       reloadCancellations += 1
@@ -454,7 +467,7 @@ async function check(registry: Registry, testInfo: TestInfo): Promise<void> {
   if (reloadCancellations > 0) {
     testInfo.annotations.push({
       type: 'old document request cancelled',
-      description: `${reloadCancellations} × WebKit API fetch during explicit reload, before the new document committed`,
+      description: `${reloadCancellations} × WebKit API fetch during explicit document replacement, before the new document committed`,
     })
   }
 
