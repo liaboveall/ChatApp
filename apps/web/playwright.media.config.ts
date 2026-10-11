@@ -15,9 +15,12 @@ export default defineConfig({
     trace: 'retain-on-failure',
     screenshot: 'only-on-failure',
   },
+  // The app registers a service worker on every page (M6, D-206). Chromium runs with it; in WebKit a request of a page the
+  // worker controls escapes `route`, which every `holdRequest` of this chain relies on, so WebKit blocks the worker as the
+  // main configuration does.
   projects: [
     { name: 'chromium', use: { ...devices['Desktop Chrome'] } },
-    { name: 'webkit', use: { ...devices['Desktop Safari'] } },
+    { name: 'webkit', use: { ...devices['Desktop Safari'], serviceWorkers: 'block' } },
   ],
   webServer: [
     {
