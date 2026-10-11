@@ -9,6 +9,7 @@ import {
 } from '@playwright/test'
 import { CSP } from '../../tools/csp.ts'
 import { fakeClientIp } from './accounts.ts'
+import { isWebKitReloadCancellation, type ReloadInterval } from './navigation-errors.ts'
 
 type StorageState = Awaited<ReturnType<BrowserContext['storageState']>>
 
@@ -78,7 +79,9 @@ class Registry {
   readonly consoleErrors: { text: string; at: number; context: BrowserContext }[] = []
   /** When each context had its network cut (`until` is infinite while it still is). */
   readonly outages = new Map<BrowserContext, { from: number; until: number }[]>()
-  readonly pageErrors: string[] = []
+  readonly pageErrors: { error: Error; page: Page | null; at: number }[] = []
+  /** Only the interval in which an explicit reload is replacing the old document, before the new one commits. */
+  readonly reloads = new WeakMap<Page, ReloadInterval[]>()
   /** Navigations that Firefox did not report and that were made again (see `repeatLostNavigations`). */
   readonly repeatedNavigations: string[] = []
   readonly problems: string[] = []
@@ -125,7 +128,11 @@ function repeatLostNavigations(page: Page, registry: Registry): void {
         )
       } catch (error) {
         if (last || !(error instanceof errors.TimeoutError)) throw error
-        registry.repeatedNavigations.push(url)
+        registry.repeatedNavigations.push(new URL(url, registry.origin).pathname)
+        // The first document can have loaded and stripped its credential fragment even though Firefox missed the commit.
+        // Repeating the original URL then changes only its hash and returns no document response. Leave that document
+        // first, so the retry loads the original fragment into a fresh document rather than accepting a hash-only move.
+        await goto('about:blank', { waitUntil: 'commit', timeout: FIREFOX_NAVIGATION_TRY_MS })
       }
     }
   }
@@ -136,6 +143,27 @@ async function instrument(context: BrowserContext, registry: Registry): Promise<
   registry.contexts.push(context)
   if (registry.engine === 'firefox')
     context.on('page', (page) => repeatLostNavigations(page, registry))
+  if (registry.engine === 'webkit') {
+    context.on('page', (page) => {
+      const intervals: ReloadInterval[] = []
+      registry.reloads.set(page, intervals)
+      const reload = page.reload.bind(page)
+      page.on('framenavigated', (frame) => {
+        if (frame !== page.mainFrame()) return
+        const current = intervals.at(-1)
+        if (current?.committed === null) current.committed = Date.now()
+      })
+      page.reload = async (options) => {
+        const current: ReloadInterval = { from: Date.now(), committed: null }
+        intervals.push(current)
+        try {
+          return await reload(options)
+        } finally {
+          current.committed ??= Date.now()
+        }
+      }
+    })
+  }
   // Violations reach the test the moment they happen, so one on a page that is closed later is not lost.
   await context.exposeBinding(
     '__reportViolation',
@@ -193,7 +221,7 @@ async function instrument(context: BrowserContext, registry: Registry): Promise<
     }
   })
   context.on('weberror', (webError) => {
-    registry.pageErrors.push(webError.error().message)
+    registry.pageErrors.push({ error: webError.error(), page: webError.page(), at: Date.now() })
   })
   context.on('response', (response) => {
     const request = response.request()
@@ -396,9 +424,23 @@ async function check(registry: Registry, testInfo: TestInfo): Promise<void> {
   }
 
   let observerNotices = 0
-  for (const text of registry.pageErrors) {
+  let reloadCancellations = 0
+  for (const { error, page, at } of registry.pageErrors) {
+    const text = error.message
     if (registry.engine === 'webkit' && text === WEBKIT_RESIZE_OBSERVER) {
       observerNotices += 1
+      continue
+    }
+    if (
+      isWebKitReloadCancellation({
+        engine: registry.engine,
+        origin: registry.origin,
+        stack: error.stack,
+        at,
+        reloads: page === null ? [] : (registry.reloads.get(page) ?? []),
+      })
+    ) {
+      reloadCancellations += 1
       continue
     }
     problems.push(`pageerror: ${text}`)
@@ -407,6 +449,12 @@ async function check(registry: Registry, testInfo: TestInfo): Promise<void> {
     testInfo.annotations.push({
       type: 'allowed page exception',
       description: `${observerNotices} × ${WEBKIT_RESIZE_OBSERVER}`,
+    })
+  }
+  if (reloadCancellations > 0) {
+    testInfo.annotations.push({
+      type: 'old document request cancelled',
+      description: `${reloadCancellations} × WebKit API fetch during explicit reload, before the new document committed`,
     })
   }
 
