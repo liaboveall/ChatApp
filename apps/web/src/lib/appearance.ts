@@ -14,6 +14,7 @@ import {
   DEFAULT_GLASS,
   GLASS_KEYS,
   type GlassLevelKey,
+  neutral,
 } from '@/design/tokens.ts'
 import { local } from './storage.ts'
 
@@ -68,6 +69,20 @@ export function applyToRoot(
   set('data-glass', appearance.glass === DEFAULT_GLASS ? null : appearance.glass)
   set('data-type-size', appearance.typeSize === 0 ? null : String(appearance.typeSize))
   set('data-reduce-motion', appearance.reduceMotion ? 'true' : null)
+  // The installed app's title bar (index.html): each `theme-color` keeps its own scheme's colour while the theme follows the
+  // system, and takes the chosen theme's otherwise.
+  const [light, dark] = neutral['bg-app']
+  for (const meta of root.ownerDocument.querySelectorAll<HTMLMetaElement>(
+    'meta[name="theme-color"]',
+  )) {
+    const scheme =
+      appearance.theme === 'system'
+        ? (meta.getAttribute('media') ?? '').includes('dark')
+          ? 'dark'
+          : 'light'
+        : appearance.theme
+    meta.setAttribute('content', scheme === 'dark' ? dark : light)
+  }
 }
 
 type AppearanceStore = Appearance & {

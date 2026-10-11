@@ -31,10 +31,12 @@ bun run infra:bootstrap  # 初始化 Garage 的存储桶和访问密钥
 bun run doctor           # 检查各项服务是否正常
 bun run db:migrate       # 迁移，并创建无特权的应用数据库账号
 bun run db:seed          # 仅开发：Agent 账号、保留名和 3 个演示成员
-bun run dev              # api、worker 和前端一起启动；浏览器打开 http://localhost:5173
+bun run dev              # api、worker 和前端一起启动；打开终端 [dev] Open 显示的 localhost 地址
 ```
 
 也可以分开启动：`bun run dev:api`（http://127.0.0.1:3100/api/docs）、`bun run dev:worker`、`bun run dev:web`。管理员用 `bun run admin:create` 创建；邮件在 Mailpit（http://localhost:8025）里看。
+
+普通开发默认 http://localhost:5173；Windows 保留该端口时，`dev` 自动选择可转发的端口（通常是 http://localhost:25174），同时给 API 和 worker 设置一致的来源地址。M6 的安装、离线外壳和真实推送用 `bun run dev -- api worker pwa`，默认 http://localhost:25173。切换前先结束原来的开发启动流程；本地嵌入已启用时，同时选择 `embeddings`。
 
 助手使用根目录 `.env.local` 的完整 `SOCLAAS_API_KEY`；默认 provider 为 SoCLaaS，快速/深度模型别名均为 `x-test-1`。检查接入用 `bun run doctor --ai` 和 `bun run test:m4:provider`；真实全量评测用 `bun run eval --concurrency 1`，人工标注校验用 `bun run eval:review <结果目录>`。评测使用独立临时数据库，并保存每次真实调用的账本；总结人工标注与用户试用仍须单独完成。
 

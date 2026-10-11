@@ -33,6 +33,7 @@ export const WORK_LIMITS = {
     agent: 5,
     scheduled: 5,
     embedding: 5,
+    push: 5,
   } satisfies Record<WorkKind, number>,
   finishedRetentionDays: 7,
 } as const

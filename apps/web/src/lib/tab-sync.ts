@@ -8,7 +8,10 @@ import { local } from './storage.ts'
 const CHANNEL = 'chatapp.auth'
 const TOMBSTONE_KEY = 'chatapp.signed-out-at'
 
-export type TabMessage = { type: 'signed-out'; reason: string } | { type: 'signed-in' }
+/** `userId` (when known) names the account that signed out: the service worker, listening on the same channel, forgets only that one. */
+export type TabMessage =
+  | { type: 'signed-out'; reason: string; userId?: string }
+  | { type: 'signed-in' }
 
 type Listener = (message: TabMessage) => void
 

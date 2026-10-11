@@ -18,6 +18,7 @@ import { createAgentRun, getAgentRun } from '../../src/domain/agent-runs.ts'
 import { writeAudit } from '../../src/domain/audit.ts'
 import { createConversation } from '../../src/domain/conversations.ts'
 import { addMemory } from '../../src/domain/memories.ts'
+import { createNotification } from '../../src/domain/notifications.ts'
 import { enqueueWork } from '../../src/domain/work.ts'
 import { executeAgentRun } from '../../src/runtime/agent.ts'
 import { openTestDatabases, type TestDatabases, truncateAll } from '../support/db.ts'
@@ -54,6 +55,7 @@ const COVERED = [
   'audit_logs.metadata',
   'conversations.settings',
   'messages.meta',
+  'notifications.data',
   'users.settings',
   'work_items.payload',
 ]
@@ -73,6 +75,21 @@ describe('jsonb columns hold real JSON', () => {
       sql`select table_name || '.' || column_name as name from information_schema.columns where table_schema = 'public' and data_type = 'jsonb' order by 1`,
     )) as unknown as Array<{ name: string }>
     expect(rows.map((row) => row.name)).toEqual(COVERED)
+  })
+
+  test('notification data is an object of identifiers', async () => {
+    const deps = makeDeps(dbs.app.db)
+    const user = await createActiveUser(deps, { username: 'jsonbnotice' })
+    await createNotification(deps.db, deps, {
+      userId: user.id,
+      type: 'budget_alert',
+      dedupeKey: 'jsonb',
+      data: { period: '2026-10', percent: 80 },
+    })
+    const rows = await deps.db.execute(
+      sql`select jsonb_typeof(data) as root, data->>'period' as period, jsonb_typeof(data->'percent') as percent from notifications`,
+    )
+    expect(rows).toEqual([{ root: 'object', period: '2026-10', percent: 'number' }])
   })
 
   test('Agent manifests, resumable state and actual tool steps retain arrays and nested objects in SQL', async () => {

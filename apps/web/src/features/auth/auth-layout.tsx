@@ -1,6 +1,7 @@
 import type { LucideIcon } from 'lucide-react'
 import type { ReactNode } from 'react'
 import { AppIcon } from '@/components/brand/app-icon.tsx'
+import { TitleBar } from '@/components/layout/title-bar.tsx'
 import { Wallpaper } from '@/components/layout/wallpaper.tsx'
 import { Icon } from '@/components/ui/icon.tsx'
 import { cx } from '@/lib/cx.ts'
@@ -14,6 +15,7 @@ export function AuthLayout({ children }: { children: ReactNode }) {
         {m.shell_skip_to_content()}
       </a>
       <Wallpaper variant="auth" />
+      <TitleBar />
       <div className="auth">
         <main className="auth__inner" id="main" tabIndex={-1}>
           {children}

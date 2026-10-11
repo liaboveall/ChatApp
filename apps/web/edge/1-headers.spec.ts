@@ -53,6 +53,25 @@ test.describe('static locations', () => {
     expect(count(response.headersArray(), 'strict-transport-security')).toBe(1)
   })
 
+  test('the service worker and the manifest of the installed app are files, never cached for long (M6)', async ({
+    request: client,
+  }) => {
+    const worker = await client.get('/sw.js')
+    expect(worker.status()).toBe(200)
+    expect(worker.headers()['content-type']).toContain('javascript')
+    // A new deploy's worker must reach the browser at its next check: never kept for a year like a hashed asset.
+    expect(value(worker.headersArray(), 'cache-control')).toBe('no-cache')
+    expect(value(worker.headersArray(), 'content-security-policy')).toBe(CSP)
+    expect(count(worker.headersArray(), 'strict-transport-security')).toBe(1)
+    expect(await worker.text()).not.toContain('<!doctype html')
+
+    const manifest = await client.get('/manifest.webmanifest')
+    expect(manifest.status()).toBe(200)
+    expect(manifest.headers()['content-type']).toContain('application/manifest+json')
+    expect(value(manifest.headersArray(), 'cache-control')).toBe('no-cache')
+    expect(((await manifest.json()) as { name: string }).name).toBe('ChatApp')
+  })
+
   test('a hashed asset is immutable for a year and carries the policy; a missing one is a real 404, not the page', async ({
     request: client,
   }) => {

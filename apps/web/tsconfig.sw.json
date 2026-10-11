@@ -1,0 +1,9 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "lib": ["ESNext", "WebWorker"],
+    "types": [],
+    "paths": { "@/*": ["./src/*"] }
+  },
+  "include": ["src/sw", "src/lib/pwa/protocol.ts"]
+}

@@ -62,7 +62,7 @@ function quoteOf(replyTo: Extract<ReplyTo, { id: string }>, source: Message): Re
   return {
     ...replyTo,
     state: 'ok',
-    excerpt: excerptOf(source.body),
+    excerpt: excerptOf(markdownPreviewText(source.body)),
     senderId: source.senderId,
     attachmentKind: source.attachments[0]?.kind ?? null,
   }

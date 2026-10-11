@@ -105,6 +105,29 @@ export const LIMITS = {
   typingExpiresMs: 5_000,
   presenceWatchMax: 200,
 
+  // Notifications and browser push (docs/01 sections 4.8 and 7, docs/04 section 6, M6).
+  notificationRetentionDays: 90,
+  notificationsPageDefault: 30,
+  notificationsPageMax: 100,
+  /** Ids marked read in one request. */
+  notificationsReadMax: 100,
+  /** Browser installations one person can have subscribed at the same time. */
+  pushSubscriptionsPerUser: 10,
+  /** The optional preview in a push shows at most this many characters of a message (docs/01 section 4.8). */
+  pushPreviewMaxCodePoints: 80,
+  /** How long the push service may hold an undelivered push (the `TTL` header), and how long a send is retried. */
+  pushTtlSeconds: 24 * 60 * 60,
+  pushPayloadMaxBytes: 3500,
+  pushEndpointMaxLength: 2048,
+
+  // What the browser keeps for the signed-in account (docs/01 section 7, docs/03 section 11, D-070, M6).
+  offlineMessageCacheDays: 7,
+  offlineCacheMaxBytes: 50 * MiB,
+  offlineMessagesPerConversation: 200,
+  offlineDraftDays: 7,
+  /** A plain-text message written offline is sent on its own for this long, and only after identity and membership are checked. */
+  offlineQueueMaxAgeMs: 24 * 60 * 60 * 1000,
+
   // Sessions and credentials.
   sessionTtlDays: 30,
   sessionRefreshAgeDays: 1,

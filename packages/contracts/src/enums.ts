@@ -56,8 +56,19 @@ export const DELEGATION_STATUSES = ['active', 'revoked', 'completed', 'expired']
 export const delegationStatusSchema = z.enum(DELEGATION_STATUSES)
 export type DelegationStatus = z.infer<typeof delegationStatusSchema>
 
-/** Durable work intents; later milestones append kinds (media, push, agent, ...). `scheduled` delivers M5a tasks. */
-export const WORK_KINDS = ['realtime', 'email', 'media', 'agent', 'scheduled', 'embedding'] as const
+/**
+ * Durable work intents; later milestones append kinds. `scheduled` delivers M5a tasks; `push` (M6) derives notifications
+ * from a message and delivers one browser push to one subscription.
+ */
+export const WORK_KINDS = [
+  'realtime',
+  'email',
+  'media',
+  'agent',
+  'scheduled',
+  'embedding',
+  'push',
+] as const
 export const workKindSchema = z.enum(WORK_KINDS)
 export type WorkKind = z.infer<typeof workKindSchema>
 
@@ -139,7 +150,12 @@ export const conversationChangeKindSchema = z.enum(CONVERSATION_CHANGE_KINDS)
 export type ConversationChangeKind = z.infer<typeof conversationChangeKindSchema>
 
 /** Entities a user_changes row can point at; the sync feed returns the current authorized state of each. */
-export const USER_CHANGE_ENTITIES = ['conversation', 'message_hidden', 'me'] as const
+export const USER_CHANGE_ENTITIES = [
+  'conversation',
+  'message_hidden',
+  'me',
+  'notification',
+] as const
 export const userChangeEntitySchema = z.enum(USER_CHANGE_ENTITIES)
 export type UserChangeEntity = z.infer<typeof userChangeEntitySchema>
 
@@ -150,3 +166,18 @@ export type UserChangeOperation = z.infer<typeof userChangeOperationSchema>
 export const PRESENCE_STATUSES = ['online', 'away', 'offline'] as const
 export const presenceStatusSchema = z.enum(PRESENCE_STATUSES)
 export type PresenceStatus = z.infer<typeof presenceStatusSchema>
+
+/**
+ * What the in-site notification centre records (docs/01 section 4.8, docs/04 section 6). `report_opened` has no producer
+ * before M7; the value exists from the start so the column never needs rewriting.
+ */
+export const NOTIFICATION_TYPES = [
+  'mention',
+  'reply',
+  'approval_requested',
+  'reminder',
+  'budget_alert',
+  'report_opened',
+] as const
+export const notificationTypeSchema = z.enum(NOTIFICATION_TYPES)
+export type NotificationType = z.infer<typeof notificationTypeSchema>

@@ -41,6 +41,7 @@ export type RealtimeHint =
       version: number
     }
   | { event: 'user.changed'; userId: string; userChangeSeq: number; membership: boolean }
+  | { event: 'notification'; userId: string; notificationId: string; userChangeSeq: number }
   | { event: 'conversation.removed'; userId: string; conversationId: string; userChangeSeq: number }
 
 export async function enqueueHint(
@@ -96,6 +97,16 @@ export async function enqueueHint(
         entityId: hint.userId,
         entityVersion: hint.userChangeSeq,
         payload: { event: hint.event, membership: hint.membership },
+      })
+      return
+    case 'notification':
+      // Shares the personal sequence number, so it shares the key space of the other personal hints.
+      await enqueueWork(tx, deps, {
+        kind: 'realtime',
+        dedupeKey: `uc:${hint.userId}:${hint.userChangeSeq}`,
+        entityId: hint.userId,
+        entityVersion: hint.userChangeSeq,
+        payload: { event: hint.event, notificationId: hint.notificationId },
       })
       return
     case 'conversation.removed':
@@ -275,6 +286,36 @@ export async function recordUserChange(
     userChangeSeq: seq,
     membership: false,
   })
+  return seq
+}
+
+/**
+ * A notification of one person was created or its read state changed (M6). Like every personal change it takes the person's
+ * next number and lands in their log, so a device that missed the hint reads it from there; the hint is the `notification`
+ * event instead of the general `user.changed`, which tells the client which list to look at.
+ */
+export async function recordNotificationChange(
+  tx: DbOrTx,
+  deps: Pick<Deps, 'clock'>,
+  change: { userId: string; notificationId: string; silent?: boolean },
+): Promise<number> {
+  const seq = await allocateUserChange(tx, change.userId)
+  await tx.insert(userChanges).values({
+    userId: change.userId,
+    changeSeq: seq,
+    entityType: 'notification',
+    entityId: change.notificationId,
+    operation: 'upsert',
+    createdAt: deps.clock.now(),
+  })
+  if (change.silent !== true) {
+    await enqueueHint(tx, deps, {
+      event: 'notification',
+      userId: change.userId,
+      notificationId: change.notificationId,
+      userChangeSeq: seq,
+    })
+  }
   return seq
 }
 

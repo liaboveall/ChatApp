@@ -8,6 +8,7 @@ import { z } from 'zod'
 import { conversationSchema } from './conversations.ts'
 import { LIMITS } from './limits.ts'
 import { messageSchema, usersDictionarySchema } from './messages.ts'
+import { notificationSchema } from './notifications.ts'
 import { meSchema } from './users.ts'
 
 const count = z.number().int().min(0)
@@ -75,6 +76,8 @@ export const userChangeItemSchema = z.discriminatedUnion('type', [
     messageId: z.uuid(),
   }),
   z.object({ type: z.literal('me'), me: meSchema }),
+  /** A notification was created or its read state changed (M6); entries I can no longer see are never listed. */
+  z.object({ type: z.literal('notification'), notification: notificationSchema }),
 ])
 export type UserChangeItem = z.infer<typeof userChangeItemSchema>
 

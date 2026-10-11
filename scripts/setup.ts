@@ -14,7 +14,7 @@
  * always follow them, so moving a port is: change the variable, run this, run `bun run infra:up`. A `.env.local` from
  * before the variables keeps the ports its URLs already use.
  */
-import { randomBytes } from 'node:crypto'
+import { createECDH, randomBytes } from 'node:crypto'
 import { copyFileSync, existsSync } from 'node:fs'
 import { getEnv, isUnset, readEnvFile, setEnv, writeEnvFile } from './lib/env-file.ts'
 import { portOf, URL_PORTS, withPort } from './lib/ports.ts'
@@ -121,6 +121,15 @@ const metricsToken = ensure('GARAGE_METRICS_TOKEN', () => token(32))
 ensure('BETTER_AUTH_SECRET', () => token(32))
 ensure('AUTH_TOKEN_ENCRYPTION_KEY', () => token(32))
 ensure('AI_KEY_ENCRYPTION_KEY', () => token(32)) // M5a: members' own AI keys, AES-256-GCM
+// M6: the application server key pair of browser push (RFC 8292). The two halves are made together; a lone one is replaced.
+if (isUnset(getEnv(env, 'VAPID_PUBLIC_KEY')) || isUnset(getEnv(env, 'VAPID_PRIVATE_KEY'))) {
+  const pair = createECDH('prime256v1')
+  pair.generateKeys()
+  setEnv(env, 'VAPID_PUBLIC_KEY', pair.getPublicKey().toString('base64url'))
+  setEnv(env, 'VAPID_PRIVATE_KEY', pair.getPrivateKey().toString('base64url'))
+  filled.push('VAPID_PUBLIC_KEY', 'VAPID_PRIVATE_KEY')
+}
+ensure('VAPID_SUBJECT', () => 'mailto:admin@chatapp.localhost')
 ensure('RESTORE_EPOCH', () => token(12))
 ensure('SEED_DEMO_PASSWORD', () => token(12))
 

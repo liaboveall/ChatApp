@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'vitest'
-import { messageText } from '@/lib/message-text.ts'
+import { messageBodyPreview, messageText } from '@/lib/message-text.ts'
 import {
   edited,
   makeAccount,
@@ -66,6 +66,24 @@ describe('cascadeReplies', () => {
     const result = cascadeReplies([reply, unrelated], edited(quoted, 20, long))
     expect(result[0]?.replyTo).toMatchObject({ state: 'ok', excerpt: 'x'.repeat(100) })
     expect(result[1]).toBe(unrelated)
+  })
+
+  test('reply excerpts parse complete Markdown before truncation and preserve literal punctuation', () => {
+    const cases = [
+      {
+        body: '**当前会话总结**\n\n- **10 月 1 日**：欢迎大家\n- [路线图](https://example.test/map)',
+        excerpt: '当前会话总结 10 月 1 日：欢迎大家 路线图',
+      },
+      { body: `**${'周'.repeat(110)}**`, excerpt: '周'.repeat(100) },
+      { body: '`**literal**` 和 \\*\\*原样\\*\\*', excerpt: '**literal** 和 **原样**' },
+    ]
+    for (const { body, excerpt } of cases) {
+      const source = edited(quoted, 20, body)
+      const result = cascadeReplies([reply], source)
+      expect(result[0]?.replyTo).toMatchObject({ state: 'ok', excerpt })
+      expect(messageBodyPreview(source.body, {})).toBe(excerpt)
+      expect(source.body).toBe(body)
+    }
   })
 
   test('a recall and a deletion turn the quote into those states, without text', () => {
@@ -475,7 +493,7 @@ describe('applyRemoval', () => {
 test('R1: source edits and optimistic previews never truncate inside mention ids', () => {
   const user = makeUser(2, { displayName: 'Bea' })
   const source = makeMessage(3, {
-    body: `${'x'.repeat(90)}<@user:${user.id}> suffix`,
+    body: `**${'x'.repeat(90)}<@user:${user.id}> suffix**`,
     changeSeq: 20,
   })
   const reply = makeMessage(7, {
@@ -491,4 +509,29 @@ test('R1: source edits and optimistic previews never truncate inside mention ids
   if (!quote || !('id' in quote)) throw new Error('quote missing')
   expect(messageText(quote.excerpt, { [user.id]: user })).toBe(`${'x'.repeat(90)}@Bea suffi`)
   expect(messageText(previewOf(source).text, { [user.id]: user })).not.toContain('<@user:')
+})
+
+test('reply excerpts resolve Markdown-bearing names after parsing and keep code literal', () => {
+  const user = makeUser(2, { displayName: '**Bea**' })
+  const source = makeMessage(3, {
+    kind: 'agent',
+    body: `**请 <@user:${user.id}> 确认**，[**文档**](https://example.test)和 \`**literal**\``,
+  })
+  const reply = makeMessage(7, {
+    replyTo: {
+      id: source.id,
+      seq: source.seq,
+      senderId: source.senderId,
+      state: 'ok',
+      excerpt: 'old',
+    },
+  })
+  const quote = cascadeReplies([reply], source)[0]?.replyTo
+  if (!quote || !('id' in quote)) throw new Error('quote missing')
+  expect(messageText(quote.excerpt, { [user.id]: user })).toBe(
+    '请 @**Bea** 确认，文档和 **literal**',
+  )
+  expect(messageBodyPreview(source.body, { [user.id]: user })).toBe(
+    '请 @**Bea** 确认，文档和 **literal**',
+  )
 })

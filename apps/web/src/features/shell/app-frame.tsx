@@ -3,6 +3,7 @@ import { messageSearchResponseSchema, plainMessageText } from '@chatapp/contract
 import { useMatches, useNavigate, useParams, useRouter } from '@tanstack/react-router'
 import {
   Archive,
+  Bell,
   Compass,
   Hash,
   Keyboard,
@@ -17,7 +18,7 @@ import {
   User,
   Users,
 } from 'lucide-react'
-import { type ReactNode, useCallback, useEffect, useMemo, useState } from 'react'
+import { type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { engine, forScreen } from '@/app/sync.ts'
 import { AppIcon } from '@/components/brand/app-icon.tsx'
 import { AppShell } from '@/components/layout/app-shell.tsx'
@@ -46,6 +47,7 @@ import { m } from '@/paraglide/messages.js'
 import { NewAgentChat } from '../agent/new-chat.tsx'
 import { useAgent } from '../agent/store.ts'
 import { ShortcutsDialog } from './shortcuts-dialog.tsx'
+import { useUnreadIndicators } from './use-unread-indicators.ts'
 
 type AppFrameProps = {
   me: Me
@@ -65,6 +67,9 @@ export function AppFrame({ me, settings, onSettingsChange, onSignOut, children }
   const [helpOpen, setHelpOpen] = useState(false)
   const [creating, setCreating] = useState<NewKind | null>(null)
   const [newAgent, setNewAgent] = useState(false)
+  const [newMenuOpen, setNewMenuOpen] = useState(false)
+  const newMenuTrigger = useRef<HTMLButtonElement>(null)
+  useUnreadIndicators()
   const navigate = useNavigate()
   const router = useRouter()
   const conversations = useSidebarGroups()
@@ -120,6 +125,15 @@ export function AppFrame({ me, settings, onSettingsChange, onSignOut, children }
       next: () => goTo(1, false),
       previousUnread: () => goTo(-1, true),
       nextUnread: () => goTo(1, true),
+      // ⌘N in the installed app: the sidebar's "new" menu where it is on screen; the narrow layouts hide it, and the palette
+      // has the same entries.
+      newConversation: () => {
+        if (newMenuTrigger.current?.checkVisibility({ visibilityProperty: true })) {
+          setNewMenuOpen(true)
+        } else {
+          setPaletteOpen(true)
+        }
+      },
     }),
     [toggleAssistant, openSettings, goTo],
   )
@@ -204,6 +218,14 @@ export function AppFrame({ me, settings, onSettingsChange, onSignOut, children }
         label: m.palette_open_appearance(),
         keywords: 'settings appearance theme',
         run: () => openSettings('appearance'),
+      },
+      {
+        id: 'settings-notifications',
+        group: go,
+        icon: Bell,
+        label: m.palette_open_notifications(),
+        keywords: 'settings notifications push alerts',
+        run: () => openSettings('notifications'),
       },
       {
         id: 'settings-account',
@@ -318,6 +340,7 @@ export function AppFrame({ me, settings, onSettingsChange, onSignOut, children }
             onOpenSettings={(section) => openSettings(section)}
             onCreate={setCreating}
             onCreateAgent={() => setNewAgent(true)}
+            newMenu={{ open: newMenuOpen, onOpenChange: setNewMenuOpen, ref: newMenuTrigger }}
           />
         }
         toolbar={

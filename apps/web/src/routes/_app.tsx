@@ -3,6 +3,7 @@ import { createFileRoute, Outlet, redirect, useNavigate } from '@tanstack/react-
 import { useEffect } from 'react'
 import { z } from 'zod'
 import { realtime } from '@/app/realtime.ts'
+import { usePwaBridge } from '@/app/use-pwa-bridge.ts'
 import { useSyncLifecycle } from '@/app/use-sync-lifecycle.ts'
 import { prefetchMarkdown } from '@/components/markdown/lazy.ts'
 import { authApi } from '@/features/auth/auth-api.ts'
@@ -56,6 +57,7 @@ function AppRoute() {
   }, [data])
   useRealtimeBridge(realtime)
   useSyncLifecycle(me)
+  usePwaBridge(me)
   // The Markdown chunk is big: ask for it once the app is on screen and the browser is idle (D-145).
   useEffect(prefetchMarkdown, [])
   useAutoTimezone(me)

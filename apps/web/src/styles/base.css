@@ -135,11 +135,13 @@ kbd {
 }
 
 /* Containers that receive focus only from a skip link or from code do not need a ring around the whole area: the main
-   panel, and the popups of dialogs, the settings sheet and the command palette, which take focus when they open. */
+   panel, and the popups of dialogs, the settings sheet, the command palette and the panels of the popover (the
+   notification centre), which take focus when they open. */
 #main:focus,
 #main:focus-visible,
 .dialog:focus-visible,
 .sheet:focus-visible,
-.palette:focus-visible {
+.palette:focus-visible,
+.panel:focus-visible {
   outline: none;
 }

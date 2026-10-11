@@ -237,6 +237,10 @@ export type LoadAllStats = {
   loads: number
   /** How many commits the reader's row was compared across (a probe that compared nothing proves nothing). */
   compared: number
+  /** Page arrivals, rather than only trim commits, across which the same logical reader's row was found. */
+  comparedLoads: number
+  /** Comparisons recovered before the next paint from the virtualizer's temporary commit without the reader's row. */
+  deferredComparisons: number
   /** The largest movement of the row the reader is looking at across any commit that added or removed rows, in pixels. */
   maxShift: number
   /** Every commit that moved that row by more than 1.5 px: what the commit was, and how far the row was one and two frames later. */
@@ -271,6 +275,8 @@ export function loadAllOlder(page: Page, options: { maxLoads: number }): Promise
     const stats = {
       loads: 0,
       compared: 0,
+      comparedLoads: 0,
+      deferredComparisons: 0,
       maxShift: 0,
       bigShifts: [] as string[],
       retries: 0,
@@ -294,7 +300,11 @@ export function loadAllOlder(page: Page, options: { maxLoads: number }): Promise
 
     // The reader's row: the first article that starts below the toolbar. Its distance from the top of the window is
     // remembered every frame and compared at every commit.
-    const tracked: { element: Element | null; top: number } = { element: null, top: 0 }
+    // A framework may remount an article while retaining the same message in the same place. Node lifetime is not the
+    // reader's row identity: recover the logical sequence, and never invent a baseline after the measured commit.
+    const tracked: { seq: string | null; top: number } = { seq: null, top: 0 }
+    const anchorNow = (): Element | null =>
+      tracked.seq === null ? null : scroller.querySelector(`article[data-seq="${tracked.seq}"]`)
     const pickAnchor = (): void => {
       const view = scroller.getBoundingClientRect()
       let found: Element | null = null
@@ -307,11 +317,13 @@ export function loadAllOlder(page: Page, options: { maxLoads: number }): Promise
           break
         }
       }
-      tracked.element = found
+      tracked.seq = found?.getAttribute('data-seq') ?? null
       tracked.top = top
     }
     const remember = (): void => {
-      if (tracked.element?.isConnected) tracked.top = tracked.element.getBoundingClientRect().top
+      const anchor = anchorNow()
+      if (anchor !== null) tracked.top = anchor.getBoundingClientRect().top
+      else pickAnchor()
     }
     try {
       new PerformanceObserver((list) => {
@@ -355,20 +367,29 @@ export function loadAllOlder(page: Page, options: { maxLoads: number }): Promise
     let pagesArrived = 0
     const observer = new MutationObserver((records) => {
       const count = loaded()
+      let arrivals = 0
       records.forEach((record, index) => {
         const was = Number(record.oldValue ?? 0)
         const now = index + 1 < records.length ? Number(records[index + 1]?.oldValue ?? 0) : count
-        if (now > was) pagesArrived += 1
+        if (now > was) {
+          pagesArrived += 1
+          arrivals += 1
+        }
       })
-      if (tracked.element?.isConnected) {
-        const anchor = tracked.element
-        const baseline = tracked.top
+      const seq = tracked.seq
+      const baseline = tracked.top
+      const commit = count > lastCount ? 'page' : 'trim'
+      const compare = (deferred: boolean): void => {
+        const anchor = seq === null ? null : scroller.querySelector(`article[data-seq="${seq}"]`)
+        if (anchor === null) return
         const moved = Math.abs(anchor.getBoundingClientRect().top - baseline)
         stats.maxShift = Math.max(stats.maxShift, moved)
         stats.compared += 1
+        stats.comparedLoads += arrivals
+        if (deferred) stats.deferredComparisons += 1
         if (moved > 1.5) {
           // Whether it is a displacement that stays (a visible jump) or one that the list corrects before the next paint.
-          const what = `${count > lastCount ? 'page' : 'trim'} → ${count} loaded, row seq ${anchor.getAttribute('data-seq')}, moved ${Math.round(moved)} px`
+          const what = `${commit} → ${count} loaded, row seq ${anchor.getAttribute('data-seq')}, moved ${Math.round(moved)} px`
           requestAnimationFrame(() => {
             const one = Math.abs(anchor.getBoundingClientRect().top - baseline)
             requestAnimationFrame(() => {
@@ -379,6 +400,13 @@ export function loadAllOlder(page: Page, options: { maxLoads: number }): Promise
             })
           })
         }
+      }
+      if (anchorNow() !== null) compare(false)
+      else {
+        // Virtua first commits the prepended window and its offset, then redraws the visible indices. The original row may
+        // be absent in that intermediate DOM commit. Keep its pre-commit sequence and position, and compare it before the
+        // next paint. If it is still absent then, it does not count as a comparison; no post-commit baseline is invented.
+        requestAnimationFrame(() => compare(true))
       }
       lastCount = count
       sample()

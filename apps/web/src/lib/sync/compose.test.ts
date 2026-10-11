@@ -227,14 +227,16 @@ describe('one conversation’s stores are dropped from one place', () => {
     expect(useCompose.getState().byConversation).toEqual({})
   })
 
-  test('a store registers once and is called with the conversation; the unsubscribe removes it', () => {
+  test('a store registers once and is called with the conversation and why; the unsubscribe removes it', () => {
     const reset = vi.fn()
     const off = registerConversationReset(reset)
     clearConversationStores(C)
-    expect(reset).toHaveBeenCalledWith(C)
+    expect(reset).toHaveBeenCalledWith(C, 'forgotten')
+    clearConversationStores(C, 'membership')
+    expect(reset).toHaveBeenLastCalledWith(C, 'membership')
     off()
     clearConversationStores(C)
-    expect(reset).toHaveBeenCalledTimes(1)
+    expect(reset).toHaveBeenCalledTimes(2)
   })
 })
 

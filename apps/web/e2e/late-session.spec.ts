@@ -228,14 +228,35 @@ test('a request of the session that is current, refused because that session is 
   await composer(page).fill('LS_CTL_DRAFT')
   expect(await sessionCookie(page)).not.toBeNull()
 
+  // Park background reads as well as the control request before revocation. Notifications can otherwise learn of the
+  // ended session and navigate away while the test is still trying to open the menu that makes its control request.
+  const apiCalls = /\/api\//
+  let releaseBackground: () => void = () => undefined
+  const backgroundGate = new Promise<void>((resolve) => {
+    releaseBackground = resolve
+  })
+  await page.route(apiCalls, async (route) => {
+    await backgroundGate
+    await route.continue().catch(() => undefined)
+  })
+  const refused = await holdRequest(page, /\/api\/conversations$/, 'POST')
+  await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur())
+  await startCreatingAGroup(page, `LS-ctl-group-${stamp()}`)
+  await refused.requested
+
   // Another device of the person ends this browser's session: really, on the server.
   const other = await signedIn(person)
   expect((await other.post('/api/me/devices/revoke-others')).ok()).toBe(true)
-  await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur())
-  await startCreatingAGroup(page, `LS-ctl-group-${stamp()}`)
+  const answer = await refused.sendToServer()
+  expect(answer.status).toBe(401)
+  expect(answer.error).toBe('UNAUTHENTICATED')
+  expect(answer.setCookies.some(deletesCookie)).toBe(true)
+  await refused.deliver()
 
   await expect(page).toHaveURL(/\/login/)
   await expect(page.getByText(/登录已失效/)).toBeVisible()
+  releaseBackground()
+  await page.unroute(apiCalls)
   // The browser dropped the dead cookie (the refusal told it to), and what the session held went with it.
   expect(await sessionCookie(page)).toBeNull()
   expect(await identityStatus(page)).toBe(401)

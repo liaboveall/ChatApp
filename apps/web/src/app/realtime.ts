@@ -1,5 +1,5 @@
 import { meSchema, WS_PROTOCOL_VERSION } from '@chatapp/contracts'
-import { engine } from '@/app/sync.ts'
+import { engine, outbox } from '@/app/sync.ts'
 import { agentEvent } from '@/features/agent/api.ts'
 import { getProfile } from '@/features/conversations/api.ts'
 import { ApiError, api } from '@/lib/api.ts'
@@ -76,6 +76,8 @@ export const realtime: RealtimeClient = new RealtimeClient({
   // The server forgets what it was told per connection: say it again to the new one.
   onHello: () => {
     engine.onHello()
+    // The connection to the server is up: what was written while it was not can be sent (after the checks, D-205).
+    void outbox.resume()
     presenceWatch.resend()
     activity.resend()
   },

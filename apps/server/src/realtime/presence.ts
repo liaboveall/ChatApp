@@ -36,6 +36,11 @@ export interface PresenceStore {
     now: number,
   ): Promise<PresenceChange>
   setFocus(connection: PresenceConnection, focus: Focus): Promise<void>
+  /**
+   * Whether the person has a live connection that is active, in the foreground and looking at this conversation. A push is
+   * not sent then (docs/01 section 4.8). Best effort: a page that just changed conversation may still be counted.
+   */
+  viewing(userId: string, conversationId: string, now: number): Promise<boolean>
   disconnect(connection: PresenceConnection, now: number): Promise<PresenceChange>
   /** Current status of each person, summed from their live connections (no announcement state involved). */
   statuses(userIds: readonly string[], now: number): Promise<Map<string, PresenceStatus>>
@@ -174,6 +179,19 @@ export function createPresenceStore(valkey: Valkey, prefix: string): PresenceSto
         )
         await valkey.expire(key, KEY_TTL_SECONDS)
       }
+    },
+    async viewing(userId, conversationId, now) {
+      const fields = await valkey.hgetall(userKey(userId))
+      for (const [field, value] of Object.entries(fields)) {
+        if (!field.startsWith('f:')) continue
+        const [looking, foreground] = value.split('|')
+        if (looking !== conversationId || foreground !== '1') continue
+        const connection = fields[`c:${field.slice(2)}`]
+        if (connection === undefined) continue
+        const [state, expiry] = connection.split('|')
+        if (state === 'active' && Number(expiry) > now) return true
+      }
+      return false
     },
     async disconnect(c, now) {
       return parseChange(

@@ -9,6 +9,9 @@ type MenuProps = {
   trigger: ReactElement
   /** Start open (stories and tests). */
   defaultOpen?: boolean
+  /** Controlled: open from somewhere else too (a shortcut). */
+  open?: boolean
+  onOpenChange?: (open: boolean) => void
   children: ReactNode
   align?: 'start' | 'center' | 'end'
   side?: 'top' | 'bottom' | 'left' | 'right'
@@ -19,11 +22,17 @@ export function Menu({
   trigger,
   children,
   defaultOpen,
+  open,
+  onOpenChange,
   align = 'start',
   side = 'bottom',
 }: MenuProps) {
   return (
-    <BaseMenu.Root defaultOpen={defaultOpen}>
+    <BaseMenu.Root
+      defaultOpen={defaultOpen}
+      open={open}
+      onOpenChange={onOpenChange ? (next) => onOpenChange(next) : undefined}
+    >
       <BaseMenu.Trigger render={trigger} />
       <BaseMenu.Portal>
         <BaseMenu.Positioner side={side} align={align} sideOffset={6} className="positioner">

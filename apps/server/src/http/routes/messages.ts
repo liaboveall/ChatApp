@@ -7,6 +7,7 @@ import {
   messagesQuerySchema,
   messagesResponseSchema,
   okResponseSchema,
+  replayMessageRequestSchema,
   sendMessageRequestSchema,
   syncHeadsResponseSchema,
   userChangesResponseSchema,
@@ -19,6 +20,7 @@ import {
   hideMessage,
   listMessages,
   recallMessage,
+  replayMessage,
   sendMessage,
 } from '../../domain/messages.ts'
 import { getConversationChanges, getSyncHeads, getUserChanges } from '../../domain/sync.ts'
@@ -57,6 +59,26 @@ const sendRoute = createRoute({
       'The same clientId and request were sent before: that message',
     ),
     409: err('The clientId was used for another message, or the conversation is archived'),
+    422: err('Validation failed'),
+    ...accessErrors,
+  },
+})
+
+const replayRoute = createRoute({
+  method: 'post',
+  path: '/api/conversations/{id}/messages/replay',
+  tags: ['messages'],
+  summary:
+    'Send a plain-text message that was queued offline; accepted within 24 hours (403 WINDOW_EXPIRED after), never moves the read position',
+  security: [{ cookieAuth: [] }],
+  request: { params: idParam, body: body(replayMessageRequestSchema) },
+  responses: {
+    201: json(messageEnvelopeSchema, 'Sent'),
+    200: json(
+      messageEnvelopeSchema,
+      'The same clientId and request were sent before: that message',
+    ),
+    409: err('The clientId was used for another message, or the membership changed'),
     422: err('Validation failed'),
     ...accessErrors,
   },
@@ -180,6 +202,17 @@ export function messageRoutes(app: OpenAPIHono<HttpEnv>, services: Services): vo
       { policy: POLICIES.messageUser, subject: principal.userId },
     ])
     const result = await sendMessage(deps, principal, id, c.req.valid('json'))
+    return c.json(result.envelope, result.created ? 201 : 200)
+  })
+
+  app.openapi(replayRoute, async (c) => {
+    const principal = principalOf(c)
+    const { id } = c.req.valid('param')
+    await limiter.enforce([
+      { policy: POLICIES.messageConversationUser, subject: `${principal.userId}:${id}` },
+      { policy: POLICIES.messageUser, subject: principal.userId },
+    ])
+    const result = await replayMessage(deps, principal, id, c.req.valid('json'))
     return c.json(result.envelope, result.created ? 201 : 200)
   })
 

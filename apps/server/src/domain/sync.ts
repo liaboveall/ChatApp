@@ -38,6 +38,7 @@ import { cursorExpiry, decodeCursor, encodeCursor } from './cursor.ts'
 import type { Deps } from './deps.ts'
 import { loadMe } from './me.ts'
 import { latestMessages, projectMessages, type Viewer } from './messages.ts'
+import { loadNotificationsByIds } from './notifications.ts'
 import type { SessionPrincipal } from './principal.ts'
 
 const SNAPSHOT = { isolationLevel: 'repeatable read', accessMode: 'read only' } as const
@@ -348,6 +349,14 @@ export async function getUserChanges(
       : []
     const boundary = new Map(memberships.map((row) => [row.conversationId, row.visibleFromSeq]))
 
+    // Notifications named by the log, as they are now; one that was purged or is no longer the reader's is simply absent.
+    const notificationIds = ordered
+      .filter((entry) => entry.type === 'notification')
+      .map((entry) => entry.id)
+    const notificationOf = new Map(
+      (await loadNotificationsByIds(tx, principal.userId, notificationIds)).map((n) => [n.id, n]),
+    )
+
     const items: UserChangeItem[] = []
     for (const entry of ordered) {
       if (entry.type === 'conversation') {
@@ -378,6 +387,9 @@ export async function getUserChanges(
       } else if (entry.type === 'me') {
         const me = await loadMe(tx, deps, principal.userId)
         if (me) items.push({ type: 'me', me })
+      } else if (entry.type === 'notification') {
+        const notification = notificationOf.get(entry.id)
+        if (notification) items.push({ type: 'notification', notification })
       }
     }
     return {

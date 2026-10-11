@@ -22,6 +22,7 @@ import { meRoutes } from './routes/me.ts'
 import { memberRoutes } from './routes/members.ts'
 import { memoryRoutes } from './routes/memories.ts'
 import { messageRoutes } from './routes/messages.ts'
+import { notificationRoutes } from './routes/notifications.ts'
 import { taskRoutes } from './routes/tasks.ts'
 import { testRoutes } from './routes/test.ts'
 import { userRoutes } from './routes/users.ts'
@@ -75,6 +76,7 @@ export function createApp(services: Services, options: AppOptions = {}): OpenAPI
   agentRoutes(app, services)
   taskRoutes(app, services)
   memoryRoutes(app, services)
+  notificationRoutes(app, services)
 
   const clock = services.deps.clock
   if (services.config.env === 'test') {
@@ -82,6 +84,7 @@ export function createApp(services: Services, options: AppOptions = {}): OpenAPI
       clock: clock instanceof ManualClock ? clock : undefined,
       ageMessage: (messageId, ms) => ageMessage(services.deps, messageId, ms),
       realtime: () => services.realtime,
+      pushOutbox: services.pushOutbox,
     })
   }
 

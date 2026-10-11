@@ -307,9 +307,10 @@ test('mentions use current names, deduplicate, edits replace recipients without 
   })
   expect(edited.status).toBe(200)
   expect(edited.body.message.mentions).toEqual([alice.id])
-  expect((await dbs.owner.db.select().from(workItems)).every((w) => w.kind === 'realtime')).toBe(
-    true,
-  )
+  // The send made its one notification task (M6); the edit made no new one and no email, media or agent work.
+  const work = await dbs.owner.db.select().from(workItems)
+  expect(work.filter((w) => w.kind === 'push')).toHaveLength(1)
+  expect(work.every((w) => w.kind === 'realtime' || w.kind === 'push')).toBe(true)
   await alice.post(`/api/messages/${sent.body.message.id}/recall`)
   expect(await dbs.owner.db.select().from(messageMentions)).toHaveLength(0)
 })

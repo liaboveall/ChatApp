@@ -350,6 +350,44 @@ describe('sending (INV-01, INV-02, INV-28)', () => {
 })
 
 describe('replies (D-035, AT-03)', () => {
+  test('Markdown reply excerpts stay readable across sends and reloads without changing bodies', async () => {
+    const alice = await person(app, 'alice')
+    const bob = await person(app, 'bob')
+    await dbs.owner.db.update(users).set({ name: '**Bob**' }).where(eq(users.id, bob.id))
+    const group = await createConversation(alice, {
+      kind: 'group',
+      name: 'Markdown quotes',
+      memberIds: [bob.id],
+    })
+    const cases = [
+      {
+        body: '**当前会话总结**\n\n- **10 月 1 日**：欢迎大家\n- [路线图](https://example.test/map)',
+        excerpt: '当前会话总结 10 月 1 日：欢迎大家 路线图',
+      },
+      { body: `**${'周'.repeat(110)}**`, excerpt: '周'.repeat(100) },
+      { body: '`**literal**` 和 \\*\\*原样\\*\\*', excerpt: '**literal** 和 **原样**' },
+      { body: `**请 <@user:${bob.id}> 确认**`, excerpt: '请 @**Bob** 确认' },
+    ]
+    for (const { body, excerpt } of cases) {
+      const original = await say(alice, group.id, body)
+      expect(original.status).toBe(201)
+      const reply = await say(bob, group.id, '收到', { replyToId: original.body.message.id })
+      expect(reply.status).toBe(201)
+      expect(reply.body.message.replyTo).toMatchObject({ state: 'ok', excerpt })
+      const reloaded = await page(bob, group.id)
+      expect(reloaded.body.messages.find((m) => m.id === reply.body.message.id)?.replyTo).toEqual(
+        reply.body.message.replyTo,
+      )
+      const read = await bob.get<MessageEnvelope>(`/api/messages/${original.body.message.id}`)
+      expect(read.body.message.body).toBe(body)
+      const [stored] = await dbs.owner.db
+        .select({ body: messages.body })
+        .from(messages)
+        .where(eq(messages.id, original.body.message.id))
+      expect(stored?.body).toBe(body)
+    }
+  })
+
   test('a quote shows the sender and the first words; what is withdrawn shows only its state', async () => {
     const alice = await person(app, 'alice')
     const bob = await person(app, 'bob')

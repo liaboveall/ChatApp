@@ -65,6 +65,8 @@ export type TaskCursor = {
   o: [string, string]
   x: number
 }
+/** A page position in the person's notification list (M6): newest first by creation time, then id. */
+export type NotificationCursor = { k: 'notif'; u: string; o: [string, string]; x: number }
 /** A page position in the administrators' run list, bound to its filters. */
 export type AdminRunsCursor = {
   k: 'admin-runs'
@@ -81,6 +83,7 @@ type AnyCursor =
   | ChannelsCursor
   | SearchCursor
   | TaskCursor
+  | NotificationCursor
 
 export function encodeCursor(deps: Pick<Deps, 'config'>, cursor: AnyCursor): string {
   return signPayload(deps.config.auth.cursorKey, cursor)

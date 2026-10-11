@@ -69,6 +69,41 @@ describe('the store: connections summed per person', () => {
     valkey.disconnect()
   })
 
+  test('"viewing" needs a live, active, foreground connection looking at exactly that conversation (M6)', async () => {
+    const t0 = 5_000_000
+    const here = crypto.randomUUID()
+    const elsewhere = crypto.randomUUID()
+    await store.connect(conn('tab1'), t0)
+    expect(await store.viewing(user, here, t0)).toBe(false)
+
+    await store.setFocus(conn('tab1'), { conversationId: here, foreground: true })
+    expect(await store.viewing(user, here, t0)).toBe(true)
+    expect(await store.viewing(user, elsewhere, t0)).toBe(false)
+    expect(await store.viewing(crypto.randomUUID(), here, t0)).toBe(false)
+
+    // In the background, or idle, the person is not looking.
+    await store.setFocus(conn('tab1'), { conversationId: here, foreground: false })
+    expect(await store.viewing(user, here, t0)).toBe(false)
+    await store.setFocus(conn('tab1'), { conversationId: here, foreground: true })
+    await store.setActivity(conn('tab1'), 'idle', t0)
+    expect(await store.viewing(user, here, t0)).toBe(false)
+    await store.setActivity(conn('tab1'), 'active', t0)
+    expect(await store.viewing(user, here, t0)).toBe(true)
+
+    // A second tab elsewhere does not hide the first; one that looks at nothing is not counted.
+    await store.connect(conn('tab2'), t0)
+    await store.setFocus(conn('tab2'), { conversationId: elsewhere, foreground: true })
+    expect(await store.viewing(user, here, t0)).toBe(true)
+    expect(await store.viewing(user, elsewhere, t0)).toBe(true)
+    await store.setFocus(conn('tab2'), { conversationId: null, foreground: true })
+    expect(await store.viewing(user, elsewhere, t0)).toBe(false)
+
+    // A connection that stopped renewing no longer counts, and a closed one never does.
+    expect(await store.viewing(user, here, t0 + PRESENCE_TTL_MS + 1)).toBe(false)
+    await store.disconnect(conn('tab1'), t0)
+    expect(await store.viewing(user, here, t0)).toBe(false)
+  })
+
   test('online while any connection is active, away when all are idle, offline when none is left (L-18)', async () => {
     const t0 = 1_000_000
     expect(await store.connect(conn('tab1'), t0)).toEqual({

@@ -1,4 +1,5 @@
 export * from './agent.ts'
 export * from './enums.ts'
 export * from './memory.ts'
+export * from './notifications.ts'
 export * from './tables.ts'

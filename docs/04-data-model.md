@@ -321,10 +321,11 @@ V-13 必须验证 adapter 创建事务可以实施上述锁和关联；否则先
   - 列：`id`、`user_id`、`session_id`、`endpoint`（唯一）、`installation_id`、`binding_version`、`p256dh`、`auth`、`user_agent`、`created_at`、`last_success_at`、`failure_count`。
   - `session_id` 是订阅时的登录会话；该会话退出或被注销时，这条订阅一并删除（D-038）。
 - **`notifications`**：
-  - 列：`id`、`user_id`、`type`、`data`（jsonb）、`read_at`、`version`（默认1，变更递增）、`created_at`。
+  - 列：`id`、`user_id`、`type`、`data`（jsonb）、`dedupe_key`、`read_at`、`version`（默认1，变更递增）、`created_at`。`(user_id, dedupe_key)` 唯一：同一原因（一条消息、一个审批、一个提醒、一个预算档位）对同一个人只记一条（D-202）。
   - `type` 的取值：`mention` / `reply` / `approval_requested` / `reminder` / `budget_alert` / `report_opened`。
   - data 只存资源 id、类型和必要时间，不保存聊天摘要；读取时重查权限并投影。来源不可见时显示通用不可用提示，不返回旧正文。
-  - 索引：`(user_id, created_at desc)`。保留 90 天。
+  - 索引：`(user_id, created_at desc, id desc)`（翻页）、`(user_id)` 上 `read_at is null` 的部分索引（未读数）、`(created_at)`（清理）。保留 90 天，清理任务每 10 分钟删一批。
+  - 每条创建或变更（已读）同事务占用本人下一个个人变更号，写入 `user_changes`（`entity_type = notification`），所以错过 `notification` 提示的设备能靠 `/api/me/changes` 补上。
 
 ## 7. Agent（M4 / M5）
 

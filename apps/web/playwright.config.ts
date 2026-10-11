@@ -26,12 +26,20 @@ export default defineConfig({
     trace: 'retain-on-failure',
     screenshot: 'only-on-failure',
   },
+  // The app registers a service worker on every page (M6, D-206). Chromium runs the whole suite with it: Playwright sees and
+  // routes what a controlled page asks for there. In WebKit and Firefox it does not (a request of a page the worker controls
+  // escapes `route`, and a WebKit navigation can lose its frame), so those two block the worker, and the files about the
+  // worker allow it again (`pwa.spec.ts`).
   projects: [
     { name: 'chromium', use: { ...devices['Desktop Chrome'] }, grepInvert: /@perf/ },
-    { name: 'webkit', use: { ...devices['Desktop Safari'] }, grepInvert: /@perf/ },
+    {
+      name: 'webkit',
+      use: { ...devices['Desktop Safari'], serviceWorkers: 'block' },
+      grepInvert: /@perf/,
+    },
     {
       name: 'firefox',
-      use: { ...devices['Desktop Firefox'] },
+      use: { ...devices['Desktop Firefox'], serviceWorkers: 'block' },
       grep: /@smoke/,
       grepInvert: /@perf/,
     },

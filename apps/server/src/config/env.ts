@@ -7,6 +7,7 @@ import { createHmac } from 'node:crypto'
 import { timezoneSchema } from '@chatapp/contracts'
 import { z } from 'zod'
 import { parseTrustedProxies } from '../lib/ip.ts'
+import { vapidKeysMatch } from '../runtime/web-push.ts'
 
 export type AppEnv = 'development' | 'test' | 'production'
 
@@ -45,6 +46,8 @@ export type Config = {
   }
   /** 32 raw bytes encrypting members' own AI keys (M5a, SEC-26); optional outside production, where keys are then off. */
   aiKeyEncryptionKey: Uint8Array | undefined
+  /** The application server key pair of browser push (M6, RFC 8292); absent where push is not set up (never in production). */
+  push: { publicKey: string; privateKey: string; subject: string } | undefined
   smtp: {
     host: string
     port: number
@@ -92,6 +95,9 @@ const rawSchema = z.object({
   BETTER_AUTH_SECRET: z.string().min(1),
   AUTH_TOKEN_ENCRYPTION_KEY: z.string().min(1),
   AI_KEY_ENCRYPTION_KEY: optional(z.string()),
+  VAPID_PUBLIC_KEY: optional(z.string()),
+  VAPID_PRIVATE_KEY: optional(z.string()),
+  VAPID_SUBJECT: optional(z.string()),
   RESTORE_EPOCH: z.string().min(1),
   SMTP_HOST: z.string().min(1),
   SMTP_PORT: z.coerce.number().int().min(1).max(65535),
@@ -208,6 +214,29 @@ export function loadConfig(source: Record<string, string | undefined>): Config {
   )
     problems.push('AI_KEY_ENCRYPTION_KEY: must differ from the other secrets')
 
+  // Browser push (M6): the three values belong together, and the private key has to be the other half of the public one.
+  let push: Config['push']
+  const vapid = [raw.VAPID_PUBLIC_KEY, raw.VAPID_PRIVATE_KEY, raw.VAPID_SUBJECT]
+  if (vapid.every((value) => value === undefined)) {
+    if (isProduction)
+      problems.push('VAPID_PUBLIC_KEY, VAPID_PRIVATE_KEY, VAPID_SUBJECT: required in production')
+  } else if (raw.VAPID_PUBLIC_KEY && raw.VAPID_PRIVATE_KEY && raw.VAPID_SUBJECT) {
+    const keys = {
+      publicKey: raw.VAPID_PUBLIC_KEY,
+      privateKey: raw.VAPID_PRIVATE_KEY,
+      subject: raw.VAPID_SUBJECT,
+    }
+    if (!vapidKeysMatch(keys))
+      problems.push(
+        'VAPID_PRIVATE_KEY: must be the private half of VAPID_PUBLIC_KEY (P-256, base64url)',
+      )
+    else if (!/^(mailto:[^\s@]+@[^\s@]+|https:\/\/[^\s]+)$/.test(keys.subject))
+      problems.push('VAPID_SUBJECT: must be a mailto: address or an https: URL')
+    else push = keys
+  } else {
+    problems.push('VAPID_PUBLIC_KEY, VAPID_PRIVATE_KEY and VAPID_SUBJECT must be set together')
+  }
+
   if (isProduction) {
     if (!raw.AI_KEY_ENCRYPTION_KEY) problems.push('AI_KEY_ENCRYPTION_KEY: required in production')
     for (const key of ['BETTER_AUTH_SECRET', 'AUTH_TOKEN_ENCRYPTION_KEY'] as const) {
@@ -267,6 +296,7 @@ export function loadConfig(source: Record<string, string | undefined>): Config {
       restoreEpoch: raw.RESTORE_EPOCH,
     },
     aiKeyEncryptionKey: aiKey,
+    push,
     smtp: {
       host: raw.SMTP_HOST,
       port: raw.SMTP_PORT,

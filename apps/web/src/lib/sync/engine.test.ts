@@ -60,9 +60,9 @@ function setup(options: { conversation?: Conversation; seed?: number; me?: Me } 
     random: () => 0.5,
     onForgotten: (id, reason) => forgotten.push([id, reason]),
     // Wired like the application: the real stores of the sync layer are emptied, and the test can see that it happened.
-    onConversationReset: (id) => {
+    onConversationReset: (id, reason) => {
       resets.push(id)
-      clearConversationStores(id)
+      clearConversationStores(id, reason)
     },
     onStop: () => {
       stopped()
@@ -1612,6 +1612,78 @@ describe('what the person wrote under a membership that ended does not outlive i
           await t.engine.openConversation(CONV)
           expectNothingLeft(M2)
         }
+        t.engine.stop()
+      },
+    )
+  })
+
+  describe('a message that was waiting for the network (D-205)', () => {
+    function writeOffline(t: Setup): Outbox {
+      const source = t.server.messages[0]
+      if (source === undefined) throw new Error('no message')
+      const outbox = new Outbox({
+        send: () => new Promise<MessageEnvelope>(() => undefined),
+        ticket: (id) => t.engine.ticket(id),
+        onSent: () => undefined,
+        onAccessError: () => false,
+        membershipOf: (id) => t.engine.membershipOf(id),
+        now: Date.now,
+        newId: () => uuid(9002),
+        queue: {
+          replay: () => new Promise<MessageEnvelope>(() => undefined),
+          isOnline: () => false,
+          canQueue: () => true,
+          verifyAccount: async () => true,
+          verifyConversation: async () => undefined,
+        },
+      })
+      outbox.enqueue({
+        conversationId: CONV,
+        membershipId: M1,
+        body: 'written without a network',
+        replyToId: source.id,
+        quote: {
+          id: source.id,
+          seq: 1,
+          senderId: source.senderId,
+          excerpt: source.body,
+          state: 'ok',
+        },
+      })
+      return outbox
+    }
+
+    test.each(routes)(
+      'after %s it is gone with the conversation, or kept for the person to send by hand without its reply',
+      async (_name, route, after) => {
+        const t = setup({ seed: 3 })
+        await open(t)
+        const outbox = writeOffline(t)
+        expect(pendingOf(useOutbox.getState(), CONV).map((entry) => entry.state)).toEqual([
+          'offline',
+        ])
+        await route(t)
+        const left = pendingOf(useOutbox.getState(), CONV)
+        if (after === 'gone') {
+          expect(left).toEqual([])
+        } else {
+          // Written under the old membership, so never sent by itself; the quote of a message the new membership may not see
+          // goes, the person's own words stay (docs/03 section 11).
+          expect(left).toEqual([
+            expect.objectContaining({
+              body: 'written without a network',
+              membershipId: M1,
+              state: 'failed',
+              error: 'MEMBERSHIP_CHANGED',
+              replyToId: null,
+              quote: null,
+            }),
+          ])
+          // The draft and the reply bar of the old membership still go (D-171).
+          expect(draftOf(useDrafts.getState(), CONV)).toBe('')
+          expect(useCompose.getState().byConversation[CONV]).toBeUndefined()
+        }
+        outbox.clearAll()
         t.engine.stop()
       },
     )

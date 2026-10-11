@@ -74,6 +74,11 @@ export const wsAttachmentUpdatedSchema = envelope(
   z.object({ attachmentId: z.uuid(), generation: count, version: count }),
 )
 export const wsUserChangedSchema = envelope('user.changed', z.object({ userChangeSeq: count }))
+/** A notification of mine was created or changed; the entry itself comes with my personal log (M6). */
+export const wsNotificationSchema = envelope(
+  'notification',
+  z.object({ notificationId: z.uuid(), userChangeSeq: count }),
+)
 export const agentDeltaSchema = z.object({
   conversationId: z.uuid(),
   runId: z.uuid(),
@@ -135,6 +140,7 @@ export const wsServerMessageSchema = z.discriminatedUnion('type', [
   wsConversationChangedSchema,
   wsMemberChangedSchema,
   wsUserChangedSchema,
+  wsNotificationSchema,
   wsAgentDeltaSchema,
   wsAgentRunUpdatedSchema,
   wsTaskChangedSchema,

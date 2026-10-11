@@ -463,6 +463,8 @@
   margin: 0 auto;
   border-radius: 26px;
   display: grid;
+  /* Let long reply previews shrink within the capsule and show their ellipsis. */
+  grid-template-columns: minmax(0, 1fr);
 }
 .composer__ctx {
   display: flex;
@@ -525,7 +527,15 @@
 .msg__retry {
   display: flex;
   justify-content: flex-end;
+  align-items: center;
+  flex-wrap: wrap;
   gap: 4px;
+}
+/* Why a message was not sent, or what it is waiting for: said once, in words, beside the buttons. */
+.msg__note {
+  color: var(--label-secondary);
+  font-size: var(--fs-footnote);
+  text-align: end;
 }
 .composer__input {
   flex: 1;

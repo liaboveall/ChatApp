@@ -50,4 +50,8 @@ export const POLICIES = {
   approvalDecideUser: { name: 'approval-decide.user', limit: 60, windowMs: minutes(1) },
   taskCancelUser: { name: 'task-cancel.user', limit: 60, windowMs: minutes(1) },
   memoryWriteUser: { name: 'memory-write.user', limit: 30, windowMs: minutes(1) },
+  // M6. Subscribing resolves the endpoint's name once; a test push reaches the person's own browser.
+  notificationsReadUser: { name: 'notifications-read.user', limit: 120, windowMs: minutes(1) },
+  pushSubscribeUser: { name: 'push-subscribe.user', limit: 20, windowMs: minutes(10) },
+  pushTestUser: { name: 'push-test.user', limit: 5, windowMs: minutes(1) },
 } as const satisfies Record<string, LimitPolicy>

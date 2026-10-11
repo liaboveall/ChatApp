@@ -299,14 +299,37 @@ function MessageRow({ item, context }: { item: MessageItem; context: RowContext 
   )
 }
 
+/** Why a message that was kept for the person was not sent on its own, in words. */
+function failureNote(error: string | null): string | null {
+  switch (error) {
+    case 'QUEUE_EXPIRED':
+      return m.pending_note_expired()
+    case 'MEMBERSHIP_CHANGED':
+      return m.pending_note_membership()
+    case 'NOT_QUEUEABLE':
+      return m.pending_note_not_queueable()
+    default:
+      return null
+  }
+}
+
 function PendingRow({ item, context }: { item: PendingItem; context: RowContext }) {
   const pending = item.pending
   const failed = pending.state === 'failed'
+  // Plain text written without a network: it stays in the line and goes by itself when the network is back (D-205).
+  const waiting = pending.state === 'offline'
   const quote = pending.quote
+  const note = failed ? failureNote(pending.error) : null
   return (
     <article
       className="msg-article"
-      aria-label={failed ? m.pending_failed_label() : m.pending_sending_label()}
+      aria-label={
+        failed
+          ? m.pending_failed_label()
+          : waiting
+            ? m.pending_offline_label()
+            : m.pending_sending_label()
+      }
       aria-busy={failed ? undefined : true}
       tabIndex={-1}
       data-pending={pending.clientId}
@@ -347,6 +370,7 @@ function PendingRow({ item, context }: { item: PendingItem; context: RowContext 
       </div>
       {failed ? (
         <div className="msg__retry">
+          {note === null ? null : <span className="msg__note">{note}</span>}
           <button
             type="button"
             className="btn btn--plain btn--sm"
@@ -354,6 +378,18 @@ function PendingRow({ item, context }: { item: PendingItem; context: RowContext 
           >
             {m.common_retry()}
           </button>
+          <button
+            type="button"
+            className="btn btn--plain btn--sm"
+            onClick={() => context.onDiscard(pending)}
+          >
+            {m.pending_discard()}
+          </button>
+        </div>
+      ) : null}
+      {waiting ? (
+        <div className="msg__retry">
+          <span className="msg__note">{m.pending_offline_note()}</span>
           <button
             type="button"
             className="btn btn--plain btn--sm"

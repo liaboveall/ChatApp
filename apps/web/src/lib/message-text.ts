@@ -1,6 +1,7 @@
 import {
   type ExcerptKind,
   LIMITS,
+  markdownPreviewText,
   plainMessageText,
   truncateCodePoints,
   type UserSummary,
@@ -21,4 +22,13 @@ export function messageText(
     }),
     LIMITS.excerptMaxCodePoints,
   )
+}
+
+/** Parse a complete message body once; already projected excerpts go straight to messageText. */
+export function messageBodyPreview(
+  body: string | null | undefined,
+  users: Record<string, UserSummary>,
+  kind?: ExcerptKind | null,
+): string {
+  return messageText(markdownPreviewText(body ?? null), users, kind)
 }

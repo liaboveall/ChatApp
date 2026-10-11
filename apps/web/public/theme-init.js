@@ -13,6 +13,10 @@
     const glass = one(a.glass, ['clear', 'tinted', 'opaque'])
     const size = [-1, 1, 2, 3].includes(a.typeSize) ? String(a.typeSize) : null
     if (theme) root.setAttribute('data-theme', theme)
+    // The installed app's title bar follows the chosen theme, not the system's (tokens.ts `bg-app`).
+    if (theme)
+      for (const meta of document.querySelectorAll('meta[name="theme-color"]'))
+        meta.setAttribute('content', theme === 'dark' ? '#000000' : '#F2F2F7')
     if (accent) root.setAttribute('data-accent', accent)
     if (glass) root.setAttribute('data-glass', glass)
     if (size) root.setAttribute('data-type-size', size)

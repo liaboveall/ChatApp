@@ -28,6 +28,10 @@ export default defineConfig({
   use: {
     baseURL: ORIGIN,
     ignoreHTTPSErrors: true,
+    // The certificate is the suite's own: a browser registers no service worker from a site whose certificate it does not
+    // trust, and reports the attempt as an error. The worker's files are checked here as files (1-headers.spec.ts); the
+    // worker itself is tested by the end-to-end suite.
+    serviceWorkers: 'block',
     locale: 'zh-CN',
     timezoneId: 'Asia/Shanghai',
     trace: 'retain-on-failure',

@@ -11,6 +11,8 @@ import {
   runMaintenanceTask,
 } from '../domain/maintenance.ts'
 import { purgeExpiredSummaries } from '../domain/memories.ts'
+import { purgeExpiredNotifications } from '../domain/notifications.ts'
+import { pruneStaleSubscriptions } from '../domain/push.ts'
 import { reconcileRegistrations } from '../domain/registration.ts'
 import { purgeTaskContent, reconcileTasks } from '../domain/tasks.ts'
 import { purgeFinishedWork, recoverExpiredWork, workBacklog } from '../domain/work-queue.ts'
@@ -87,8 +89,13 @@ export function createMaintenance(parts: {
     const agentContent = await purgeAgentContent(deps)
     const taskContent = await purgeTaskContent(deps)
     const summaries = await purgeExpiredSummaries(deps)
+    // Notifications are kept 90 days (docs/01 section 7); subscriptions that stopped working are dropped.
+    const notifications = await purgeExpiredNotifications(deps)
+    const subscriptions = await pruneStaleSubscriptions(deps)
     const total =
       finished +
+      notifications +
+      subscriptions +
       agentContent +
       taskContent +
       summaries +

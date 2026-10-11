@@ -3,6 +3,7 @@ import { useAppearance } from '@/lib/appearance.ts'
 import { useShell } from '@/lib/shell-state.ts'
 import { m } from '@/paraglide/messages.js'
 import { Splitter } from './splitter.tsx'
+import { TitleBar } from './title-bar.tsx'
 import { Wallpaper } from './wallpaper.tsx'
 
 type AppShellProps = {
@@ -47,6 +48,7 @@ export function AppShell({ sidebar, toolbar, inspector, fill, children }: AppShe
         {m.shell_skip_to_content()}
       </a>
       <Wallpaper />
+      <TitleBar />
       <div
         className="app"
         data-inspector={inspectorTab ? 'open' : 'closed'}

@@ -67,6 +67,12 @@ export const patchMeRequestSchema = z
         agentMode: z.enum(['fast', 'deep']).optional(),
         /** M5a: `site` uses the site allowance even when an own key is saved; applies to new segments only. */
         aiKeyPreference: z.enum(['own', 'site']).optional(),
+        /** M6: the master switch of browser push for the whole account; on unless turned off (docs/01 section 4.8). */
+        pushEnabled: z.boolean().optional(),
+        /** M6: pushes about the assistant (approvals waiting, reminders); on unless turned off. */
+        pushAssistant: z.boolean().optional(),
+        /** M6: show up to 80 characters of the message in a push; off unless the person turns it on. */
+        pushPreview: z.boolean().optional(),
       })
       .optional(),
     displayName: displayNameSchema.optional(),

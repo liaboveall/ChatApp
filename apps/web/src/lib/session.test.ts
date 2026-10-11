@@ -1,6 +1,7 @@
 import { QueryClient } from '@tanstack/react-query'
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest'
 import { api } from './api.ts'
+import { forgetDevice } from './pwa/device.ts'
 import { queryKeys } from './queries.ts'
 import {
   currentGeneration,
@@ -11,6 +12,9 @@ import {
   startSession,
 } from './session.ts'
 import { SCOPED_PREFIX } from './storage.ts'
+
+// What the browser keeps outside the page (the worker, the push subscription) has its own tests; here only what is asked of it.
+vi.mock('./pwa/device.ts', () => ({ forgetDevice: vi.fn(async () => undefined) }))
 
 let deps: SessionDeps
 let queryClient: QueryClient
@@ -50,6 +54,23 @@ describe('ending a session', () => {
     expect(deps.resetClientState).toHaveBeenCalledTimes(1)
     expect(deps.toSignIn).toHaveBeenCalledWith('expired')
     expect(currentGeneration()).toBe(before + 1)
+  })
+
+  test('the browser is told which account left, so that a late message cannot undo the next sign-in', () => {
+    markSignedIn()
+    queryClient.setQueryData(queryKeys.me, { id: 'u1' })
+    endSession('signed-out')
+    expect(forgetDevice).toHaveBeenLastCalledWith('u1', expect.any(Function))
+    const stillEnded = vi.mocked(forgetDevice).mock.calls.at(-1)?.[1]
+    expect(stillEnded?.()).toBe(true)
+
+    // Nobody was known (the identity never loaded): the worker is told only that nobody is signed in.
+    sessionStarted()
+    expect(stillEnded?.()).toBe(false)
+    markSignedIn()
+    queryClient.setQueryData(queryKeys.me, null)
+    endSession('signed-out')
+    expect(forgetDevice).toHaveBeenLastCalledWith(undefined, expect.any(Function))
   })
 
   test('the second signal about the same loss does nothing', () => {

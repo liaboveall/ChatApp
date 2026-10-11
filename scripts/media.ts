@@ -75,6 +75,9 @@ const DEFAULTS = {
   LOG_LEVEL: 'info',
   AI_PROVIDER: 'soclaas',
   AI_KEY_ENCRYPTION_KEY: '',
+  VAPID_PUBLIC_KEY: '',
+  VAPID_PRIVATE_KEY: '',
+  VAPID_SUBJECT: '',
   EMBEDDING_ENABLED: 'false',
   EMBEDDING_MODEL: 'bge',
   EMBEDDING_SOCKET_PATH: '/run/chatapp-embedding/embedding.sock',
@@ -208,9 +211,14 @@ export function workerEnvironment(source: Source): Record<string, string> {
     env.AI_MODEL_DEEP = env.AI_PROVIDER === 'soclaas' ? 'x-test-1' : 'deepseek-flash'
   if (env.AI_PROVIDER === 'soclaas') env.DEEPSEEK_API_KEY = ''
   else env.SOCLAAS_API_KEY = ''
+  const origin = localUrl(env.APP_ORIGIN ?? '', 'APP_ORIGIN', ['http:'])
   requireCondition(
-    env.APP_ORIGIN === 'http://localhost:5173',
-    'APP_ORIGIN must be http://localhost:5173 for this development stack',
+    origin.hostname === 'localhost' &&
+      !origin.username &&
+      !origin.password &&
+      Number(origin.port) >= 1024 &&
+      env.APP_ORIGIN === origin.origin,
+    'APP_ORIGIN must be an http://localhost origin with an explicit development port',
   )
   const database = localUrl(env.DATABASE_URL ?? '', 'DATABASE_URL', ['postgres:', 'postgresql:'])
   requireCondition(
@@ -450,6 +458,11 @@ export function verifyRuntime(
   const expected = media
     ? mediaEnvironment('/tmp')
     : { ...IMAGE_ENV, ...(worker ?? configCheckWorker()) }
+  if (!media && worker)
+    requireCondition(
+      actual.APP_ORIGIN === worker.APP_ORIGIN,
+      'worker APP_ORIGIN differs from this launch; stop it from its owning invocation before changing web/pwa ports (keep all volumes)',
+    )
   if (!media && !worker) {
     requireCondition(
       same(Object.keys(actual).sort(), Object.keys(expected).sort()) &&

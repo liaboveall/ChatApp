@@ -1,6 +1,7 @@
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { beforeEach, describe, expect, test } from 'vitest'
+import { neutral } from '../design/tokens.ts'
 import {
   APPEARANCE_STORAGE_KEY,
   applyToRoot,
@@ -157,5 +158,61 @@ describe('public/theme-init.js', () => {
       reduceMotion: 'true',
     })
     expect(Object.values(hostile).every((value) => value === null)).toBe(true)
+  })
+})
+
+describe("the installed app's title bar colour (theme-color)", () => {
+  const indexHtml = readFileSync(join(process.cwd(), 'index.html'), 'utf8')
+  const [light, dark] = neutral['bg-app']
+
+  /** The two metas of index.html, put into the test document as the page has them. */
+  function installMetas(): HTMLMetaElement[] {
+    for (const old of document.head.querySelectorAll('meta[name="theme-color"]')) old.remove()
+    const metas = [...indexHtml.matchAll(/<meta name="theme-color"[^>]*>/g)].map((match) => {
+      const parsed = new DOMParser().parseFromString(match[0], 'text/html')
+      const meta = parsed.querySelector('meta') as HTMLMetaElement
+      document.head.append(meta)
+      return meta
+    })
+    return metas
+  }
+  const contents = (): Record<string, string | null> =>
+    Object.fromEntries(
+      [...document.head.querySelectorAll<HTMLMetaElement>('meta[name="theme-color"]')].map(
+        (meta) => [meta.getAttribute('media'), meta.getAttribute('content')],
+      ),
+    )
+
+  test('index.html says the app background of each scheme, the colour the tokens give it', () => {
+    installMetas()
+    expect(contents()).toEqual({
+      '(prefers-color-scheme: light)': light,
+      '(prefers-color-scheme: dark)': dark,
+    })
+  })
+
+  test('a chosen theme colours both, the system theme gives each its own back', () => {
+    installMetas()
+    applyToRoot({ ...DEFAULT_APPEARANCE, theme: 'dark' })
+    expect(Object.values(contents())).toEqual([dark, dark])
+    applyToRoot({ ...DEFAULT_APPEARANCE, theme: 'light' })
+    expect(Object.values(contents())).toEqual([light, light])
+    applyToRoot({ ...DEFAULT_APPEARANCE, theme: 'system' })
+    expect(contents()).toEqual({
+      '(prefers-color-scheme: light)': light,
+      '(prefers-color-scheme: dark)': dark,
+    })
+  })
+
+  test('the pre-paint script colours them as applyToRoot does', () => {
+    for (const theme of ['light', 'dark', 'system'] as const) {
+      installMetas()
+      localStorage.setItem(APPEARANCE_STORAGE_KEY, JSON.stringify({ ...DEFAULT_APPEARANCE, theme }))
+      new Function(themeInit)()
+      const fromScript = contents()
+      installMetas()
+      applyToRoot({ ...DEFAULT_APPEARANCE, theme })
+      expect(fromScript, theme).toEqual(contents())
+    }
   })
 })
