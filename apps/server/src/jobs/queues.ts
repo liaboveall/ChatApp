@@ -7,6 +7,7 @@ export const QUEUE = {
   agent: 'agent',
   scheduled: 'scheduled',
   embedding: 'embedding',
+  push: 'push',
 } as const
 
 export const queuePrefix = (environment: string): string => `chatapp-${environment}`

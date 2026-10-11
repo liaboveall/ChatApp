@@ -23,6 +23,13 @@ export const busEventSchema = z.discriminatedUnion('type', [
     taskId: z.uuid(),
     version: z.number().int().nonnegative(),
   }),
+  /** One of the person's notifications was created or changed (M6); the entry itself comes with their personal log. */
+  z.object({
+    type: z.literal('notification'),
+    userId: z.uuid(),
+    notificationId: z.uuid(),
+    userChangeSeq: z.number().int(),
+  }),
   /** Some session, device or the whole account of this user was revoked: connections re-check right now. */
   z.object({ type: z.literal('auth.revoked'), userId: z.uuid() }),
   /** Work was committed: the dispatcher should look now instead of waiting for its next scan. */
@@ -147,6 +154,15 @@ export function busEventFromWork(work: {
             userId: entityId,
             userChangeSeq: version,
             membership: payload.membership === true,
+          }
+        : null
+    case 'notification':
+      return typeof payload.notificationId === 'string' && version !== null
+        ? {
+            type: 'notification',
+            userId: entityId,
+            notificationId: payload.notificationId,
+            userChangeSeq: version,
           }
         : null
     case 'conversation.removed':

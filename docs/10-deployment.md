@@ -78,6 +78,7 @@
 - **静态文件**：`root /opt/chatapp/web/current`。SPA 回退规则是 `try_files $uri /index.html`：
   - `/assets/*` 从独立追加的共享哈希目录提供，缓存 1 年（immutable）；至少保留 7 天且至少最近 3 版，不仅切换 current 后把旧资源藏起来。资源缺失返回真实 404，不回退 index.html；
   - `index.html` 设置 `no-cache`；
+  - M6：Service Worker `/sw.js` 走普通文件规则，`no-cache`（新版本在浏览器下次检查时就能拿到）；应用清单 `/manifest.webmanifest` 有独立的精确 location，类型是 `application/manifest+json`（Nginx 自带的类型表里没有它，否则会是 `application/octet-stream`），同样 `no-cache`；网关套件逐项核对（D-207）；
   - web root 里没有 Vite 自己的 `.vite/`（`scripts/edge.ts` 组装时排除；部署脚本同样）。
 - **安全响应头**（SEC-06、SEC-22）：
   - 静态文件的 CSP 等头写在 `infra/nginx/security-headers.conf` 片段里，在每个需要的 location 中 `include`。这样可以避开 `add_header` 在子 location 中不继承的问题。取值以 `apps/web/tools/csp.ts` 为准（M1b 的 E2E 就在这份策略下运行，D-116）；`scripts/edge-config.test.ts`（M2b，`bun run check` 里已包含）核对 Nginx 片段与它逐字一致，E2E 夹具则核对每个文档响应的 `Content-Security-Policy` 头逐字等于它（D-148）。

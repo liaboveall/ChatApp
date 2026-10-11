@@ -11,6 +11,7 @@ import {
   conversationMembers,
   executionDelegations,
   messages,
+  pushSubscriptions,
   reminders,
   scheduledMessages,
   users,
@@ -34,6 +35,7 @@ import {
 import { createConversation } from '../../src/domain/conversations.ts'
 import { removeConversationMember } from '../../src/domain/members.ts'
 import { sendMessage } from '../../src/domain/messages.ts'
+import { listNotifications } from '../../src/domain/notifications.ts'
 import {
   endSession,
   revokeAllDevices,
@@ -411,6 +413,116 @@ describe('effects happen exactly once across crashes (INV-10, AT-07, docs/08 sec
     const detail = await getAgentRun(deps, alice, started.id)
     expect(detail.run).toMatchObject({ status: 'cancelled', error: { code: 'APPROVAL_EXPIRED' } })
     expect(detail.approvals[0]?.status).toBe('expired')
+  })
+})
+
+describe('the person is told when the assistant waits for them or a reminder comes due (M6)', () => {
+  async function subscribeAlice() {
+    await deps.db.insert(pushSubscriptions).values({
+      id: crypto.randomUUID(),
+      userId: alice.userId,
+      sessionId: alice.sessionId,
+      endpoint: 'https://fcm.googleapis.com/fcm/send/alice-browser',
+      installationId: crypto.randomUUID(),
+      p256dh: 'p',
+      auth: 'a',
+    })
+  }
+  const deliveries = async () =>
+    (await deps.db.select().from(workItems)).filter(
+      (w) => w.kind === 'push' && w.payload.stage === 'deliver',
+    )
+
+  test('a request waiting for approval makes one entry and one push task, and the entry follows the decision', async () => {
+    await subscribeAlice()
+    const g = await group()
+    const started = await ask(g.id, '代发：请批准我')
+    const detail = await run(started.id)
+    const approval = detail.approvals[0]
+    if (!approval) throw new Error('no approval')
+
+    const entries = (await listNotifications(deps, alice, {})).items
+    expect(entries).toHaveLength(1)
+    expect(entries[0]).toMatchObject({
+      type: 'approval_requested',
+      data: {
+        available: true,
+        approval: { id: approval.id, runId: started.id, status: 'pending' },
+      },
+    })
+    const tasks = await deliveries()
+    expect(tasks).toHaveLength(1)
+    expect(tasks[0]?.payload).toMatchObject({ event: 'approval', userId: alice.userId })
+    expect(JSON.stringify(tasks)).not.toContain('请批准我')
+
+    // Running the same request again (a recovered run) does not make a second entry.
+    await run(started.id)
+    expect((await listNotifications(deps, alice, {})).items).toHaveLength(1)
+
+    await decideApproval(deps, alice, approval.id, {
+      decision: 'reject',
+      expectedStateVersion: approval.stateVersion,
+    })
+    const after = (await listNotifications(deps, alice, {})).items[0]
+    expect(after?.data).toMatchObject({ available: true, approval: { status: 'rejected' } })
+  })
+
+  test('the entry is kept when the conversation the approval is in is switched off, the push is not made', async () => {
+    await subscribeAlice()
+    const g = await group()
+    const started = await ask(g.id, '代发：别吵我')
+    // The approval card lives in the private panel conversation of this run; that is the one that counts.
+    if (!started.conversationId) throw new Error('no panel conversation')
+    await deps.db
+      .update(conversationMembers)
+      .set({ notifyLevel: 'none' })
+      .where(
+        and(
+          eq(conversationMembers.conversationId, started.conversationId),
+          eq(conversationMembers.userId, alice.userId),
+        ),
+      )
+    await run(started.id)
+    expect((await listNotifications(deps, alice, {})).items).toHaveLength(1)
+    expect(await deliveries()).toHaveLength(0)
+  })
+
+  test("with the assistant's pushes switched off there is the entry and no push", async () => {
+    await subscribeAlice()
+    await deps.db
+      .update(users)
+      .set({ settings: { pushAssistant: false } })
+      .where(eq(users.id, alice.userId))
+    const g = await group()
+    await run((await ask(g.id, '代发：只要通知中心')).id)
+    expect((await listNotifications(deps, alice, {})).items).toHaveLength(1)
+    expect(await deliveries()).toHaveLength(0)
+  })
+
+  test('a reminder coming due is an entry with its words and a push task', async () => {
+    await subscribeAlice()
+    const g = await group()
+    const started = await ask(g.id, `提醒我：${later(2)} 交周报`)
+    await run(started.id)
+    const [reminder] = await deps.db
+      .select()
+      .from(reminders)
+      .where(eq(reminders.userId, alice.userId))
+    expect(await listNotifications(deps, alice, {})).toMatchObject({ items: [] })
+    deps.clock.advance(2 * HOUR + 1000)
+    expect(await deliverTask(deps, 'reminder', reminder?.id ?? '')).toBe('sent')
+
+    const [entry] = (await listNotifications(deps, alice, {})).items
+    expect(entry).toMatchObject({
+      type: 'reminder',
+      data: { available: true, conversation: { kind: 'agent' }, message: { preview: '交周报' } },
+    })
+    const tasks = await deliveries()
+    expect(tasks).toHaveLength(1)
+    expect(tasks[0]?.payload.event).toBe('reminder')
+    // The same reminder cannot be delivered twice, so it cannot make a second entry.
+    expect(await deliverTask(deps, 'reminder', reminder?.id ?? '')).toBe('skipped')
+    expect((await listNotifications(deps, alice, {})).items).toHaveLength(1)
   })
 })
 

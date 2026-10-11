@@ -685,6 +685,38 @@ const CASES: Case[] = [
     },
   },
   {
+    // A queue entry is sent under the membership it was written under: the caller's own, where they have one.
+    route: 'POST /api/conversations/{id}/messages/replay',
+    build: async ({ f, who }) => {
+      const [member] = who
+        ? await dbs.owner.db
+            .select({ membershipId: conversationMembers.membershipId })
+            .from(conversationMembers)
+            .where(
+              and(
+                eq(conversationMembers.conversationId, f.id),
+                eq(conversationMembers.userId, who.id),
+              ),
+            )
+        : []
+      return {
+        method: 'POST',
+        path: at(f, '/messages/replay'),
+        body: {
+          clientId: crypto.randomUUID(),
+          body: 'a queued message from the matrix',
+          queuedAt: new Date().toISOString(),
+          membershipId: member?.membershipId ?? crypto.randomUUID(),
+        },
+      }
+    },
+    expect: {
+      group: row(404, OK, OK, OK, 403),
+      channel: row(403, OK, OK, OK, 403),
+      dm: row(404, OK, 404, OK, 404),
+    },
+  },
+  {
     route: 'GET /api/conversations/{id}/changes',
     build: ({ f }) => ({ method: 'GET', path: at(f, '/changes?after=0') }),
     expect: {

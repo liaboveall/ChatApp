@@ -573,7 +573,13 @@ describe('every change leaves a durable trace, atomically (AT-01, INV-16)', () =
     expect(keys.some((k) => k.startsWith(`cm:${id}:`))).toBe(true)
     expect(keys.some((k) => k.startsWith(`mm:${id}:`))).toBe(true)
     expect(keys.some((k) => k.startsWith(`uc:${bob.id}:`))).toBe(true)
-    expect(items.every((i) => i.kind === 'realtime' && i.status === 'pending')).toBe(true)
+    // Every hint is a realtime item; the one other thing a message leaves is the task that works out who it concerns
+    // (M6), which names the message and nothing else.
+    expect(items.every((i) => i.status === 'pending')).toBe(true)
+    expect(items.filter((i) => i.kind !== 'realtime').map((i) => i.kind)).toEqual(['push'])
+    expect(
+      items.filter((i) => i.kind === 'push').every((i) => i.dedupeKey.startsWith('notify:')),
+    ).toBe(true)
     expect(JSON.stringify(items)).not.toContain('secret')
     expect(JSON.stringify(items)).not.toContain('again')
     // The log of each person is contiguous: every number from 1 to the head has an entry.

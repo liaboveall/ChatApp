@@ -1,12 +1,16 @@
 import { messageEnvelopeSchema } from '@chatapp/contracts'
 import { api } from '@/lib/api.ts'
+import { notices } from '@/lib/notifications/store.ts'
+import { meQuery } from '@/lib/queries.ts'
 import { queryClient } from '@/lib/query-client.ts'
 import { serverNow } from '@/lib/realtime.ts'
+import { endSession } from '@/lib/session.ts'
 import { type ForgetReason, SyncEngine } from '@/lib/sync/engine.ts'
 import { screenWrites } from '@/lib/sync/for-screen.ts'
 import { Outbox } from '@/lib/sync/outbox.ts'
 import { clearClientStores, clearConversationStores } from '@/lib/sync/stores.ts'
 import { httpTransport } from '@/lib/sync/transport.ts'
+import { invalidateNoticeSources, refreshNoticesSoon } from './notifications.ts'
 
 type ForgottenListener = (conversationId: string, reason: ForgetReason) => void
 const listeners = new Set<ForgottenListener>()
@@ -30,6 +34,13 @@ export const engine = new SyncEngine({
   // or an edit in progress) may stay on this device, whichever way the membership ended (D-171, SEC-34).
   onConversationReset: clearConversationStores,
   onStop: clearClientStores,
+  // The personal log brings notifications as they are now (M6); a short pause then reads the page for the exact count.
+  onNotifications: (items) => {
+    notices.ingest(items)
+    refreshNoticesSoon()
+  },
+  onNotificationsStale: () => invalidateNoticeSources(),
+  onNotificationSourcesStale: invalidateNoticeSources,
 })
 
 /**
@@ -37,6 +48,27 @@ export const engine = new SyncEngine({
  * who asked, and the membership the request was about, are still here; otherwise the screen gets null and does nothing more.
  */
 export const forScreen = screenWrites(engine)
+
+/**
+ * Who is signed in, asked of the server just now, before anything written offline is sent (M6, D-205). True only for the
+ * account the queue was written under. Nobody signed in any more (the session was revoked while the network was down): the
+ * session ends here, which clears the queue with everything else of the account. Another account: nothing is sent, and the
+ * change of account stops the engine, which empties the lines. A failure to ask throws, and the queue waits.
+ */
+async function verifyAccount(): Promise<boolean> {
+  const scope = engine.scope
+  if (scope === null) return false
+  const me = await queryClient.fetchQuery({ ...meQuery, staleTime: 0 })
+  if (me === null) {
+    endSession('expired')
+    return false
+  }
+  return (
+    me.id === scope.userId &&
+    me.authEpoch === scope.authEpoch &&
+    me.restoreEpoch === scope.restoreEpoch
+  )
+}
 
 /** Messages being sent (D-154): the answer goes into the engine's cache like every other answer. */
 export const outbox: Outbox = new Outbox({
@@ -47,10 +79,27 @@ export const outbox: Outbox = new Outbox({
       schema: messageEnvelopeSchema,
     }),
   ticket: (conversationId) => engine.ticket(conversationId),
-  onSent: (envelope, ticket) => engine.messageSent(envelope, ticket),
+  // A message the queue sent did not move the read position on the server, so it is not counted as read here either (AT-32).
+  onSent: (envelope, ticket, via) => {
+    if (via === 'replay') engine.ingestMessage(envelope, ticket)
+    else engine.messageSent(envelope, ticket)
+  },
   onAccessError: (conversationId, error, ticket) =>
     engine.handleAccessError(conversationId, error, ticket),
   membershipOf: (conversationId) => engine.membershipOf(conversationId),
   now: serverNow,
   newId: () => crypto.randomUUID(),
+  queue: {
+    replay: (conversationId, request) =>
+      api(`/api/conversations/${conversationId}/messages/replay`, {
+        method: 'POST',
+        json: request,
+        schema: messageEnvelopeSchema,
+      }),
+    isOnline: () => navigator.onLine,
+    // The assistant answers at once or not at all: a message to it does not wait for the network.
+    canQueue: (conversationId) => engine.kindOf(conversationId) !== 'agent',
+    verifyAccount,
+    verifyConversation: (conversationId) => engine.refreshConversation(conversationId),
+  },
 })

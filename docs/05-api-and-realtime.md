@@ -86,12 +86,20 @@ AgentRun     { id, userId, trigger, conversationId|null, contextConversationId|n
                status, mode, provider, model, actualModel|null, keySource: 'site'|'user', privacyClass, readScope,
                stepCount, usage: { inputTokens, outputTokens, cachedTokens, costUsd }, createdAt, finishedAt|null,
                error: { code, message }|null, regeneratedFromRunId|null, stateVersion, resumeSeq, contextEpoch }
-Notification { id, version, type, data, readAt|null, createdAt }                          // M6
+Notification { id, version, type, data, readAt|null, createdAt }                          // M6 ✅
+               // data 随 type 变化，读取时按读者当前权限投影；来源不可见时恰好是 { available: false }：
+               //   mention / reply        { available: true, conversation:{id,kind,name|null}, message:{id,seq,preview|null,attachmentKind?,recalled}, sender: UserSummary }
+               //   approval_requested     { available: true, approval:{id,runId,status,expiresAt}, conversationId|null }
+               //   reminder               { available: true, conversation:{id,kind,name|null}, message:{…} }
+               //   budget_alert（仅管理员）  { period, percent: 80|100 }
+               //   report_opened（M7）     { available: true, reportId }
+PushSubscription { id, userAgent|null, createdAt, lastSuccessAt|null, current }                // M6 ✅（不返回 endpoint 和密钥）
 Page<T>      { items: T[], nextCursor|null }  // message lists instead return { messages, users: Record<id, UserSummary>, hasMoreBefore, hasMoreAfter } (D-128)
 ```
 
 - 纯文本摘要统一经 `plainMessageText`：先把完整提及标记解析为当前显示名，再按码点截断；未知名字用中性占位，不显示 UUID。纯附件摘要携带 `attachmentKind` 并有 `[image]` 等兜底，客户端按当前语言显示 `[图片]` 等。正文与草稿继续使用稳定的 `<@user:id>` 格式。
 - 侧栏 `lastMessagePreview.text` 先从完整 Markdown 正文提取可读文字，再解析提及名并截断为 100 码点；标题、加粗、列表等只保留文字，链接保留标签。服务端读取与前端实时/乐观更新使用同一个 `markdownPreviewText`。输出已是纯文本，显示时不再解析 Markdown，防止代码、转义字符和显示名中的星号被再次解释；存储的消息正文保持原文。
+- 回复输入条、乐观待发引用、服务端 `replyTo.excerpt` 与来源编辑后的引用更新也遵循上述顺序：完整正文解析 Markdown、解析提及名、截断可读文字。引用条只显示单行文字摘要，已投影的摘要不再解析 Markdown；代码与转义产生的字面符号、显示名里的格式字符保持原样。
 - 消息列表的响应附带一个 `users` 字典，消息里只放 `senderId`，避免每条消息都重复带上用户资料。
 - 普通实时事件不携带消息或 sender；HTTP 响应按当前请求者投影，再合并 users 字典。
 - `lastMessagePreview.text` 在撤回或删除后为 null，界面文字（"撤回了一条消息"等）由客户端按 `state` 生成。
@@ -190,7 +198,7 @@ Page<T>      { items: T[], nextCursor|null }  // message lists instead return { 
 | `GET /api/sync/heads` / `GET /api/me/changes?after=&cursor=&limit=` | 轻量会话与个人版本清单 / 个人日志，覆盖成员移除、隐藏、已读和设置 | M2a ✅ |
 | `GET /api/messages/:id` | 按当前权限获取单条消息及流式持久快照；不可见引用脱敏。看不到的消息（私有会话里的、加入之前的、我隐藏的）与不存在的消息回答完全相同：404 `Message not found` | M2a ✅ |
 | `POST /api/conversations/:id/messages` | `{clientId, body?, attachmentIds?, replyToId?}`，正文和附件至少要有一个（M3 起最多 10 个本人已 ready、未绑定附件；空正文仅在有附件时可用）；新建返回 201，重复提交返回 200（仍在当前可见范围内时；重新加入之后对水位以前的旧消息重放是 404，见上文幂等条，D-138）；正文最长 5000 个字符，规范化后不能是空白；限流每会话每 10 秒 10 条、每人每分钟 60 条；被禁言 403、已归档 409；发送者以会话里的身份写入，请求体里的 `senderId`、`username` 等一律 422（L-09） | M2a ✅（附件在 M3） |
-| `POST /api/conversations/:id/messages/replay` | 离线队列恢复，字段同发送并带队列登记时间；同一幂等键，≤24小时，服务端固定offline_replay，不推进已读。常规发送端点仅供本人明确交互使用 | M6 |
+| `POST /api/conversations/:id/messages/replay` | 离线队列恢复：`{clientId, body, replyToId?, queuedAt, membershipId}`（严格对象，只发纯文本）。同一 `clientId` 返回已发的消息（200），内容不同 409；`queuedAt` 超过 24 小时 403 `WINDOW_EXPIRED`（reason `queue_expired`）、比服务器时间晚过 5 分钟 422；`membershipId` 不是现在的成员关系 409（reason `membership_changed`）；私有助手会话 422（reason `agent_conversation`）。服务端固定来源为 `offline_replay`，不推进已读（AT-32）。常规发送端点仅供本人明确交互使用（D-204） | M6 ✅ |
 | `PATCH /api/messages/:id` | `{body, expectedChangeSeq}`，编辑（仅发送者，24 小时内，超时 403 `WINDOW_EXPIRED`，版本不符 409）。不会触发 Agent，也不产生新的通知；每人每分钟 30 次 | M2a ✅ |
 | `POST /api/messages/:id/recall` | 撤回（仅发送者，2 分钟内，服务端留 5 秒宽限，超时 403 `WINDOW_EXPIRED`）；同一事务清除正文，重复请求得到同一个终态 | M2a ✅ |
 | `POST /api/messages/:id/hide` | 仅自己删除 | M2a ✅ |
@@ -232,12 +240,19 @@ M4 接口已接入并有契约/鉴权回归（D-183），里程碑质量与用�
 ### 3.7 通知、管理与运维
 | 方法和路径 | 说明 | 里程碑 |
 |---|---|---|
-| `POST /api/push/subscriptions` / `DELETE …/:id` | 订阅或取消浏览器推送。订阅和当前登录会话及 installationId 绑定；HTTPS 服务商允许清单、DNS/出口校验见 SEC-23，跨账号端点不得直接换绑 | M6 |
-| `GET /api/notifications?cursor=` / `POST /api/notifications/read` | 站内通知列表；`{ids}` 或 `{all: true}` 标为已读 | M6 |
+| `GET /api/push/vapid-key` | `{publicKey}`，浏览器订阅用的应用服务器密钥（公开信息）；服务器没配 VAPID 时 503 | M6 ✅ |
+| `POST /api/push/subscriptions` | `{endpoint, keys:{p256dh, auth}, installationId, expectedUserId?}`：订阅这台浏览器，201 新建 / 200 重复（刷新密钥）。页面登记与 Worker 自动续订都带开始操作的 `expectedUserId`，与当前账号不符即 403 `FORBIDDEN`。订阅和当前登录会话及 installationId 绑定；endpoint 必须是 HTTPS、名单内的推送服务、解析出的地址全是公网（422，reason：`not_https`/`ip_literal`/`port`/`credentials`/`host_not_allowed`/`non_public_address`/`dns_failed`…）；别的账号的 endpoint 只有出示同一个 installationId 才能转给自己，否则 409（reason `endpoint_in_use`）；每人最多 10 个，第 11 个 403 `QUOTA_EXCEEDED`。限流 10 分钟 20 次（D-203） | M6 ✅ |
+| `GET /api/push/subscriptions?installationId=` | 我的订阅（不含 endpoint 和密钥），该安装对应的标 `current` | M6 ✅ |
+| `DELETE /api/push/subscriptions/:id` | 取消我的一条订阅；别人的或不存在的同样 404 | M6 ✅ |
+| `POST /api/push/test` | `{installationId}`：给这台浏览器发一条测试推送，`{queued}`；每分钟 5 次 | M6 ✅ |
+| `GET /api/notifications?cursor=&limit=` | 站内通知，新的在前，按读者当前权限投影；`{items, nextCursor, unreadCount}`，游标签名、绑定本人，伪造或别人的 422 | M6 ✅ |
+| `POST /api/notifications/read` | `{ids}`（最多 100）或 `{all: true}` 标为已读，重复无副作用，别人的 id 静默忽略；返回 `{items, unreadCount}`（`all` 时 items 为空，客户端重读列表） | M6 ✅ |
 | `GET /api/admin/users?query=&cursor=`、`PATCH /api/admin/users/:id`（`{role?, inviteQuota?, storageQuotaBytes?, aiDailyTokens?}`）、`POST …/:id/ban`、`POST …/:id/unban`、`POST …/:id/verify-email` | 用户管理；手动标记邮箱已验证（写审计日志） | M7 |
 | `GET /api/admin/invites`、`GET /api/admin/conversations`、`POST /api/admin/conversations/:id/archive` / `restore` | 邀请和会话管理 | M7 |
 | `GET /api/admin/reports`、`PATCH /api/admin/reports/:id`（`{status, resolutionNote}`）、`GET /api/admin/reports/:id/context` | 举报处理。`context` 返回被举报消息及前后各 5 条，访问会写审计日志 | M7 |
 | `GET /api/admin/agent-runs?userId=&keySource=&status=&cursor=`、`GET /api/admin/agent-runs/:id` | AI 运行记录。站点 key 的运行在保留期内返回完整内容；自带 key 的运行只返回元数据。查看详情会写审计日志（D-034） | M7 |
+
+`/api/push/*` 仍要求有效会话，但认证只读，不刷新或删除 Cookie；关闭页面后的 Worker 续订回答不能改变后来登录的 Cookie。页面的身份读取负责滚动刷新和失效 Cookie 清理（D-209）。
 | `GET /api/admin/audit-logs`、`GET /api/admin/ai-usage`、`GET/PATCH /api/admin/settings` | 审计日志、AI 用量、后台配置 | M7 |
 | `GET /api/healthz`、`GET /api/readyz` | 健康检查，不需要登录。`readyz` 检查数据库、Valkey 和 S3，对外只返回 200 或 503，不返回细节 | M1 |
 | `POST /api/monitoring` | 转发前端的 Sentry 上报（D-046）。不需要登录，因为登录页也要能上报；按 IP 限流，并限制请求大小 | M7 |
@@ -300,7 +315,7 @@ M4 接口已接入并有契约/鉴权回归（D-183），里程碑质量与用�
 | agent.run.updated / agent.step / agent.approval.requested | user:* | runId、stateVersion、stepIndex 或 approvalId；详情接口读取，仅调用者接收 |
 | agent.delta | conv:*（hub 逐连接授权，非盲播） | conversationId、runId、resumeSeq、leaseEpoch、messageId、index、streamRevision、text；每批重新检查 session、成员、来源版本、租约 |
 | agent.run.updated | 本人（普通元数据提示） | runId、stateVersion；无工具结果或正文，客户端用当前会话授权读取详情 |
-| notification | user:* | notificationId、userChangeSeq；正文按权限读取 |
+| notification | user:* | notificationId、userChangeSeq；条目本身随个人日志（`/api/me/changes` 的 `notification` 项，带完整投影）或 `GET /api/notifications` 读取，创建和已读都会发（M6 ✅） |
 | error | — | code、message |
 
 ### 4.5 同步契约与流式合并

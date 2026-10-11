@@ -23,6 +23,7 @@ const meta = {
               ipAddress: '192.0.2.10',
               userAgent:
                 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/153.0.0.0 Safari/537.36',
+              pendingTasks: 0,
             },
             {
               id: '0198d0c0-0000-7000-8000-0000000000a2',
@@ -32,6 +33,23 @@ const meta = {
               ipAddress: '198.51.100.7',
               userAgent:
                 'Mozilla/5.0 (iPhone; CPU iPhone OS 26_0 like Mac OS X) AppleWebKit/605.1.15 Version/26.0 Mobile/15E148 Safari/604.1',
+              // A reminder this phone authorized has not run yet (M5a): the row says so.
+              pendingTasks: 1,
+            },
+          ],
+        },
+      },
+      // Settings → Notifications: the server knows another device of this account; this browser has not turned push on.
+      '/api/push/subscriptions': {
+        body: {
+          subscriptions: [
+            {
+              id: '0198d0c0-0000-7000-8000-0000000000d1',
+              userAgent:
+                'Mozilla/5.0 (Macintosh; Intel Mac OS X 15_6) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/26.0 Safari/605.1.15',
+              createdAt: '2026-10-01T08:00:00.000Z',
+              lastSuccessAt: '2026-10-03T22:00:00.000Z',
+              current: false,
             },
           ],
         },
@@ -121,5 +139,6 @@ function Stage({ section }: { section: SettingsSection }) {
 const sheet = (section: SettingsSection): Story => ({ render: () => <Stage section={section} /> })
 
 export const Appearance = sheet('appearance')
+export const Notifications = sheet('notifications')
 export const Account = sheet('account')
 export const Invitations = sheet('invites')

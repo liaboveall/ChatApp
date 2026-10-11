@@ -181,6 +181,20 @@ export const sendMessageRequestSchema = z
   })
 export type SendMessageRequest = z.infer<typeof sendMessageRequestSchema>
 
+/**
+ * `POST /api/conversations/:id/messages/replay` (M6): a plain-text message that was written while the connection was down and
+ * is sent by itself later. The server fixes its source as `offline_replay`, which never moves a read position, and accepts it only
+ * within 24 hours of `queuedAt` and under the membership it was written under.
+ */
+export const replayMessageRequestSchema = z.strictObject({
+  clientId: z.uuid(),
+  body: messageBodySchema,
+  replyToId: z.uuid().nullable().optional(),
+  queuedAt: z.iso.datetime(),
+  membershipId: z.uuid(),
+})
+export type ReplayMessageRequest = z.infer<typeof replayMessageRequestSchema>
+
 export const editMessageRequestSchema = z.strictObject({
   body: messageBodySchema,
   expectedChangeSeq: z.number().int().min(1),

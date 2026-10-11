@@ -7,7 +7,8 @@ import { join } from 'node:path'
 
 const TSC = join('node_modules', '.bin', 'tsc')
 
-const projects = ['.']
+/** tsconfig files to check: one per package, plus the few packages that hold code for another runtime (the service worker). */
+const projects = ['tsconfig.json']
 for (const group of ['apps', 'packages']) {
   if (!existsSync(group)) continue
   for (const entry of readdirSync(group, { withFileTypes: true })) {
@@ -18,9 +19,11 @@ for (const group of ['apps', 'packages']) {
       console.error(`${dir}: package has no tsconfig.json, so it would not be type-checked`)
       process.exit(1)
     }
-    projects.push(dir)
+    projects.push(join(dir, 'tsconfig.json'))
   }
 }
+// The service worker runs in a worker scope (no DOM): it has its own configuration (docs/03 section 11, M6).
+projects.push(join('apps', 'web', 'tsconfig.sw.json'))
 
 // The web package imports its translated texts from generated code; compile them first (a no-op when unchanged).
 if (existsSync(join('apps', 'web', 'package.json'))) {
@@ -41,7 +44,7 @@ if (existsSync(join('apps', 'web', 'package.json'))) {
 
 const results = await Promise.all(
   projects.map(async (dir) => {
-    const proc = Bun.spawn([TSC, '-p', join(dir, 'tsconfig.json')], {
+    const proc = Bun.spawn([TSC, '-p', dir], {
       stdout: 'pipe',
       stderr: 'pipe',
     })

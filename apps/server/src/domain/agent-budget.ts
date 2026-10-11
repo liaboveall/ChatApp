@@ -21,6 +21,7 @@ import {
 } from './ai-budget.ts'
 import { defaultKeySource } from './ai-keys.ts'
 import type { Deps } from './deps.ts'
+import { notifyAdmins } from './notifications.ts'
 import type { SessionPrincipal } from './principal.ts'
 import { lockAndRevalidate, lockUsers } from './sessions.ts'
 import { inTransaction } from './tx.ts'
@@ -109,6 +110,52 @@ async function lockAccounts(
   return { day, month }
 }
 
+const BUDGET_ALERT_KEY = 'ai.budget_alerted'
+
+/**
+ * Tells the site administrators when the month's site budget passes 80% and 100% (docs/01 section 7, M6: the reminder is a
+ * notification, not a banner). Runs after the reservation committed, never inside it: the administrators' rows are locked
+ * only by their own short transactions. The highest level announced for the month is remembered, so a busy site does not
+ * look at every administrator on every model call; the entries are deduplicated anyway.
+ */
+export async function notifyBudgetThresholds(deps: Deps): Promise<void> {
+  const period = budgetPeriod(deps.clock.now(), deps.config.timezone)
+  const [account] = await deps.db
+    .select()
+    .from(budgetAccounts)
+    .where(accountWhere('site_month', 'site', period.month))
+  if (!account || account.limitUnits <= 0) return
+  const used = account.settledUnits + account.reservedUnits
+  const reached =
+    used * 100 >= account.limitUnits * 100 ? 100 : used * 100 >= account.limitUnits * 80 ? 80 : 0
+  if (reached === 0) return
+  const [known] = await deps.db
+    .select()
+    .from(appSettings)
+    .where(eq(appSettings.key, BUDGET_ALERT_KEY))
+  const value = known?.value as { month?: string; percent?: number } | undefined
+  const announced = value?.month === period.month ? (value.percent ?? 0) : 0
+  if (reached <= announced) return
+  for (const percent of [80, 100] as const) {
+    if (percent > reached || percent <= announced) continue
+    await notifyAdmins(deps, {
+      type: 'budget_alert',
+      dedupeKey: `budget:${period.month}:${percent}`,
+      data: { period: period.month, percent },
+    })
+  }
+  await deps.db
+    .insert(appSettings)
+    .values({ key: BUDGET_ALERT_KEY, value: { month: period.month, percent: reached } })
+    .onConflictDoUpdate({
+      target: appSettings.key,
+      set: {
+        value: { month: period.month, percent: reached },
+        version: sql`${appSettings.version} + 1`,
+      },
+    })
+}
+
 /** Async Postgres ledger used by the transport for every request, including every tool-loop step. */
 export function createAgentLedger(
   deps: Deps,
@@ -116,68 +163,80 @@ export function createAgentLedger(
   stepIndex: number,
   price: AiPrice,
 ): PaidCallLedger {
-  return {
-    async reserve(attempt: PaidAttempt) {
-      await withAgentLease(deps, lease, async (tx, run) => {
-        if (stepIndex >= (run.mode === 'fast' ? 8 : 16))
-          throw new AppError('QUOTA_EXCEEDED', 'The step limit was reached')
-        const own = run.keySource === 'user'
-        // The site's pause protects the site budget; an own key only records usage (docs/06 section 8).
-        if (!own) {
-          const [paused] = await tx
-            .select()
-            .from(appSettings)
-            .where(eq(appSettings.key, 'ai.admission_paused'))
-          if (paused?.value === true)
-            throw new AppError('AI_BUDGET_EXHAUSTED', 'Model admission is paused')
-        }
-        const [cooldown] = await tx
+  const reserveWithinLease = async (attempt: PaidAttempt): Promise<void> => {
+    await withAgentLease(deps, lease, async (tx, run) => {
+      if (stepIndex >= (run.mode === 'fast' ? 8 : 16))
+        throw new AppError('QUOTA_EXCEEDED', 'The step limit was reached')
+      const own = run.keySource === 'user'
+      // The site's pause protects the site budget; an own key only records usage (docs/06 section 8).
+      if (!own) {
+        const [paused] = await tx
           .select()
           .from(appSettings)
-          .where(eq(appSettings.key, cooldownKey(run.provider, own ? run.userId : null)))
-        if (typeof cooldown?.value === 'number' && cooldown.value > deps.clock.now().getTime())
-          throw new AppError('RATE_LIMITED', 'The model service requested a cooldown')
-        const period = budgetPeriod(deps.clock.now(), deps.config.timezone)
-        const tokens = attempt.inputTokenBound + attempt.maxOutputTokens
-        const cost = reserveCost(price, attempt.inputTokenBound, attempt.maxOutputTokens)
-        if (!own) {
-          const { day, month } = await lockAccounts(tx, deps, run.userId, period)
-          if (day.settledUnits + day.reservedUnits + tokens > day.limitUnits)
-            throw new AppError('QUOTA_EXCEEDED', 'The daily model allowance is exhausted')
-          if (month.settledUnits + month.reservedUnits + cost > month.limitUnits)
-            throw new AppError('AI_BUDGET_EXHAUSTED', 'The site model budget is exhausted')
-        }
-        const prior = await tx
-          .select({ no: aiCallAttempts.attemptNo })
-          .from(aiCallAttempts)
-          .where(and(eq(aiCallAttempts.runId, run.id), eq(aiCallAttempts.stepIndex, stepIndex)))
-        await tx.insert(aiCallAttempts).values({
-          id: attempt.id,
-          runId: run.id,
-          stepIndex,
-          attemptNo: prior.length,
-          keySource: run.keySource,
-          provider: run.provider,
-          model: run.model,
-          status: 'reserved',
-          ...period,
-          priceVersion: price.version,
-          inputTokenBound: attempt.inputTokenBound,
-          maxOutputTokens: attempt.maxOutputTokens,
-          reservedTokens: tokens,
-          reservedCost: cost,
-          createdAt: deps.clock.now(),
-        })
-        if (own) return
-        await tx
-          .update(budgetAccounts)
-          .set({ reservedUnits: sql`${budgetAccounts.reservedUnits} + ${tokens}` })
-          .where(accountWhere('user_day', run.userId, period.day))
-        await tx
-          .update(budgetAccounts)
-          .set({ reservedUnits: sql`${budgetAccounts.reservedUnits} + ${cost}` })
-          .where(accountWhere('site_month', 'site', period.month))
+          .where(eq(appSettings.key, 'ai.admission_paused'))
+        if (paused?.value === true)
+          throw new AppError('AI_BUDGET_EXHAUSTED', 'Model admission is paused')
+      }
+      const [cooldown] = await tx
+        .select()
+        .from(appSettings)
+        .where(eq(appSettings.key, cooldownKey(run.provider, own ? run.userId : null)))
+      if (typeof cooldown?.value === 'number' && cooldown.value > deps.clock.now().getTime())
+        throw new AppError('RATE_LIMITED', 'The model service requested a cooldown')
+      const period = budgetPeriod(deps.clock.now(), deps.config.timezone)
+      const tokens = attempt.inputTokenBound + attempt.maxOutputTokens
+      const cost = reserveCost(price, attempt.inputTokenBound, attempt.maxOutputTokens)
+      if (!own) {
+        const { day, month } = await lockAccounts(tx, deps, run.userId, period)
+        if (day.settledUnits + day.reservedUnits + tokens > day.limitUnits)
+          throw new AppError('QUOTA_EXCEEDED', 'The daily model allowance is exhausted')
+        if (month.settledUnits + month.reservedUnits + cost > month.limitUnits)
+          throw new AppError('AI_BUDGET_EXHAUSTED', 'The site model budget is exhausted')
+      }
+      const prior = await tx
+        .select({ no: aiCallAttempts.attemptNo })
+        .from(aiCallAttempts)
+        .where(and(eq(aiCallAttempts.runId, run.id), eq(aiCallAttempts.stepIndex, stepIndex)))
+      await tx.insert(aiCallAttempts).values({
+        id: attempt.id,
+        runId: run.id,
+        stepIndex,
+        attemptNo: prior.length,
+        keySource: run.keySource,
+        provider: run.provider,
+        model: run.model,
+        status: 'reserved',
+        ...period,
+        priceVersion: price.version,
+        inputTokenBound: attempt.inputTokenBound,
+        maxOutputTokens: attempt.maxOutputTokens,
+        reservedTokens: tokens,
+        reservedCost: cost,
+        createdAt: deps.clock.now(),
       })
+      if (own) return
+      await tx
+        .update(budgetAccounts)
+        .set({ reservedUnits: sql`${budgetAccounts.reservedUnits} + ${tokens}` })
+        .where(accountWhere('user_day', run.userId, period.day))
+      await tx
+        .update(budgetAccounts)
+        .set({ reservedUnits: sql`${budgetAccounts.reservedUnits} + ${cost}` })
+        .where(accountWhere('site_month', 'site', period.month))
+    })
+  }
+  return {
+    async reserve(attempt: PaidAttempt) {
+      try {
+        await reserveWithinLease(attempt)
+      } catch (error) {
+        // The site budget being used up is exactly what the administrators want to hear about.
+        if (error instanceof AppError && error.code === 'AI_BUDGET_EXHAUSTED') {
+          await notifyBudgetThresholds(deps).catch(() => undefined)
+        }
+        throw error
+      }
+      await notifyBudgetThresholds(deps).catch(() => undefined)
     },
     async start(id: string) {
       await withAgentLease(deps, lease, async (tx, run) => {

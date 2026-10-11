@@ -16,6 +16,7 @@ import { createEmbeddingWorker } from './jobs/embedding.ts'
 import { createMaintenance } from './jobs/maintenance.ts'
 import { createMediaWorker } from './jobs/media.ts'
 import { createPresenceSweeper } from './jobs/presence.ts'
+import { createPushWorker } from './jobs/push.ts'
 import {
   DEFAULT_JOB_OPTIONS,
   embeddingQueueName,
@@ -38,6 +39,7 @@ import {
 } from './runtime/embeddings.ts'
 import { uuidv7 } from './runtime/ids.ts'
 import { createMediaClient } from './runtime/media.ts'
+import { createPushService } from './runtime/push-service.ts'
 import { assertDatabaseReady } from './startup.ts'
 import { createBlobStore } from './storage/s3.ts'
 
@@ -90,6 +92,7 @@ async function main(): Promise<void> {
     },
     blobs: createBlobStore(config.s3),
     media: createMediaClient(),
+    ...(config.push ? { push: createPushService(config, valkey) } : {}),
     passwords: sdkPasswords,
     log,
     ...(embeddingConfig.enabled ? { embeddings: createEmbeddingClient(embeddingConfig) } : {}),
@@ -144,6 +147,19 @@ async function main(): Promise<void> {
     connection: consumerConnection,
     environment: config.env,
   })
+  const presenceStore = createPresenceStore(valkey, `presence:${config.env}`)
+  const pushQueue = new Queue<WorkJobData>(QUEUE.push, {
+    connection: queueConnection,
+    prefix: queuePrefix(config.env),
+    defaultJobOptions: DEFAULT_JOB_OPTIONS,
+  })
+  const pushWorker = createPushWorker({
+    deps,
+    presence: presenceStore,
+    log,
+    connection: consumerConnection,
+    environment: config.env,
+  })
   const embeddingQueues = new Map(
     Object.values(EMBEDDING_MODELS).map((model) => [
       model.version,
@@ -161,6 +177,7 @@ async function main(): Promise<void> {
     mediaQueue,
     agentQueue,
     scheduledQueue,
+    pushQueue,
     embeddingQueues,
     log,
   })
@@ -181,7 +198,7 @@ async function main(): Promise<void> {
   const maintenance = createMaintenance({ deps, log })
   const presence = createPresenceSweeper({
     deps,
-    store: createPresenceStore(valkey, `presence:${config.env}`),
+    store: presenceStore,
     bus,
     log,
   })
@@ -206,6 +223,8 @@ async function main(): Promise<void> {
     await agentQueue.close()
     await scheduledWorker.close()
     await scheduledQueue.close()
+    await pushWorker.close()
+    await pushQueue.close()
     await embeddingWorker?.close()
     await Promise.all([...embeddingQueues.values()].map((queue) => queue.close()))
     await embeddingChild.stop()

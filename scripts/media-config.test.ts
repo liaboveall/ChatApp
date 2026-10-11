@@ -348,6 +348,31 @@ describe('images and development entry points', () => {
 })
 
 describe('worker environment boundary', () => {
+  test('accepts the PWA and forwarded development origins, and refuses to reuse a worker on another origin', () => {
+    for (const origin of ['http://localhost:25173', 'http://localhost:25174']) {
+      const env = workerEnvironment({ ...source(), APP_ORIGIN: origin })
+      expect(env.APP_ORIGIN).toBe(origin)
+      expect(() => verifyRuntime(container('worker'), env)).toThrow('worker APP_ORIGIN differs')
+    }
+  })
+
+  test('the development origin cannot name a remote host, credentials, path or privileged port', () => {
+    for (const origin of [
+      'http://remote.example:25173',
+      'http://127.0.0.1:25173',
+      'https://localhost:25173',
+      'http://fixture-user:fixture-password@localhost:25173',
+      'http://localhost:25173/path',
+      'http://localhost:25173/',
+      'http://localhost:25173?host=remote.example',
+      'http://localhost:25173#fragment',
+      'http://localhost:80',
+      'http://localhost:65536',
+    ]) {
+      expect(() => workerEnvironment({ ...source(), APP_ORIGIN: origin })).toThrow('APP_ORIGIN')
+    }
+  })
+
   test('the fixed development worker leaves host embedding jobs to the host consumer', () => {
     const env = workerEnvironment({
       ...source(),

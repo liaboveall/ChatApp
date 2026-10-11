@@ -17,11 +17,12 @@ export const CSP = [
   "object-src 'none'",
   "base-uri 'none'",
   "form-action 'self'",
-  // Trusted Types (D-146): every string-to-HTML sink refuses plain strings, and no policy may be created, so a bug that
-  // would write user text as markup throws instead of running. The one dependency that wrote entities through
+  // Trusted Types (D-146): every string-to-HTML sink refuses plain strings, and the only policy that may be created is the one
+  // that names the service worker (D-206), which turns the one string `/sw.js` into a script URL. A bug that would write user
+  // text as markup throws instead of running. The one dependency that wrote entities through
   // that dependency is replaced at build time (see `entitiesTable` in vite.config.ts).
   "require-trusted-types-for 'script'",
-  "trusted-types 'none'",
+  'trusted-types chatapp-sw',
 ].join('; ')
 
 export const SECURITY_HEADERS: Record<string, string> = {

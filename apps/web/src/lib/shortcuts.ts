@@ -1,11 +1,14 @@
 /**
  * Global keyboard shortcuts (docs/02 section 7). `matchShortcut` is a pure function so the rules can be tested without a
  * browser; `useGlobalShortcuts` attaches it to the window. ⌘ on Apple platforms is Ctrl elsewhere. None of the shortcuts
- * is a browser-reserved combination (⌘N, ⌘T, ⌘W cannot be intercepted by a page, D-052); whether the others reach the
- * page in every browser is V-16 and is verified by hand per browser (docs/12).
+ * of a browser tab is a browser-reserved combination (⌘N, ⌘T, ⌘W cannot be intercepted by a page, D-052); whether the
+ * others reach the page in every browser is V-16 and is verified by hand per browser (docs/12). The installed app's window
+ * has no tabs and no address bar, so there ⌘N is bound too, to the "new" menu (docs/02 section 7, M6); whether the browser
+ * hands it to the page is part of V-16 for the app window.
  */
 import { useEffect } from 'react'
 import { isApplePlatform } from './platform.ts'
+import { isInstalledApp } from './pwa/install.ts'
 
 export type ShortcutId =
   | 'palette'
@@ -16,6 +19,7 @@ export type ShortcutId =
   | 'next'
   | 'previousUnread'
   | 'nextUnread'
+  | 'newConversation'
 
 export type ShortcutDef = {
   id: ShortcutId
@@ -31,6 +35,11 @@ export const SHORTCUTS: readonly ShortcutDef[] = [
   { id: 'assistant', keys: ['mod', 'J'], key: 'j', code: 'KeyJ' },
   { id: 'settings', keys: ['mod', ','], key: ',', code: 'Comma' },
   { id: 'help', keys: ['mod', '/'], key: '/', code: 'Slash' },
+]
+
+/** Only in the installed app's window, where the browser has no use of its own for them (docs/02 section 7, M6). */
+export const INSTALLED_SHORTCUTS: readonly ShortcutDef[] = [
+  { id: 'newConversation', keys: ['mod', 'N'], key: 'n', code: 'KeyN' },
 ]
 
 /** ⌥ (Alt) with the up and down arrows moves through the conversations in the order of the sidebar; with ⇧ only the unread ones. */
@@ -55,8 +64,15 @@ type KeyEventLike = Pick<
 
 const isLatinKey = (key: string): boolean => /^[\x20-\x7e]$/.test(key)
 
-/** Which shortcut (if any) a key event is. Never matches while an IME is composing or when something already handled it. */
-export function matchShortcut(event: KeyEventLike, apple = isApplePlatform()): ShortcutId | null {
+/**
+ * Which shortcut (if any) a key event is. Never matches while an IME is composing or when something already handled it.
+ * `installed`: the page runs as the installed app, where the shortcuts of `INSTALLED_SHORTCUTS` count as well.
+ */
+export function matchShortcut(
+  event: KeyEventLike,
+  apple = isApplePlatform(),
+  installed = false,
+): ShortcutId | null {
   if (event.isComposing || event.defaultPrevented) return null
   if (event.altKey) {
     // ⌥ and ⌥⇧ with the arrows. ⌘/Ctrl with ⌥ is something else (AltGr on some layouts is Ctrl+Alt).
@@ -68,7 +84,7 @@ export function matchShortcut(event: KeyEventLike, apple = isApplePlatform()): S
   const mod = apple ? event.metaKey && !event.ctrlKey : event.ctrlKey && !event.metaKey
   if (!mod || event.shiftKey) return null
   const key = event.key.toLowerCase()
-  for (const shortcut of SHORTCUTS) {
+  for (const shortcut of installed ? [...SHORTCUTS, ...INSTALLED_SHORTCUTS] : SHORTCUTS) {
     if (isLatinKey(key) ? key === shortcut.key : event.code === shortcut.code) return shortcut.id
   }
   return null
@@ -78,7 +94,7 @@ export function matchShortcut(event: KeyEventLike, apple = isApplePlatform()): S
 export function useGlobalShortcuts(handlers: Partial<Record<ShortcutId, () => void>>): void {
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent): void => {
-      const id = matchShortcut(event)
+      const id = matchShortcut(event, isApplePlatform(), isInstalledApp())
       const handler = id ? handlers[id] : undefined
       if (!handler) return
       event.preventDefault()

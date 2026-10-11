@@ -415,6 +415,12 @@ export class Gateway {
           data: { taskType: event.taskType, taskId: event.taskId, version: event.version },
         })
         return
+      case 'notification':
+        this.#tellUser(event.userId, {
+          type: 'notification',
+          data: { notificationId: event.notificationId, userChangeSeq: event.userChangeSeq },
+        })
+        return
       case 'auth.revoked':
         void this.revalidateUser(event.userId)
         return

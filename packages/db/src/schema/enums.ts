@@ -14,6 +14,7 @@ import {
   MESSAGE_KINDS,
   MESSAGE_STATUSES,
   MUTE_MODES,
+  NOTIFICATION_TYPES,
   NOTIFY_LEVELS,
   ORIGIN_REVOKE_REASONS,
   PRIVACY_CLASSES,
@@ -51,3 +52,6 @@ export const conversationState = pgEnum('conversation_state', CONVERSATION_STATE
 export const conversationChangeKind = pgEnum('conversation_change_kind', CONVERSATION_CHANGE_KINDS)
 export const userChangeEntity = pgEnum('user_change_entity', USER_CHANGE_ENTITIES)
 export const userChangeOperation = pgEnum('user_change_operation', USER_CHANGE_OPERATIONS)
+
+// M6
+export const notificationType = pgEnum('notification_type', NOTIFICATION_TYPES)

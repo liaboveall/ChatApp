@@ -44,6 +44,8 @@ export type TestControls = {
   /** Moves a message's `created_at` back so a time window has passed (D-155). */
   ageMessage: (messageId: string, ms: number) => Promise<{ createdAt: string }>
   realtime: () => { disconnect(options: { userId?: string; code?: number }): number } | undefined
+  /** The requests the simulated push service has taken (M6); absent when this process has no push. */
+  pushOutbox?: { list(): Promise<unknown[]>; clear(): Promise<number> }
 }
 
 export function testRoutes(app: OpenAPIHono<HttpEnv>, controls: TestControls): void {
@@ -115,6 +117,34 @@ export function testRoutes(app: OpenAPIHono<HttpEnv>, controls: TestControls): v
     }),
     (c) => c.json({ ip: c.get('clientIp') }, 200),
   )
+
+  // M6, scenario 9: the push service of the end-to-end tests is simulated. The worker records each request it would have sent
+  // (encrypted, with its VAPID header); the test reads them here and decrypts them the way a browser does.
+  const outbox = controls.pushOutbox
+  if (outbox) {
+    app.openapi(
+      createRoute({
+        method: 'get',
+        path: `${TEST_ROUTE_PREFIX}/push/captured`,
+        tags: ['test'],
+        summary: 'Test environment only: the pushes the simulated push service received',
+        responses: {
+          200: json(z.object({ items: z.array(z.unknown()) }), 'Oldest first'),
+        },
+      }),
+      async (c) => c.json({ items: await outbox.list() }, 200),
+    )
+    app.openapi(
+      createRoute({
+        method: 'delete',
+        path: `${TEST_ROUTE_PREFIX}/push/captured`,
+        tags: ['test'],
+        summary: 'Test environment only: forget the captured pushes',
+        responses: { 200: json(z.object({ cleared: z.number().int() }), 'How many') },
+      }),
+      async (c) => c.json({ cleared: await outbox.clear() }, 200),
+    )
+  }
 
   // V-14: Playwright's offline switch does not reliably close a WebSocket that is already open, so end-to-end tests
   // drop connections from the server side with a code of their choice, exactly as a dying network would look to a client.

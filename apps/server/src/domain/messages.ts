@@ -14,8 +14,10 @@ import {
   type MessageMeta,
   type MessagesQuery,
   type MessagesResponse,
+  markdownPreviewText,
   mentionIds,
   plainMessageText,
+  type ReplayMessageRequest,
   type ReplyTo,
   type SendMessageRequest,
   type SystemEvent,
@@ -50,6 +52,7 @@ import {
 } from './changes.ts'
 import type { Deps } from './deps.ts'
 import type { SessionPrincipal } from './principal.ts'
+import { enqueueMessageNotifications } from './push.ts'
 import { lockAndRevalidate } from './sessions.ts'
 import { inTransaction } from './tx.ts'
 import { retireAttachment } from './uploads.ts'
@@ -195,7 +198,7 @@ export async function projectMessages(
         state === 'ok' && (target.excerpt !== null || target.attachmentKind !== null)
           ? truncateCodePoints(
               plainMessageText(
-                target.excerpt,
+                markdownPreviewText(target.excerpt),
                 (id) => replyUsers[id]?.displayName,
                 target.attachmentKind,
               ),
@@ -427,7 +430,10 @@ export type WriteMessageInput = {
 
 export type WriteMessageOptions = {
   /** Set by the trusted entry point, never by a request (INV-28). Only `interactive` moves the sender's read position. */
-  executionSource: Extract<ExecutionSource, 'interactive' | 'agent_effect' | 'scheduled'>
+  executionSource: Extract<
+    ExecutionSource,
+    'interactive' | 'agent_effect' | 'scheduled' | 'offline_replay'
+  >
   meta?: MessageMeta
 }
 
@@ -595,6 +601,9 @@ export async function writeMessage(
     changeSeq,
     kind: 'message_created',
   })
+  // Who this concerns is worked out after the commit, from the message as it then stands (docs/03 section 5.1 step 4).
+  if (conversation.kind !== 'agent')
+    await enqueueMessageNotifications(tx, deps, id, mentionIds(body))
 
   // Only the person's own interactive send says they have seen everything up to it (INV-28, AT-32); any message they
   // write brings a direct message they had hidden back into view.
@@ -664,6 +673,49 @@ export async function sendMessage(
   conversationId: string,
   input: SendMessageRequest,
 ): Promise<{ envelope: MessageEnvelope; created: boolean }> {
+  return await sendAs(deps, principal, conversationId, input, { source: 'interactive' })
+}
+
+/**
+ * Sends a plain-text message that was written while the connection was down (M6, docs/05 section 3.4): the same write as
+ * any other, with its source fixed on the server as `offline_replay`, which never moves the person's read position (AT-32).
+ * It is accepted only within 24 hours of being queued and only under the membership it was written under; the same
+ * `clientId` answers with the message already sent, so a repeat after a lost answer is harmless.
+ */
+export async function replayMessage(
+  deps: Deps,
+  principal: SessionPrincipal,
+  conversationId: string,
+  input: ReplayMessageRequest,
+): Promise<{ envelope: MessageEnvelope; created: boolean }> {
+  const age = deps.clock.now().getTime() - Date.parse(input.queuedAt)
+  // A clock that runs a little fast is tolerated; a message from the future is not a queue entry at all.
+  if (age < -5 * 60_000) {
+    throw new AppError('VALIDATION_FAILED', 'The queue time is in the future', {
+      details: { field: 'queuedAt' },
+    })
+  }
+  if (age > LIMITS.offlineQueueMaxAgeMs) {
+    throw new AppError('WINDOW_EXPIRED', 'The queued message is too old to be sent on its own', {
+      details: { reason: 'queue_expired' },
+    })
+  }
+  return await sendAs(
+    deps,
+    principal,
+    conversationId,
+    { clientId: input.clientId, body: input.body, replyToId: input.replyToId },
+    { source: 'offline_replay', membershipId: input.membershipId },
+  )
+}
+
+async function sendAs(
+  deps: Deps,
+  principal: SessionPrincipal,
+  conversationId: string,
+  input: SendMessageRequest,
+  how: { source: 'interactive' } | { source: 'offline_replay'; membershipId: string },
+): Promise<{ envelope: MessageEnvelope; created: boolean }> {
   // A direct message changes the other person's view too (it brings the conversation out of hiding), so both are locked.
   const peerId = await directPeerOf(deps.db, principal.userId, conversationId)
   return await inTransaction(deps.db, async (tx) => {
@@ -679,9 +731,31 @@ export async function sendMessage(
         replyToId: input.replyToId,
         attachmentIds: input.attachmentIds,
       },
-      { executionSource: 'interactive' },
+      { executionSource: how.source },
     )
     const { row, conversation, viewer } = written
+    if (how.source === 'offline_replay') {
+      // What was written for a membership that has ended (left and came back) is not sent into the new one (D-171), and
+      // the assistant's own conversations are never fed from a queue.
+      if (written.member.membershipId !== how.membershipId) {
+        throw new AppError(
+          'CONFLICT',
+          'The conversation membership changed since this was written',
+          {
+            details: { reason: 'membership_changed' },
+          },
+        )
+      }
+      if (conversation.kind === 'agent') {
+        throw new AppError(
+          'VALIDATION_FAILED',
+          'Assistant conversations are not sent from the offline queue',
+          {
+            details: { reason: 'agent_conversation' },
+          },
+        )
+      }
+    }
     if (!written.created) {
       const projected = await projectMessages(tx, viewer, [row])
       const message = projected.messages[0]

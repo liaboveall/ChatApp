@@ -1,10 +1,12 @@
 import { describe, expect, test } from 'bun:test'
+import { generateVapidKeys } from '../runtime/web-push.ts'
 import { ConfigError, loadConfig } from './env.ts'
 
 // 32 random-looking bytes as base64url, and a 40-character secret; both are test fixtures, not real secrets.
 const KEY = 'q83vEjS0m1xZk7UwYpHn2LcRtBdA9fGoIeJ4aVhN5Xs'
 const AI_KEY = 'Zt7cWq2PnL0vRb5Hy8XmK3dJf6GsUe1oAiTqVyNz4Ew'
 const SECRET = 'k3Jx9QvLm2ZpWn8RtYb4HcDf7GsAe1UoIiTqVyPz'
+const VAPID = generateVapidKeys()
 
 const base: Record<string, string> = {
   APP_ENV: 'development',
@@ -125,6 +127,9 @@ describe('production hardening (SEC-18)', () => {
     APP_ENV: 'production',
     APP_ORIGIN: 'https://chat.example.com',
     AI_KEY_ENCRYPTION_KEY: AI_KEY,
+    VAPID_PUBLIC_KEY: VAPID.publicKey,
+    VAPID_PRIVATE_KEY: VAPID.privateKey,
+    VAPID_SUBJECT: 'mailto:ops@chat.example.com',
   }
 
   test('accepts strong secrets over https', () => {
@@ -157,6 +162,45 @@ describe('production hardening (SEC-18)', () => {
     expect(problemsOf(base)).toEqual([])
     expect(loadConfig({ ...base, AI_KEY_ENCRYPTION_KEY: AI_KEY }).aiKeyEncryptionKey).toHaveLength(
       32,
+    )
+  })
+
+  test('browser push needs its key pair in production, complete and consistent (M6, RFC 8292)', () => {
+    const {
+      VAPID_PUBLIC_KEY: _a,
+      VAPID_PRIVATE_KEY: _b,
+      VAPID_SUBJECT: _c,
+      ...without
+    } = production
+    expect(problemsOf(without).join()).toContain('required in production')
+    // Outside production push is simply off, and says so by having no configuration.
+    expect(problemsOf(base)).toEqual([])
+    expect(loadConfig(base).push).toBeUndefined()
+
+    const loaded = loadConfig(production).push
+    expect(loaded).toEqual({
+      publicKey: VAPID.publicKey,
+      privateKey: VAPID.privateKey,
+      subject: 'mailto:ops@chat.example.com',
+    })
+
+    const { VAPID_SUBJECT: _d, ...noSubject } = production
+    expect(problemsOf(noSubject).join()).toContain('must be set together')
+    expect(
+      problemsOf({ ...production, VAPID_PRIVATE_KEY: generateVapidKeys().privateKey }).join(),
+    ).toContain('private half of VAPID_PUBLIC_KEY')
+    expect(problemsOf({ ...production, VAPID_PUBLIC_KEY: 'AAAA' }).join()).toContain(
+      'private half of VAPID_PUBLIC_KEY',
+    )
+    expect(problemsOf({ ...production, VAPID_SUBJECT: 'ops@chat.example.com' }).join()).toContain(
+      'VAPID_SUBJECT: must be a mailto: address or an https: URL',
+    )
+    expect(
+      problemsOf({ ...production, VAPID_SUBJECT: 'https://chat.example.com/contact' }),
+    ).toEqual([])
+    // The placeholder of .env.example is not a key.
+    expect(problemsOf({ ...production, VAPID_PRIVATE_KEY: '<generated>' }).join()).toContain(
+      'VAPID_PRIVATE_KEY',
     )
   })
 

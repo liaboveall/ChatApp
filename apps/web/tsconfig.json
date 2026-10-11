@@ -10,5 +10,5 @@
     "allowJs": true
   },
   "include": ["src", "e2e", "visual", "tools", ".storybook", "*.ts"],
-  "exclude": ["src/paraglide"]
+  "exclude": ["src/paraglide", "src/sw"]
 }

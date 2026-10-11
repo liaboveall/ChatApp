@@ -11,21 +11,31 @@ import {
   Sparkles,
   Users,
 } from 'lucide-react'
+import type { Ref } from 'react'
 import { Avatar } from '@/components/ui/avatar.tsx'
 import { IconButton } from '@/components/ui/button.tsx'
 import { Icon } from '@/components/ui/icon.tsx'
 import { Menu, MenuItem } from '@/components/ui/menu.tsx'
 import type { NewKind } from '@/features/conversations/new-conversation-dialog.tsx'
 import { SidebarList } from '@/features/conversations/sidebar-list.tsx'
+import { NotificationBell } from '@/features/notifications/notification-bell.tsx'
+import type { SettingsSection } from '@/features/settings/settings-sheet.tsx'
 import { keyLabel } from '@/lib/platform.ts'
+import { isInstalledApp } from '@/lib/pwa/install.ts'
 import { m } from '@/paraglide/messages.js'
 
 type SidebarProps = {
   me: Pick<Me, 'id' | 'username' | 'displayName' | 'avatarUrl'>
   onOpenPalette: () => void
-  onOpenSettings: (section: 'appearance' | 'account') => void
+  onOpenSettings: (section: SettingsSection) => void
   onCreate: (kind: NewKind) => void
   onCreateAgent?: () => void
+  /** The "new" menu, when something else opens it too (⌘N in the installed app). */
+  newMenu?: {
+    open: boolean
+    onOpenChange: (open: boolean) => void
+    ref: Ref<HTMLButtonElement>
+  }
 }
 
 /**
@@ -38,6 +48,7 @@ export function Sidebar({
   onOpenSettings,
   onCreate,
   onCreateAgent,
+  newMenu,
 }: SidebarProps) {
   const navigate = useNavigate()
   const path = useRouterState({ select: (state) => state.location.pathname })
@@ -58,7 +69,17 @@ export function Sidebar({
         </button>
         <Menu
           align="end"
-          trigger={<IconButton label={m.sidebar_new()} icon={Plus} aria-haspopup="menu" />}
+          open={newMenu?.open}
+          onOpenChange={newMenu?.onOpenChange}
+          trigger={
+            <IconButton
+              ref={newMenu?.ref}
+              label={m.sidebar_new()}
+              icon={Plus}
+              aria-haspopup="menu"
+              shortcut={isInstalledApp() ? ['mod', 'N'] : undefined}
+            />
+          }
         >
           <MenuItem icon={Sparkles} onClick={onCreateAgent}>
             {m.agent_new()}
@@ -96,6 +117,7 @@ export function Sidebar({
             <div className="sidebar__user-status">@{me.username}</div>
           </div>
         </button>
+        <NotificationBell onOpenSettings={onOpenSettings} />
         <IconButton
           label={m.shell_settings()}
           icon={Settings}

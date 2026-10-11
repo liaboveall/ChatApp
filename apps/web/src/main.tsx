@@ -11,6 +11,8 @@ import { engine, onConversationForgotten } from '@/app/sync.ts'
 import { Toasts } from '@/components/ui/toasts.tsx'
 import { TooltipProvider } from '@/components/ui/tooltip.tsx'
 import { startAppearance, useAppearance } from '@/lib/appearance.ts'
+import { watchInstall } from '@/lib/pwa/install.ts'
+import { registerServiceWorker } from '@/lib/pwa/register.ts'
 import { meQuery } from '@/lib/queries.ts'
 import { queryClient } from '@/lib/query-client.ts'
 import { startSession } from '@/lib/session.ts'
@@ -68,6 +70,11 @@ function Root() {
     </CSPProvider>
   )
 }
+
+// The installed app and its worker (M6): the worker is registered once the page has loaded, so it never competes with it.
+watchInstall()
+if (document.readyState === 'complete') void registerServiceWorker()
+else window.addEventListener('load', () => void registerServiceWorker(), { once: true })
 
 const root = document.getElementById('root')
 if (!root) throw new Error('missing #root')

@@ -37,7 +37,8 @@ bun run doctor                 # end-to-end checks; add --ai to test the selecte
   bun run dev:worker         # 另一个终端：派发器、邮件队列、定时对账与清理
   ```
   正式管理员用 `bun run admin:create --email <邮箱> --username <用户名> --name <显示名>`，密码在你自己的终端里输入（不回显，不经过聊天）。用户名只能用小写字母、数字和下划线（3–20 位，不能是保留名，例如 `god`）；密码至少 10 位，不能是常见密码、太简单，也不能包含邮箱 @ 前的部分、用户名、显示名（各自 4 位及以上时）或产品名。邮箱、用户名、显示名先按注册同样的规则校验，通不过会指出是哪个字段、什么规则；密码被拒会说明原因并允许重输（最多 3 次），任何提示都不会回显你输入的内容。接口文档在 http://127.0.0.1:3100/api/docs（仅开发与测试环境）。
-- **前端（M1b 已完成）**：用 `bun run dev` 同时启动 api、worker 和 Vite（`bun run dev -- api web` 只启动其中几个），然后在浏览器打开 **http://localhost:5173**。必须用 `localhost`：服务端要求 `Origin` 等于 `APP_ORIGIN`，用 `127.0.0.1` 会被拒绝。管理员用 `admin:create` 创建，登录后在设置里生成邀请码，用邀请码注册新成员，验证邮件在 Mailpit（http://localhost:8025）里。
+- **前端（M1b 已完成）**：用 `bun run dev` 同时启动 api、worker 和 Vite（`bun run dev -- api web` 只启动其中几个），打开终端 **`[dev] Open` 显示的地址**。默认 **http://localhost:5173**；Windows 保留该端口时自动选取动态范围之外、没有被保留且不同于 PWA 的端口（通常为 **http://localhost:25174**，D-208）。API、容器 worker 和宿主 embedding consumer 都使用本次启动的 `APP_ORIGIN`，不改 `.env.local`。必须用 `localhost`：服务端仍只接受一个精确来源，用 `127.0.0.1` 会被拒绝。管理员用 `admin:create` 创建，登录后在设置里生成邀请码，用邀请码注册新成员，验证邮件在 Mailpit（http://localhost:8025）里。单独运行 `dev:web` 不做这个协调，Windows 有端口保留时使用 `dev`。
+- **安装与真实推送（M6）**：开发服务器不注册 Service Worker（它由构建生成），所以安装应用、离线外壳和真实推送用 `bun run dev -- api worker pwa`：先构建，再在 **http://localhost:25173** 用 `vite preview` 提供生产构建（生产 CSP），实际地址同样看 `[dev] Open`，API 与 worker 都使用这个来源（`pwa` 与 `web` 不能同时选）。独立端口让 Worker 不会接管开发页面。推送由开发环境的 worker 经真实传输发往浏览器厂商的推送服务（`setup` 已生成 VAPID 密钥）；改了前端代码要重启它才会重新构建。**切换模式前先在原启动流程 Ctrl+C**：它创建的 worker/media 会按所有权清理并保留全部数据卷；借用的实例若来源不同则明确拒绝复用，必须由其拥有者停止或经本人授权重建。本机 `EMBEDDING_ENABLED=true` 时同时选择 `embeddings`，例如 `bun run dev -- api worker embeddings pwa`。手工验收步骤见 08 第 10 节第 8 项。
 - **浏览器测试（M1b）**：`bun run test:e2e` 需要 Playwright 的浏览器。第一次：
   ```bash
   cd apps/web
@@ -55,7 +56,7 @@ bun run doctor                 # end-to-end checks; add --ai to test the selecte
 
 | 服务 | 宿主机端口 | 说明 |
 |---|---|---|
-| web（Vite） | 5173 | M1b 起可用。会把 `/api` 和 `/ws` 代理到 3100，让前后端同源，Cookie 才能正常工作。浏览器用 `http://localhost:5173` |
+| web（Vite） | 5173；Windows 保留时通常 25174 | M1b 起可用。会把 `/api` 和 `/ws` 代理到 3100，让前后端同源，Cookie 才能正常工作。浏览器打开 `dev` 的 `[dev] Open` 地址（D-208） |
 | api | 3100 | M1a 起可用 |
 | E2E：预览服务器 / API | 4173 / 3102 | 只在 `bun run test:e2e` 期间存在：`vite preview` 提供生产构建（带生产 CSP），API 与 worker 用测试环境（D-122） |
 | edge：Nginx / API | 8443 / 3104 | M2b 起可用，只在 `bun run test:edge`（或 `edge:up` 加手动起栈）期间存在：Nginx 容器用生产站点配置提供构建产物，访问地址 `https://chat.localhost:8443`；它后面是测试环境的 API 与 worker（3104，`scripts/e2e-stack.ts`，D-147）。用于头与网关测试和 M7 彩排 |
@@ -174,7 +175,7 @@ E2E 和普通故障实例固定 `AI_PROVIDER=mock`、`EMBEDDING_ENABLED=false`�
 | `db:seed` | 仅开发：bootstrap、3 个演示成员，加 M2a 的演示会话（综合讨论、技术闲聊、周末爬山、Alice 与 Bob 的私信，消息回溯三天，幂等；开发库要先 `bun run db:migrate`）（`db:studio` 未创建） | ✅ 可用 |
 | `db:bootstrap` / `db:bootstrap:test` | 生产也可用的幂等基础数据：Agent 账号、保留名、bootstrap 标记；无演示账号 | ✅ 可用 |
 | `dev:api` / `dev:worker` | 启动后端开发服务（API 与 WebSocket / 派发器、邮件队列、对账、清理） | ✅ 可用 |
-| `dev` / `dev:web` | 同时启动 api、worker、Vite / 只启动前端（`bun run dev -- api web` 可选择进程） | ✅ 可用（M1b） |
+| `dev` / `dev:web` | 同时启动 api、worker、Vite / 只启动前端（`bun run dev -- api web` 可选择进程；`-- api worker pwa` 改用生产构建，http://localhost:25173，M6） | ✅ 可用（M1b；`pwa` 为 M6） |
 | `admin:create` / `admin:verify-email` | 创建管理员（密码在自己的终端里输入；规则同注册，被拒时指出字段和原因）/ 手动标记邮箱已验证（写审计） | ✅ 可用 |
 | `test` / `test:unit` / `test:integration` | 全部 / 单元（`check` 已包含）/ 集成、安全、契约、实时（需要先 `infra:up`、`infra:bootstrap`、`db:migrate:test`） | ✅ 可用 |
 | `test:coverage` / `coverage:check` | 集成、安全、契约、实时测试加单元测试，带覆盖率运行并按目录检查行覆盖率（`domain/` ≥ 90%，`agent/` 有了之后同样，D-142）/ 只检查已有的 `coverage/lcov.info`。`test:coverage` 与 `test:integration` 一样用测试库，**不能同时跑**；输出写进被 git 忽略的 `coverage/` | ✅ 可用（M2a） |
@@ -216,12 +217,12 @@ E2E 和普通故障实例固定 `AI_PROVIDER=mock`、`EMBEDDING_ENABLED=false`�
 | 改了 `POSTGRES_PASSWORD` 后认证失败 | 见第 5 节：执行 `bun run infra:reset --yes`，然后重新 up 和 bootstrap |
 | Garage 报 layout 相关的错误 | 重新执行 `bun run infra:bootstrap` |
 | S3 报签名错误 | 检查 `S3_ENDPOINT` 是否为 `http://localhost:3900`，`S3_REGION` 是否为 `garage` |
-| 登录后 Cookie 不生效，或注册、登录报来源不允许（M1b 起） | 必须通过 `http://localhost:5173` 访问（经过 Vite 代理，`Origin` 要等于 `APP_ORIGIN`），不要直接访问 3100，也不要用 `127.0.0.1:5173` |
+| 登录后 Cookie 不生效，或注册、登录报来源不允许（M1b 起） | 必须打开 `dev` 的 `[dev] Open` 显示的 `http://localhost:<端口>`（经过 Vite 代理，`Origin` 要等于本次启动的 `APP_ORIGIN`），不要直接访问 3100，也不要用 `127.0.0.1` |
 | 浏览器测试启动失败，提示缺少共享库（libnspr4 等） | 装一次系统库：`cd apps/web && sudo node_modules/.bin/playwright install-deps`（需要 sudo） |
 | `test:fault` / `test:infra:up` 报 `bind mount outside the run directory … /run/desktop/…` | Docker Desktop 对刚创建的容器偶尔报告内部路径，核验拒绝它是对的；命令会自动把实例重新创建（最多 4 次）。连续 4 次都这样才失败：重启 Docker Desktop 后重试，不要放宽核验（D-141） |
 | 反复 `--repeat-each` 跑 E2E 时出现 `administrator sign-in failed: 429` | 测试辅助函数每次都以管理员身份登录，登录限流约 8 次之后回 429，是限流在起作用；每次 `playwright test` 启动都会清零计数，所以分批（每批不超过 7 次）运行 |
 | `test:e2e` 一开始就报测试库或端口被占用 | E2E 与集成测试共用测试库，不能同时跑；3102、4173 被旧进程占着时先结束它们（`ss -ltnp` 查看） |
-| Windows 浏览器打不开 WSL 里的 `localhost:5173`（M1b 起） | 先在 WSL 里 `curl http://localhost:5173` 确认服务在监听。WSL 为 NAT 网络模式（`wslinfo --networking-mode` 输出 `nat`，Windows 用户目录下没有 `.wslconfig`），已用临时服务验证过：WSL 里监听 `127.0.0.1` 的端口，Windows 上用 `localhost` 和 `127.0.0.1` 都能访问 |
+| Windows 浏览器打不开 WSL 里的 `localhost:5173`（M1b 起） | 若 WSL 的 `curl` 返回 200 而 Windows 拒绝连接，检查 `netsh.exe interface ipv4 show excludedportrange protocol=tcp`。2026-10-11 实测 5173 落在 5155–5254 的保留段，WSL 有监听但 Windows 无法绑定/转发；`dev` 已在启动前检测并选取备用端口，同时协调所有进程的来源地址（D-208），打开 `[dev] Open` 的地址。无需改 WSL 网络模式或删除 Windows 的保留段 |
 | 视觉测试的截图总是对不上 | 基线只在 Playwright 的 Linux 镜像里生成和比对，本机（WSL 与 Windows）的字体都不同。用 `bun run test:visual`，它会在容器里运行 |
 | 开发服务和测试同时运行时，收到对方的事件 | 检查 `APP_ENV`：事件频道名按它区分（`events:development` / `events:test`） |
 | 在手机上测试（v1.1 之后） | 通过局域网 IP 访问时，Passkey 和 Service Worker 要求 HTTPS。可以用 `edge:up` 的 Nginx 容器在本地提供 HTTPS，或者用内网穿透 |

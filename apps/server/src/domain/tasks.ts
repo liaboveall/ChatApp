@@ -37,6 +37,7 @@ import type { Deps } from './deps.ts'
 import { addMembers } from './membership.ts'
 import { directPeerOf, writeMessage } from './messages.ts'
 import type { DelegatedPrincipal, SessionPrincipal } from './principal.ts'
+import { notifyReminderDue } from './push.ts'
 import { accountAllowsSession, lockAndRevalidate, lockUsers } from './sessions.ts'
 import { inTransaction } from './tx.ts'
 import { enqueueWork } from './work.ts'
@@ -749,6 +750,13 @@ export async function deliverTask(
       kind: 'message_created',
     })
     await finishTask(tx, deps, kind, row, { status: 'sent', messageId })
+    // The reminder is the one thing here that nobody else sees: tell its owner (docs/01 section 4.8).
+    await notifyReminderDue(tx, deps, {
+      userId: user.id,
+      reminderId: row.id,
+      conversationId,
+      messageId,
+    })
     return 'sent'
   })
 }

@@ -1,7 +1,13 @@
 import { Button } from '@/components/ui/button.tsx'
 import { Dialog } from '@/components/ui/dialog.tsx'
 import { keyLabel } from '@/lib/platform.ts'
-import { NAVIGATION_SHORTCUTS, SHORTCUTS, type ShortcutId } from '@/lib/shortcuts.ts'
+import { isInstalledApp } from '@/lib/pwa/install.ts'
+import {
+  INSTALLED_SHORTCUTS,
+  NAVIGATION_SHORTCUTS,
+  SHORTCUTS,
+  type ShortcutId,
+} from '@/lib/shortcuts.ts'
 import { m } from '@/paraglide/messages.js'
 
 const LABELS: Record<ShortcutId, () => string> = {
@@ -13,6 +19,7 @@ const LABELS: Record<ShortcutId, () => string> = {
   next: () => m.shortcut_next(),
   previousUnread: () => m.shortcut_previous_unread(),
   nextUnread: () => m.shortcut_next_unread(),
+  newConversation: () => m.shortcut_new_conversation(),
 }
 
 /** Keys that work in the message field: not global shortcuts, but they belong in the list (docs/02 section 7). */
@@ -24,9 +31,12 @@ const TYPING: { label: () => string; keys: string[] }[] = [
 
 /** Rows for the help dialog and the welcome page: the shortcuts that exist, with platform-correct key labels. */
 export function ShortcutRows({ only }: { only?: ShortcutId[] }) {
-  const rows = [...SHORTCUTS, ...NAVIGATION_SHORTCUTS].filter(
-    (shortcut) => !only || only.includes(shortcut.id),
-  )
+  // ⌘N exists only in the installed app's window, so the list shows it only there.
+  const rows = [
+    ...SHORTCUTS,
+    ...(isInstalledApp() ? INSTALLED_SHORTCUTS : []),
+    ...NAVIGATION_SHORTCUTS,
+  ].filter((shortcut) => !only || only.includes(shortcut.id))
   return (
     <div className="keys-list">
       {rows.map((shortcut) => (

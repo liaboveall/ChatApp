@@ -11,6 +11,7 @@
  */
 import type { APIResponse, Page, Response } from '@playwright/test'
 import { expect } from './fixtures.ts'
+import { firstNoticesRead } from './ui.ts'
 
 /** The `Set-Cookie` lines of a response as the server wrote them: what the browser applies when the response reaches it. */
 const setCookiesOf = (response: APIResponse): string[] =>
@@ -249,6 +250,8 @@ export async function signOutInPlace(page: Page): Promise<void> {
 export async function signInInPlace(page: Page, email: string, password: string): Promise<void> {
   await page.getByLabel('邮箱').fill(email)
   await page.getByLabel('密码', { exact: true }).fill(password)
+  const notices = firstNoticesRead(page)
   await page.getByRole('button', { name: '登录', exact: true }).click()
   await expect(page.getByRole('heading', { name: /^欢迎回来/ })).toBeVisible()
+  await notices
 }

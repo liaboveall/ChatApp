@@ -15,6 +15,7 @@ import {
   type Message,
   type MessageEnvelope,
   type MessagesResponse,
+  type Notification,
   type UserChangesResponse,
   type UserSummary,
   type WsServerMessage,
@@ -35,6 +36,7 @@ import {
   raiseCounters,
 } from './merge.ts'
 import { syncUi, useSyncUi } from './state.ts'
+import type { ConversationResetReason } from './stores.ts'
 import type { SyncTransport } from './transport.ts'
 import type {
   ConversationEffect,
@@ -71,12 +73,19 @@ export type EngineDeps = {
   onForgotten?: (conversationId: string, reason: ForgetReason) => void
   /**
    * Whatever the person wrote or chose for a conversation under a membership that has ended (an unsent message, a draft, a
-   * reply or an edit in progress) must go: called when the conversation is forgotten and whenever its membership turns into
-   * another one by any route (D-171, SEC-34). Not called for the end of the scope: `onStop` empties everything then.
+   * reply or an edit in progress) must go: called when the conversation is forgotten (`forgotten`) and whenever its
+   * membership turns into another one by any route (`membership`, D-171, SEC-34). Not called for the end of the scope:
+   * `onStop` empties everything then.
    */
-  onConversationReset?: (conversationId: string) => void
+  onConversationReset?: (conversationId: string, reason: ConversationResetReason) => void
   /** The engine stopped (session end, scope switch): stores outside it (drafts, outbox, typing, presence) clear too. */
   onStop?: () => void
+  /** Notifications the personal log named (M6), in their current state: the notification store merges them by version. */
+  onNotifications?: (items: Notification[]) => void
+  /** The notification list may be out of date (the first load, a snapshot after a reset): it is read again. */
+  onNotificationsStale?: () => void
+  /** Source projections depend on access and message state as well as the notification row's own version. */
+  onNotificationSourcesStale?: (conversationId?: string) => void
 }
 
 // Spacing and sizes (docs/05 section 4.5, D-150, the request budget of D-150).
@@ -182,6 +191,9 @@ export class SyncEngine {
   readonly #onForgotten: NonNullable<EngineDeps['onForgotten']>
   readonly #onConversationReset: NonNullable<EngineDeps['onConversationReset']>
   readonly #onStop: NonNullable<EngineDeps['onStop']>
+  readonly #onNotifications: NonNullable<EngineDeps['onNotifications']>
+  readonly #onNotificationsStale: NonNullable<EngineDeps['onNotificationsStale']>
+  readonly #onNotificationSourcesStale: NonNullable<EngineDeps['onNotificationSourcesStale']>
 
   #scope: SyncScope | null = null
   #scopes = 0
@@ -223,6 +235,9 @@ export class SyncEngine {
     this.#onForgotten = deps.onForgotten ?? (() => undefined)
     this.#onConversationReset = deps.onConversationReset ?? (() => undefined)
     this.#onStop = deps.onStop ?? (() => undefined)
+    this.#onNotifications = deps.onNotifications ?? (() => undefined)
+    this.#onNotificationsStale = deps.onNotificationsStale ?? (() => undefined)
+    this.#onNotificationSourcesStale = deps.onNotificationSourcesStale ?? (() => undefined)
     this.#qc.setQueryDefaults(['u'], SYNC_QUERY_DEFAULTS)
   }
 
@@ -426,7 +441,18 @@ export class SyncEngine {
   // ───────── Folding answers into the cache ─────────
 
   #mergeConversation(scope: SyncScope, incoming: Conversation): void {
+    const before = this.#index(scope).byId[incoming.id]
     const { index, effects } = mergeConversation(this.#index(scope), incoming)
+    const after = index.byId[incoming.id]
+    if (
+      before !== undefined &&
+      after !== undefined &&
+      (after.lastChangeSeq > before.lastChangeSeq ||
+        after.metadataVersion > before.metadataVersion ||
+        after.membershipVersion > before.membershipVersion ||
+        after.viewerVersion > before.viewerVersion)
+    )
+      this.#onNotificationSourcesStale(incoming.id)
     this.#writeIndex(scope, index)
     if (incoming.dmPeer !== null) this.#mergeUsers(scope, [incoming.dmPeer])
     for (const effect of effects) this.#carryOut(scope, effect)
@@ -651,6 +677,7 @@ export class SyncEngine {
       this.#ready = true
       this.#indexFailures = 0
       useSyncUi.setState({ ready: true, loadError: false })
+      this.#onNotificationsStale()
       for (const id of this.#earlyHints) this.#refetchSoon(id)
       this.#earlyHints.clear()
       this.#armReconcile()
@@ -799,6 +826,7 @@ export class SyncEngine {
     page: MessagesResponse,
     watermark: number,
   ): void {
+    this.#onNotificationSourcesStale(cs.id)
     this.#mergeUsers(scope, page.users)
     const previous = this.#window(scope, cs.id, membershipId)
     const later = this.#hiddenLater.get(cs.id)
@@ -1143,6 +1171,7 @@ export class SyncEngine {
       nextCursor: string | null
     },
   ): void {
+    if (page.scannedThrough > (cs.synced ?? 0)) this.#onNotificationSourcesStale(cs.id)
     this.#mergeUsers(scope, page.users)
     const membershipId = cs.membershipId
     const window = membershipId === null ? undefined : this.#window(scope, cs.id, membershipId)
@@ -1260,6 +1289,12 @@ export class SyncEngine {
     }
   }
 
+  /** What kind of conversation this is, when the list has it. */
+  kindOf(conversationId: string): Conversation['kind'] | undefined {
+    const scope = this.#scope
+    return scope === null ? undefined : this.#index(scope).byId[conversationId]?.kind
+  }
+
   /** The membership I hold in a conversation now, if I am a member. */
   membershipOf(conversationId: string): string | undefined {
     const scope = this.#scope
@@ -1324,7 +1359,8 @@ export class SyncEngine {
     const queued = this.#pullQueue.indexOf(id)
     if (queued !== -1) this.#pullQueue.splice(queued, 1)
     syncUi.forget(id)
-    this.#onConversationReset(id)
+    this.#onConversationReset(id, 'forgotten')
+    this.#onNotificationSourcesStale(id)
     this.#onForgotten(id, reason)
   }
 
@@ -1355,7 +1391,8 @@ export class SyncEngine {
     syncUi.setPendingRead(id, undefined)
     syncUi.setFailures(id, 0)
     // Unsent messages, the draft, a reply or an edit in progress: they were written under the membership that ended.
-    this.#onConversationReset(id)
+    this.#onConversationReset(id, 'membership')
+    this.#onNotificationSourcesStale(id)
   }
 
   // ───────── Hints from the WebSocket ─────────
@@ -1368,6 +1405,7 @@ export class SyncEngine {
       case 'message.changed': {
         const { conversationId, changeSeq } = message.data
         const cs = this.#conv(conversationId)
+        if (changeSeq > cs.observed) this.#onNotificationSourcesStale(conversationId)
         this.#observe(cs, changeSeq)
         if (!this.#ready) {
           this.#earlyHints.add(conversationId)
@@ -1382,6 +1420,7 @@ export class SyncEngine {
       case 'conversation.changed': {
         const cached = this.#index(scope).byId[message.data.conversationId]
         if (cached === undefined || message.data.metadataVersion > cached.metadataVersion) {
+          this.#onNotificationSourcesStale(message.data.conversationId)
           this.#refetchOrDefer(message.data.conversationId)
         }
         return
@@ -1390,6 +1429,7 @@ export class SyncEngine {
         const { conversationId, membershipVersion } = message.data
         const cached = this.#index(scope).byId[conversationId]
         if (cached === undefined || membershipVersion > cached.membershipVersion) {
+          this.#onNotificationSourcesStale(conversationId)
           this.#invalidateMembers(scope, conversationId)
           this.#refetchOrDefer(conversationId)
         }
@@ -1397,6 +1437,9 @@ export class SyncEngine {
       }
       case 'user.changed':
       case 'conversation.removed':
+      case 'notification':
+        if (message.data.userChangeSeq > this.#user.observed) this.#onNotificationSourcesStale()
+        // A new or read notification is a change of my own log like the others: the entry comes with the next pull.
         this.#observeUser(message.data.userChangeSeq)
         this.#schedulePersonalPull()
         return
@@ -1585,6 +1628,7 @@ export class SyncEngine {
   }
 
   #applyPersonalPage(scope: SyncScope, page: UserChangesResponse): void {
+    const notices: Notification[] = []
     for (const item of page.items) {
       switch (item.type) {
         case 'conversation':
@@ -1607,8 +1651,12 @@ export class SyncEngine {
         case 'me':
           this.#writeMe(item.me)
           break
+        case 'notification':
+          notices.push(item.notification)
+          break
       }
     }
+    if (notices.length > 0) this.#onNotifications(notices)
     this.#user.synced = Math.max(this.#user.synced ?? 0, page.scannedThrough)
     if (page.nextCursor === null) this.#user.synced = Math.max(this.#user.synced, page.through)
   }
@@ -1619,6 +1667,8 @@ export class SyncEngine {
     baseline: NonNullable<UserChangesResponse['baseline']>,
   ): void {
     this.#writeMe(baseline.me)
+    // The snapshot has no notifications: the log they would have come from was too far back to replay.
+    this.#onNotificationsStale()
     const present = new Set(baseline.conversations.map((conversation) => conversation.id))
     for (const conversation of baseline.conversations) this.#mergeConversation(scope, conversation)
     for (const [id, cached] of Object.entries(this.#index(scope).byId)) {
@@ -1636,6 +1686,7 @@ export class SyncEngine {
   }
 
   #hideMessage(scope: SyncScope, conversationId: string, messageId: string): void {
+    this.#onNotificationSourcesStale(conversationId)
     const membershipId = this.#index(scope).byId[conversationId]?.me?.membershipId
     const window =
       membershipId === undefined ? undefined : this.#window(scope, conversationId, membershipId)
@@ -1678,6 +1729,12 @@ export class SyncEngine {
       for (const head of heads.conversations) {
         const cached = index.byId[head.id]
         if (cached === undefined) continue
+        if (
+          head.lastChangeSeq > cached.lastChangeSeq ||
+          head.metadataVersion > cached.metadataVersion ||
+          head.membershipVersion > cached.membershipVersion
+        )
+          this.#onNotificationSourcesStale(head.id)
         if (head.metadataVersion > cached.metadataVersion) this.#refetchSoon(head.id)
         if (head.membershipVersion > cached.membershipVersion) {
           this.#invalidateMembers(scope, head.id)

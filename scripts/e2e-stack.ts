@@ -1,5 +1,5 @@
 #!/usr/bin/env bun
-import { randomBytes } from 'node:crypto'
+import { createECDH, randomBytes } from 'node:crypto'
 /**
  * The backend for browser tests, in the TEST environment (docs/08 section 4, APP_ENV=test): resets the test database,
  * bootstraps it, creates an administrator, clears the rate-limit counters, then runs the API and the worker. Playwright
@@ -33,6 +33,16 @@ const env = {
   EMBEDDING_ENABLED: 'false',
   // Both processes share a fresh encryption key for the database this runner just reset. Never depend on a development credential.
   AI_KEY_ENCRYPTION_KEY: randomBytes(32).toString('base64url'),
+  // A fresh application server key pair per run: a subscription made under an earlier run's key must never be reused.
+  ...(() => {
+    const pair = createECDH('prime256v1')
+    pair.generateKeys()
+    return {
+      VAPID_PUBLIC_KEY: pair.getPublicKey().toString('base64url'),
+      VAPID_PRIVATE_KEY: pair.getPrivateKey().toString('base64url'),
+      VAPID_SUBJECT: 'mailto:e2e@chatapp.localhost',
+    }
+  })(),
   API_PORT,
   APP_ORIGIN: ORIGIN,
   LOG_LEVEL: process.env.E2E_LOG_LEVEL ?? 'warn',

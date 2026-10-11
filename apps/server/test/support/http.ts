@@ -1,4 +1,5 @@
 import { createAuth } from '../../src/auth/better-auth.ts'
+import type { Deps } from '../../src/domain/deps.ts'
 import { type AppOptions, createApp } from '../../src/http/app.ts'
 import type { Services } from '../../src/http/context.ts'
 import type { ManualClock } from '../../src/lib/clock.ts'
@@ -62,6 +63,8 @@ export async function createTestApp(
     config?: Partial<ReturnType<typeof testConfig>>
     /** Another Valkey than the shared test one (rate limits live there): the isolated instance of the fault suite. */
     valkeyUrl?: string
+    /** Ports the domain needs beyond the defaults, for example a fake push service. */
+    deps?: Partial<Omit<Deps, 'clock'>>
   } = {},
 ): Promise<TestApp> {
   const config = testConfig()
@@ -72,7 +75,7 @@ export async function createTestApp(
       level: 'debug',
       destination: { write: (chunk: string) => void logs.push(chunk) },
     })
-  const deps = makeDeps(dbs.app.db, { log })
+  const deps = makeDeps(dbs.app.db, { log, ...options.deps })
   const valkey = await createValkey(options.valkeyUrl ?? config.valkeyUrl, 'test-http')
   const runId = Math.random().toString(36).slice(2)
   const services: Services = {

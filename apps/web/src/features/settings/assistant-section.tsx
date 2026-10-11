@@ -2,7 +2,6 @@ import {
   type AiKey,
   aiKeyResponseSchema,
   type Me,
-  meSchema,
   okResponseSchema,
   type Reminder,
   reminderListSchema,
@@ -22,35 +21,12 @@ import { conversationLabel, offsetText } from '@/features/agent/approval-card.ts
 import { AgentUsage } from '@/features/agent/usage.tsx'
 import { ApiError, api } from '@/lib/api.ts'
 import { describeError } from '@/lib/error-messages.ts'
-import { queryKeys, writeMeAnswer } from '@/lib/queries.ts'
 import { useSyncScope } from '@/lib/sync/hooks.ts'
 import { showToast } from '@/lib/toast.ts'
 import { m } from '@/paraglide/messages.js'
 import { MemoriesGroup } from './memories-group.tsx'
 import { Box, Group, Row } from './settings-ui.tsx'
-
-function useMeSettings(me: Me) {
-  const queryClient = useQueryClient()
-  return useMutation({
-    mutationFn: (settings: { agentMode?: 'fast' | 'deep'; aiKeyPreference?: 'own' | 'site' }) =>
-      forScreen(null, () =>
-        api('/api/me', {
-          method: 'PATCH',
-          json: { expectedMeVersion: me.meVersion, settings },
-          schema: meSchema,
-        }),
-      ),
-    onSuccess: (updated) => {
-      if (updated === null) return
-      writeMeAnswer(queryClient, updated)
-    },
-    onError: async (error) => {
-      if (error instanceof ApiError && error.code === 'VERSION_CONFLICT')
-        await queryClient.invalidateQueries({ queryKey: queryKeys.me })
-      showToast(describeError(error))
-    },
-  })
-}
+import { useMeSettings } from './use-me-settings.ts'
 
 function ModeGroup({ me }: { me: Me }) {
   const save = useMeSettings(me)

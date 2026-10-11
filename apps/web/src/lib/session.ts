@@ -4,9 +4,12 @@
  * up (D-175), queries are cancelled and cleared, the connection is closed, account-scoped storage is wiped, and the other
  * tabs are told (D-070).
  */
+import type { Me } from '@chatapp/contracts'
 import type { QueryClient } from '@tanstack/react-query'
 import { cancelSessionRequests, setUnauthenticatedHandler } from './api.ts'
+import { forgetOfflineData } from './offline/wipe.ts'
 import { clearPendingInvite } from './pending-invite.ts'
+import { forgetDevice } from './pwa/device.ts'
 import { queryKeys } from './queries.ts'
 import { clearScopedStorage } from './storage.ts'
 import { announce, listen } from './tab-sync.ts'
@@ -48,8 +51,13 @@ export function currentGeneration(): number {
   return generation
 }
 
-/** Local reset without telling anyone else. */
-function resetLocal(): void {
+/** The account this tab is signed in as, while its identity is still in the cache. */
+function signedInUserId(): string | undefined {
+  return deps?.queryClient.getQueryData<Me | null>(queryKeys.me)?.id
+}
+
+/** Local reset without telling anyone else. `userId` is the account that is ending, read before the cache is emptied. */
+function resetLocal(userId: string | undefined): void {
   if (!deps) return
   generation += 1
   // First: what this session asked is given up, so that nothing it brings back, in the page or in the browser's cookies,
@@ -62,6 +70,11 @@ function resetLocal(): void {
   deps.queryClient.setQueryData(queryKeys.me, null)
   clearScopedStorage()
   clearPendingInvite()
+  // What the browser holds for the account outside the page: the push subscription, and the worker's idea of who is here.
+  const endedGeneration = generation
+  void forgetDevice(userId, () => generation === endedGeneration)
+  // And on disk: the unsent words and the queue (D-205). The writers stop first, in this same turn.
+  forgetOfflineData()
 }
 
 /** The session is gone (signed out here, or the server said so). Idempotent while no new session exists. */
@@ -69,8 +82,14 @@ export function endSession(reason: SessionEnd, options: { announce?: boolean } =
   if (!deps) return
   if (!active && reason !== 'signed-out') return
   active = false
-  resetLocal()
-  if (options.announce !== false) announce({ type: 'signed-out', reason })
+  const userId = signedInUserId()
+  resetLocal(userId)
+  if (options.announce !== false)
+    announce(
+      userId === undefined
+        ? { type: 'signed-out', reason }
+        : { type: 'signed-out', reason, userId },
+    )
   deps.toSignIn(reason)
 }
 

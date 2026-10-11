@@ -53,7 +53,7 @@ Events: api/worker ──publish──▶ Valkey channel "events:{APP_ENV}" ─�
 | 文件类型识别 | file-type | 22.1.1 |
 | 模糊占位图 | thumbhash | 0.1.1 |
 | 邮件发送 | nodemailer（本地连 Mailpit，生产连 Resend 的 SMTP） | 10.0.13 |
-| Web Push（M6） | web-push | 3.6.7 |
+| Web Push（M6） | 自写 RFC 8291 / 8292（`node:crypto`，官方测试向量验证），不用 `web-push`（D-201） | — |
 | 日志 | pino | 10.3.1 |
 | 错误追踪（M7） | `@sentry/bun`、`@sentry/react` | M7 时核对 |
 | API 文档界面（仅开发环境） | `@scalar/hono-api-reference` | 0.12.8 |
@@ -65,7 +65,7 @@ Events: api/worker ──publish──▶ Valkey channel "events:{APP_ENV}" ─�
 | UI 框架 | React + React Compiler（`babel-plugin-react-compiler`） | 19.3.0 / 1.0.0 |
 | 构建 | Vite（基于 Rolldown）+ `@vitejs/plugin-react`；React Compiler 经 `@rolldown/plugin-babel`（加 `@babel/core`）接入（plugin-react 6 不再内置 Babel） | 8.3.2 / 6.1.1 / 0.2.4 / 8.0.6 |
 | 路由 | `@tanstack/react-router` + `@tanstack/router-plugin`（按文件自动生成路由） | 1.170.41 / 1.168.42 |
-| 服务端数据 | `@tanstack/react-query` + `react-query-persist-client`（M6 离线） | 5.104.1 |
+| 服务端数据 | `@tanstack/react-query`（只在内存里；M6 的本机磁盘只存本人的草稿与待发，见 D-205，不用 `react-query-persist-client`） | 5.104.1 |
 | 客户端状态 | zustand | 5.0.15 |
 | 样式 | tailwindcss + `@tailwindcss/vite` | 4.3.3 |
 | 组件原语 | `@base-ui/react`（Radix 备选） | 1.8.0 |
@@ -75,7 +75,7 @@ Events: api/worker ──publish──▶ Valkey channel "events:{APP_ENV}" ─�
 | Markdown（流式也安全） | streamdown，加 `@streamdown/cjk`；代码高亮是自己的插件（`code-plugin.ts`：shiki 的 JavaScript 原始正则引擎、`@shikijs/langs-precompiled` 预编译语法、CSS 变量主题，D-168）；配置见 D-047、D-145 | 2.7.0 / 1.0.4（shiki 4.5.0，`@shikijs/langs-precompiled` 4.5.0） |
 | 国际化 | `@inlang/paraglide-js` + `@inlang/plugin-message-format` | 2.25.4 / 4.4.4 |
 | 字体（自托管） | `@fontsource-variable/inter`（拉丁子集，OFL） | 5.3.0 |
-| PWA（M6） | vite-plugin-pwa | 1.3.0 |
+| PWA（M6） | vite-plugin-pwa（含 workbox 7.4.1） | 2.0.0 |
 | 本地存储（M6） | idb-keyval | 6.3.0 |
 | 组件目录 | storybook + `@storybook/react-vite` | 10.6.1 |
 
@@ -309,7 +309,7 @@ work_items 唯一 dedupe_key 与业务事务关联；payload 只存 id、版本�
 | realtime | 1 个 dispatcher 批处理 | 发布可重复；客户端靠版本合并，30 秒对账兜底 |
 | agent | 最多 4、每用户最多 2 | 06 的租约和 attempt；awaiting_approval 不占 worker，但每用户未结束 run 总数最多 20 |
 | media | 默认 1 | generation、对象账本及资源闸门；永久格式错误不重试 |
-| push | 8 | 发送前复核权限，404/410 删除订阅；同通知/订阅唯一任务，网络未知可重复投递 |
+| push | 8 | 两个阶段：`message` 由一条写入的消息派生通知和每个订阅一个发送任务；`deliver` 发送前复核会话、成员/历史水位、消息状态、偏好、是否正在看和绑定，404/410 删除订阅；每条消息每个订阅一个任务（去重键含绑定版本），网络未知可重复投递 |
 | email | 2 | 最多 5 次，稳定 Message-ID；不承诺邮件仅投递一次；令牌过期作废 |
 | scheduled | 2 | 锁定实体与权限，发送消息/写 sent/效果账本同事务 |
 | embeddings | 1 | content_version + model_version 条件写回，旧结果丢弃 |
@@ -354,7 +354,7 @@ work_items 唯一 dedupe_key 与业务事务关联；payload 只存 id、版本�
 | `AI_PRICE_*` | 显式选 DeepSeek 时填写 | SoCLaaS 强制费用为 0，仍记录每次 usage 并受 token/并发/时长上限约束 |
 | `AI_KEY_ENCRYPTION_KEY` | 由 setup 脚本生成（M5a 加入） | 32 字节，加密用户自带的 key；丢失后用户需要重新填写 key |
 | `PRODUCT_NAME` / `AGENT_DISPLAY_NAME` / `AGENT_USERNAME` | `ChatApp` / `助手` / `assistant` | |
-| `VAPID_PUBLIC_KEY` / `VAPID_PRIVATE_KEY` / `VAPID_SUBJECT` | M6 生成 | |
+| `VAPID_PUBLIC_KEY` / `VAPID_PRIVATE_KEY` / `VAPID_SUBJECT` | `setup` 生成密钥对（不打印）；主题默认 `mailto:admin@chatapp.localhost` | RFC 8292 应用服务器密钥；生产必填，主题填运营者的 `mailto:` 或 `https:` 地址；换密钥会使所有已有订阅作废 |
 | `SENTRY_DSN` | 空（M7） | 为空时不上报 |
 | `SITE_STORAGE_BUDGET_BYTES` | M3 新增；本地填写测试预算 | 生产必填，与磁盘/备份预留核对，不用总用户配额推导 |
 | `RESTORE_MODE` / `RESTORE_EPOCH` | `isolated` / 独立随机世代 | epoch从M1a纳入认证/委托；M7隔离模式禁止外发，恢复不复用旧epoch |
@@ -417,7 +417,8 @@ work_items 唯一 dedupe_key 与业务事务关联；payload 只存 id、版本�
   - 切换会话、页面前后台变化时，上报 `focus`（M2b 起发送，每次 `hello` 之后补发当前的 `focus`、`presence.watch`、`presence.activity`）。
   - M1b 已实现：单例（`app/realtime.ts`）、退避重连（1 秒起、翻倍、上限 30 秒、±20% 抖动）、应用层心跳（`ping` 超过 10 秒没有 `pong` 就重连）、用 `hello` 与 `pong` 里的 `serverTime` 校正时钟（`serverNow()`）、按关闭码处理（4401 不重连并先探测 `/api/me`，4403 停止，4408 立即重连，4409 在后台标签页保持安静、前台退避重试，4429、1012、1013 与网络中断退避重连，D-121）。`focus` 的状态已跟踪，M2b 起发送（服务端 M2a 起支持）。
 - **输入法**：组字期间（`isComposing` 为 true，或 `keyCode` 为 229）回车不发送（D-050）。
-- **本地身份隔离（D-070）**：Query key、IndexedDB、草稿和离线队列使用 userId + authEpoch + membershipId 命名空间（M1b：本地存储键为 `chatapp.u.<userId>.<authEpoch>.*`，会话结束时整体清除；外观是设备级的，保留）。退出先设置共享注销墓碑，通过 BroadcastChannel/SW 通知其他标签页停止渲染、发送和重连，再清缓存及订阅；远程失效在联网复核时执行同样流程。SW 只缓存公共外壳。
-- **离线边界**：初次冷启动未联网验证时只显示外壳；已验证且仍打开的标签页可看已缓存内容。消息缓存最多 7 天/每会话 200 条/总 50 MiB，草稿 7 天，待发纯文本 24 小时。重新联网先验证身份与成员世代再发；换账号、重新入群、过期项保留为需人工处理的草稿，不自动发送。不能清除失联设备或用户另存的副本。
+- **本地身份隔离（D-070）**：Query key、IndexedDB、草稿和离线队列使用 userId + authEpoch + membershipId 命名空间（M1b：本地存储键为 `chatapp.u.<userId>.<authEpoch>.*`，会话结束时整体清除；外观是设备级的，保留）。退出先设置共享注销墓碑，通过 BroadcastChannel/SW 通知其他标签页停止渲染、发送和重连，再清缓存及订阅；远程失效在联网复核时执行同样流程。SW 只缓存公共外壳。**M6 实现（D-205、D-206）**：磁盘记录（IndexedDB `chatapp-local`）带账号、登录世代、恢复世代与成员关系，四样相同才读回；任何会话结束都由 `lib/offline/wipe.ts` 先停写、再清空整个库，`lib/pwa/device.ts` 退订推送并让 Worker 忘记身份。
+- **离线边界**：初次冷启动未联网验证时只显示外壳；已验证且仍打开的标签页可看已缓存内容。消息缓存最多 7 天/每会话 200 条/总 50 MiB，草稿 7 天，待发纯文本 24 小时。重新联网先验证身份与成员世代再发；换账号、重新入群、过期项保留为需人工处理的草稿，不自动发送。不能清除失联设备或用户另存的副本。**M6 实现（D-205）**：收到的消息只在页面内存里，磁盘上只有本人的草稿和待发纯文本（7 天、合计 50 MiB，`lib/offline/`）；待发项由 `lib/sync/outbox.ts` 排队，发之前先问 `/api/me`、再读该会话，经补发接口（D-204）发出、不推进已读；超过 24 小时或成员关系已换的留给本人重发或删除；换账号与会话结束时随账号清除，不留给下一个人。
+- **Service Worker（M6，D-206）**：`src/sw/sw.ts`，经 Trusted Types 命名策略 `chatapp-sw` 注册（`lib/pwa/register.ts`）；预缓存公共外壳，导航回落到 `/index.html`（`/api`、`/ws` 除外），不缓存任何 API 回答；推送只显示给当前账号，点击时聚焦已开窗口并由页面核对账号后跳转；页面与 Worker 的消息格式在 `lib/pwa/protocol.ts`。安装后的窗口（清单、Window Controls Overlay 的标题栏、⌘N）见 D-207。
 - **表单**：每个输入框使用 contracts 里的同一份 zod schema，前后端校验规则保持一致（密码规则的结构部分也在 contracts，D-119）。
 - **CSP 约束（D-116）**：页面没有内联脚本和样式；Zod 以 `jitless` 运行，入口最先导入 `lib/zod-config.ts`；Rolldown 开启 `strictExecutionOrder`。新增依赖若需要 `unsafe-eval` 或内联样式，改依赖，不放宽策略。

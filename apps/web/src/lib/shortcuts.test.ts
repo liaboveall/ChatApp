@@ -31,6 +31,21 @@ describe('matchShortcut', () => {
     expect(matchShortcut(press('x', ctrl), false)).toBeNull()
   })
 
+  test('⌘N opens the "new" menu in the installed app only: in a tab the browser keeps it (docs/02 section 7, D-052)', () => {
+    expect(matchShortcut(press('n', { ctrlKey: true }), false)).toBeNull()
+    expect(matchShortcut(press('n', { metaKey: true }), true)).toBeNull()
+    expect(matchShortcut(press('n', { ctrlKey: true }), false, true)).toBe('newConversation')
+    expect(matchShortcut(press('n', { metaKey: true }), true, true)).toBe('newConversation')
+    // Same rules as the others: the platform's modifier, nothing more, and the physical key on other layouts.
+    expect(matchShortcut(press('n', { ctrlKey: true, shiftKey: true }), false, true)).toBeNull()
+    expect(matchShortcut(press('n', { metaKey: true }), false, true)).toBeNull()
+    expect(matchShortcut(press('т', { ctrlKey: true, code: 'KeyN' }), false, true)).toBe(
+      'newConversation',
+    )
+    // The tab shortcuts are unchanged in the app.
+    expect(matchShortcut(press('k', { ctrlKey: true }), false, true)).toBe('palette')
+  })
+
   test('extra modifiers make it a different shortcut', () => {
     expect(matchShortcut(press('k', { ctrlKey: true, shiftKey: true }), false)).toBeNull()
     expect(matchShortcut(press('k', { ctrlKey: true, altKey: true }), false)).toBeNull()

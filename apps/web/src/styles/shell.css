@@ -620,3 +620,221 @@
     opacity: 0;
   }
 }
+
+/* ---- Notification centre (M6): the bell in the user card and its panel ---- */
+
+.notice-bell {
+  position: relative;
+}
+.notice-bell__count {
+  position: absolute;
+  top: -4px;
+  right: -6px;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 5px;
+  font-size: 10px;
+  line-height: 18px;
+  pointer-events: none;
+}
+.panel {
+  z-index: 1200;
+  color: var(--label);
+  border-radius: 14px;
+  transform-origin: var(--transform-origin, bottom left);
+  transition:
+    opacity var(--dur-snappy) ease,
+    transform var(--dur-snappy) var(--spring-snappy);
+}
+.panel[data-starting-style],
+.panel[data-ending-style] {
+  opacity: 0;
+  transform: scale(0.96);
+}
+.notices {
+  width: min(380px, calc(100vw - 24px));
+  padding: 0;
+}
+.notices__panel {
+  display: flex;
+  flex-direction: column;
+  max-height: min(520px, 70vh);
+}
+.notices__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 12px 12px 8px 16px;
+  border-bottom: 1px solid var(--separator);
+}
+.notices__title {
+  font-size: var(--fs-headline);
+  line-height: var(--lh-headline);
+  font-weight: 600;
+}
+.notices__body {
+  overflow-y: auto;
+  padding: 6px;
+}
+.notices__list {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.notice {
+  position: relative;
+  display: grid;
+  grid-template-columns: 28px minmax(0, 1fr) auto;
+  align-items: start;
+  gap: 4px 10px;
+  width: 100%;
+  padding: 8px 18px 8px 8px;
+  border-radius: 10px;
+  text-align: left;
+}
+.notice:hover {
+  background: var(--fill-hover);
+}
+.notice__glyph {
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  border-radius: 999px;
+  background: var(--fill);
+  color: var(--label-secondary);
+}
+.notice--unread .notice__glyph {
+  background: color-mix(in srgb, var(--accent-solid) 16%, transparent);
+  color: var(--accent-text, var(--accent-solid));
+}
+.notice__text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+.notice__title {
+  font-size: var(--fs-callout);
+  line-height: var(--lh-callout);
+  font-weight: 500;
+  overflow-wrap: anywhere;
+}
+.notice--unread .notice__title {
+  font-weight: 600;
+}
+.notice__detail {
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  font-size: var(--fs-subheadline);
+  line-height: var(--lh-subheadline);
+  color: var(--label-secondary);
+  overflow-wrap: anywhere;
+}
+.notice__time {
+  font-size: var(--fs-footnote);
+  line-height: var(--lh-callout);
+  color: var(--label-secondary);
+  white-space: nowrap;
+}
+.notice__dot {
+  position: absolute;
+  top: 14px;
+  right: 6px;
+  width: 8px;
+  height: 8px;
+  border-radius: 999px;
+  background: var(--accent-solid);
+}
+.notices__state,
+.notices__empty {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 18px 14px;
+}
+.notices__empty {
+  align-items: center;
+  text-align: center;
+}
+.notices__empty-title {
+  font-size: var(--fs-headline);
+  font-weight: 600;
+}
+.notices__empty-text {
+  max-width: 28ch;
+  font-size: var(--fs-subheadline);
+  line-height: var(--lh-subheadline);
+  color: var(--label-secondary);
+}
+.notices__more {
+  display: flex;
+  justify-content: center;
+  padding: 6px 0 4px;
+}
+
+/* ---- The installed app's window controls overlay (Chromium, M6) ----
+   The manifest asks for `window-controls-overlay`: the page then reaches into the title bar and the browser draws only its
+   window buttons, at one end of it. The strip `env(titlebar-area-*)` leaves free carries the title and moves the window
+   when dragged; the panels start below it. Anywhere else (a tab, a standalone window, the overlay switched off) the
+   variables are undefined and fall back to nothing, so the layout is the usual one. */
+
+.titlebar {
+  display: none;
+}
+@media (display-mode: window-controls-overlay) {
+  .window {
+    --titlebar-h: env(titlebar-area-height, 0px);
+  }
+  .titlebar {
+    position: absolute;
+    z-index: 2;
+    top: env(titlebar-area-y, 0px);
+    left: env(titlebar-area-x, 0px);
+    width: env(titlebar-area-width, 100%);
+    height: env(titlebar-area-height, 0px);
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding-inline: 12px;
+    overflow: hidden;
+    color: var(--label-secondary);
+    font-size: var(--fs-footnote);
+    line-height: 1;
+    white-space: nowrap;
+    user-select: none;
+    -webkit-app-region: drag;
+    app-region: drag;
+  }
+  .titlebar__text {
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .window .app {
+    padding-top: max(8px, var(--titlebar-h));
+  }
+  .window .auth {
+    padding-top: max(24px, var(--titlebar-h));
+  }
+  /* What floats over the window is never a handle: a click on a dialog or a menu that reaches the strip is the dialog's. */
+  .scrim,
+  .positioner,
+  .dialog-host,
+  .palette-host,
+  .sheet-host,
+  .toast-stack {
+    -webkit-app-region: no-drag;
+    app-region: no-drag;
+  }
+  @container win (max-width: 767px) {
+    .window .app {
+      padding-top: var(--titlebar-h);
+    }
+    .window .sidebar {
+      top: calc(8px + var(--titlebar-h));
+    }
+  }
+}

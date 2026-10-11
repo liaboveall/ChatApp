@@ -7,6 +7,7 @@ import type { AiConfig } from '../config/ai.ts'
 import type { Clock } from '../lib/clock.ts'
 import type { Logger } from '../lib/logger.ts'
 import type { MediaClient } from '../runtime/media.ts'
+import type { PushService } from '../runtime/push.ts'
 import type { BlobStore } from '../storage/port.ts'
 import type { AiKeyVerifier } from './ai-keys.ts'
 
@@ -46,6 +47,11 @@ export type Deps = {
   media?: MediaClient
   /** API only: checks a member's own key with the provider's free model list before it is stored (M5a). */
   aiKeyVerifier?: AiKeyVerifier
+  /**
+   * Browser push (M6): the application server key, the endpoint policy and the sender. Absent where VAPID keys are not set
+   * up; then members cannot subscribe and nothing is pushed, while the in-site notification centre works as usual.
+   */
+  push?: PushService
   /** Offline local inference over private IPC, never a remote embedding service. */
   embeddings?: {
     modelVersion: string

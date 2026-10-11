@@ -39,4 +39,6 @@ export type Services = {
   wake: () => void
   /** The WebSocket gateway of this process, once it exists; only the test routes reach into it (V-14). */
   realtime?: { disconnect(options: { userId?: string; code?: number }): number }
+  /** APP_ENV=test only: what the simulated push service was asked to send (docs/08 scenario 9). */
+  pushOutbox?: { list(): Promise<unknown[]>; clear(): Promise<number> }
 }

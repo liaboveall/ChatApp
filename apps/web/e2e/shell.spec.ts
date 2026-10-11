@@ -57,13 +57,15 @@ test.describe('keyboard shortcuts', () => {
     const person = await createVerifiedMember('palette')
     await signIn(page, person.email, person.password)
     await page.keyboard.press('Control+k')
-    // Narrowed to the three settings commands, in the order they are defined: appearance, account, invitations.
+    // Narrowed to the four settings commands, in the order they are defined: appearance, notifications (M6), account,
+    // invitations.
     await page.keyboard.type('settings')
     const options = page.getByRole('option')
-    await expect(options).toHaveCount(3)
+    await expect(options).toHaveCount(4)
     await expect(options.first()).toHaveAttribute('aria-selected', 'true')
     await page.keyboard.press('ArrowDown')
-    await expect(options.nth(1)).toHaveAttribute('aria-selected', 'true')
+    await page.keyboard.press('ArrowDown')
+    await expect(options.nth(2)).toHaveAttribute('aria-selected', 'true')
     await page.keyboard.press('Enter') // "open account settings"
     await expect(page).toHaveURL(/settings=account/)
   })

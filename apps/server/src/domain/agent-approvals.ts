@@ -54,6 +54,7 @@ import { allocateChangeSeq, recordMessageChange } from './changes.ts'
 import { conversationRefFor } from './conversation-refs.ts'
 import type { Deps } from './deps.ts'
 import type { SessionPrincipal } from './principal.ts'
+import { notifyApprovalRequested } from './push.ts'
 import { lockAndRevalidate, lockUsers } from './sessions.ts'
 import { inTransaction } from './tx.ts'
 import { loadUserSummaries } from './users.ts'
@@ -335,8 +336,9 @@ export async function registerApprovalRequests(
               argsHash: effectHash(prepared.final),
               decidedAt: now,
             }
+      const approvalRowId = deps.newId()
       await tx.insert(agentApprovals).values({
-        id: deps.newId(),
+        id: approvalRowId,
         runId: run.id,
         stepId: step.id,
         stepIndex: step.index,
@@ -352,6 +354,15 @@ export async function registerApprovalRequests(
         createdAt: now,
         ...decision,
       })
+      // The person has to act: an entry in their centre and, when their settings say so, a push (docs/01 section 4.8).
+      if (pending) {
+        await notifyApprovalRequested(tx, deps, {
+          userId: run.userId,
+          approvalId: approvalRowId,
+          runId: run.id,
+          conversationId: run.conversationId,
+        })
+      }
     }
     const [open] = await tx
       .select({ id: agentApprovals.id })

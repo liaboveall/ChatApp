@@ -100,6 +100,8 @@ export async function deliverHints(app: TestApp, server: TestServer): Promise<nu
     bus: server.bus,
     emailQueue: { add: async () => undefined } as never,
     log: app.services.log,
+    // Hints are what these tests are about; push tasks are run by `drainPush`, never by this dispatcher.
+    kinds: ['realtime', 'email'],
   })
   let total = 0
   for (let round = 0; round < 6; round += 1) {

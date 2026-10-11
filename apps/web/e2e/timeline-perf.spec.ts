@@ -188,6 +188,7 @@ test("@perf T2: reading all the way to the oldest message: the reader's row neve
   // How far the row the reader looks at moves across every commit that loads or trims (px). The row is found again in at
   // least nine commits of ten (a probe that compared nothing would prove nothing).
   expect(stats.compared).toBeGreaterThanOrEqual(Math.floor(stats.loads * 0.9))
+  expect(stats.comparedLoads).toBeGreaterThanOrEqual(Math.floor(stats.loads * 0.9))
   expect(stats.maxShift, stats.bigShifts.join('\n')).toBeLessThanOrEqual(1.5)
   // The page stays small, however far back the reader goes.
   expect(stats.maxSeqElements).toBeLessThanOrEqual(150)

@@ -25,6 +25,7 @@ import { connectGatewayToBus } from './realtime/wiring.ts'
 import { deepSeekKeyVerifier, mockKeyVerifier } from './runtime/ai-key-verifier.ts'
 import { createEmbeddingClient, embeddingSettings } from './runtime/embeddings.ts'
 import { uuidv7 } from './runtime/ids.ts'
+import { capturedPushKey, createPushService } from './runtime/push-service.ts'
 import { startServer } from './runtime/server.ts'
 import { assertDatabaseReady, createWaker } from './startup.ts'
 import { createBlobStore } from './storage/s3.ts'
@@ -72,6 +73,7 @@ async function main(): Promise<void> {
     log,
     // Tests never reach a provider; elsewhere the free model list verifies a member's own key before it is stored.
     aiKeyVerifier: config.env === 'test' ? mockKeyVerifier : deepSeekKeyVerifier(),
+    ...(config.push ? { push: createPushService(config, valkey) } : {}),
     ...(embeddingSettings(process.env).enabled
       ? { embeddings: createEmbeddingClient(embeddingSettings(process.env)) }
       : {}),
@@ -102,6 +104,17 @@ async function main(): Promise<void> {
     isReady: createReadiness({ db: database.db, valkey, blobs: createBlobStore(config.s3) }),
     wake: createWaker(() => bus.publish({ type: 'work.wake' })),
     realtime: gateway,
+    ...(config.env === 'test'
+      ? {
+          pushOutbox: {
+            list: async () =>
+              (await valkey.lrange(capturedPushKey(config.env), 0, -1)).map((line) =>
+                JSON.parse(line),
+              ),
+            clear: async () => await valkey.del(capturedPushKey(config.env)),
+          },
+        }
+      : {}),
   }
   const app = createApp(services)
   // SEC-29: test-only routes must not exist outside APP_ENV=test.

@@ -436,19 +436,25 @@ export function networkCut(context: BrowserContext, cut: boolean): void {
  */
 export async function newContext(
   browser: Browser,
-  overrides: { timezoneId?: string; storageState?: StorageState } = {},
+  overrides: {
+    timezoneId?: string
+    storageState?: StorageState
+    serviceWorkers?: 'allow' | 'block'
+  } = {},
 ): Promise<BrowserContext> {
   const info = test.info()
   const registry = registries.get(info)
   if (registry === undefined) {
     throw new Error('newContext() was called by a test that has no registry of contexts (D-148)')
   }
-  const { baseURL, locale, timezoneId } = info.project.use
+  const { baseURL, locale, timezoneId, serviceWorkers } = info.project.use
   const context = await browser.newContext({
     baseURL,
     locale,
     timezoneId: overrides.timezoneId ?? timezoneId,
     storageState: overrides.storageState,
+    // The project's choice about the service worker (playwright.config.ts) holds for every context of a test.
+    serviceWorkers: overrides.serviceWorkers ?? serviceWorkers,
     extraHTTPHeaders: { 'x-forwarded-for': fakeClientIp() },
   })
   await instrument(context, registry)

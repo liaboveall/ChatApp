@@ -31,6 +31,7 @@ export function createDispatcher(parts: {
   mediaQueue?: Queue<WorkJobData>
   agentQueue?: Queue<WorkJobData>
   scheduledQueue?: Queue<WorkJobData>
+  pushQueue?: Queue<WorkJobData>
   embeddingQueues?: ReadonlyMap<string, Queue<WorkJobData>>
   log: Logger
   intervalMs?: number
@@ -81,6 +82,13 @@ export function createDispatcher(parts: {
         } else if (work.kind === 'scheduled') {
           if (!parts.scheduledQueue) throw new Error('scheduled queue unavailable')
           await parts.scheduledQueue.add(
+            'deliver',
+            { workId: work.id, leaseEpoch: work.leaseEpoch },
+            { ...DEFAULT_JOB_OPTIONS, jobId: `${work.id}-${work.deliverySeq}` },
+          )
+        } else if (work.kind === 'push') {
+          if (!parts.pushQueue) throw new Error('push queue unavailable')
+          await parts.pushQueue.add(
             'deliver',
             { workId: work.id, leaseEpoch: work.leaseEpoch },
             { ...DEFAULT_JOB_OPTIONS, jobId: `${work.id}-${work.deliverySeq}` },

@@ -4,13 +4,7 @@
  * typed and not sent is kept per conversation in memory. Sending is optimistic: the message appears at once as "sending".
  * Up arrow in an empty field edits my last message; a reply or an edit shows a bar above the field and Escape ends it.
  */
-import {
-  type Conversation,
-  LIMITS,
-  messageBodySchema,
-  truncateCodePoints,
-  UPLOAD_LIMITS,
-} from '@chatapp/contracts'
+import { type Conversation, LIMITS, messageBodySchema, UPLOAD_LIMITS } from '@chatapp/contracts'
 import { useQuery } from '@tanstack/react-query'
 import { ArrowUp, Eye, Paperclip, Pencil, Smile, X } from 'lucide-react'
 import {
@@ -30,7 +24,7 @@ import { MessageBody } from '@/components/markdown/message-body.tsx'
 import { Button, IconButton } from '@/components/ui/button.tsx'
 import { api } from '@/lib/api.ts'
 import { describeError } from '@/lib/error-messages.ts'
-import { messageText } from '@/lib/message-text.ts'
+import { messageBodyPreview } from '@/lib/message-text.ts'
 import { meQuery } from '@/lib/queries.ts'
 import { serverNow } from '@/lib/realtime.ts'
 import { useShell } from '@/lib/shell-state.ts'
@@ -122,6 +116,10 @@ export function Composer({
   // one that was recalled, deleted or hidden since is no target any more, so the mode ends (D-171).
   const target = stored === undefined ? undefined : liveTarget(stored, win)
   const mode = target === null ? undefined : stored
+  const targetExcerpt = useMemo(
+    () => messageBodyPreview(target?.body, users, target?.attachments[0]?.kind),
+    [target, users],
+  )
   const parsed = messageBodySchema.safeParse(draft)
   const length = codePoints(draft)
   const tooLong = length > LIMITS.messageMaxCodePoints
@@ -293,10 +291,7 @@ export function Composer({
             id: target.id,
             seq: target.seq,
             senderId: target.senderId,
-            excerpt: truncateCodePoints(
-              messageText(target.body, users, target.attachments[0]?.kind),
-              LIMITS.excerptMaxCodePoints,
-            ),
+            excerpt: targetExcerpt,
             attachmentKind: target.attachments[0]?.kind ?? null,
             state: 'ok' as const,
           }
@@ -594,7 +589,7 @@ export function Composer({
                 <b>{m.composer_replying()}</b>
                 <span>
                   {contextName === '' ? '' : `${contextName}: `}
-                  {messageText(shown?.body, users, shown?.attachments[0]?.kind)}
+                  {targetExcerpt}
                 </span>
               </>
             )}
