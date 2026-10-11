@@ -78,6 +78,7 @@
 - CI 里所有工具的版本都和本地一致：Bun 版本写在 `package.json` 的 `packageManager` 字段里，并且提交锁文件；Docker 镜像锁定精确版本。
 - 合并到 v2/main 前，当前合并 SHA 的 check、integration、security，以及 M1b 起启用的 e2e 必须通过；M5 起新增的 embeddings 也须通过。M7 的发布候选另要求 image/arm64 与恢复、混合负载证据。现有 `check`、`integration`、`security`、`media`、`e2e`、`eval` 和 `embeddings`；`load`、`image` 未创建。创建了工作流不代表远端已执行通过。
 - CI 必过项与路径过滤保持一致，不能因为跳过工作流就显示完成；失败后的修复必须重跑修复 SHA。只改文档时允许契约/链接检查替代业务重跑，但不得据此更新运行时通过记录。
+- 完整浏览器作业为初始化、全量浏览器、随后执行的真实解码链、报告上传及清理共同预留 60 分钟。M6 的全量浏览器实际用时 42.1 分钟，原 45 分钟外层上限在解码链执行中触发；各用例时限、重试策略和性能门槛不变，详见 [27](27-m6-acceptance-2026-10-11.md) R8。
 
 ## 6. 完成标准（Definition of Done）
 

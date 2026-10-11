@@ -1,18 +1,25 @@
 /** WebKit reports a fetch from a document being replaced as a JavaScript error even when its rejection is handled. */
-export type ReloadInterval = { from: number; committed: number | null }
+export type DocumentReplacementInterval = {
+  from: number
+  committed: number | null
+  document?: boolean
+}
 
-export function isWebKitReloadCancellation(input: {
+export function isWebKitDocumentCancellation(input: {
   engine: string
   origin: string
   stack: string | undefined
   at: number
-  reloads: readonly ReloadInterval[]
+  replacements: readonly DocumentReplacementInterval[]
 }): boolean {
-  const { engine, origin, stack, at, reloads } = input
+  const { engine, origin, stack, at, replacements } = input
   if (
     engine !== 'webkit' ||
-    !reloads.some(
-      (reload) => at >= reload.from && (reload.committed === null || at < reload.committed),
+    !replacements.some(
+      (replacement) =>
+        replacement.document !== false &&
+        at >= replacement.from &&
+        (replacement.committed === null || at < replacement.committed),
     )
   )
     return false

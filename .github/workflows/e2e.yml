@@ -22,9 +22,9 @@ concurrency:
 jobs:
   e2e:
     runs-on: ubuntu-24.04
-    # The ten-thousand-message scenarios read the whole conversation (T2 alone is allowed ten minutes); Chromium and WebKit
-    # both run everything, so this is longer than it was before M2b.
-    timeout-minutes: 45
+    # M6's complete browser suite took 42 minutes on the shared runner. Reserve time for setup, the subsequent
+    # real-decoder browser chain, artifact upload and cleanup as well. Individual test and performance limits are unchanged.
+    timeout-minutes: 60
     steps:
       - uses: actions/checkout@v7
       - uses: oven-sh/setup-bun@v2
