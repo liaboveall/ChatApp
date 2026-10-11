@@ -180,7 +180,11 @@ self.addEventListener('pushsubscriptionchange', (event) => {
         change.oldSubscription?.options ?? { userVisibleOnly: true },
       )
       const current = await readIdentity()
-      if (current?.userId !== identity.userId || current.installationId !== identity.installationId)
+      if (
+        current?.userId !== identity.userId ||
+        current.installationId !== identity.installationId ||
+        current.handoverId !== identity.handoverId
+      )
         return
       const json = subscription.toJSON()
       if (!json.endpoint || !json.keys?.p256dh || !json.keys.auth) return
