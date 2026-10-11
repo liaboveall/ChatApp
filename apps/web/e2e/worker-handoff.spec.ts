@@ -21,80 +21,95 @@ test.skip(
 )
 test.use({ channel: 'chromium' })
 
-test('a subscription renewal that waits through identity handover cannot register for the next account', async ({
-  browser,
-  baseURL,
-}) => {
-  const keys = newBrowserKeys('renewal')
-  const context = await newPushBrowser(browser, baseURL ?? '', keys)
-  const page = await context.newPage()
-  await page.goto('/')
-  await page.evaluate(() => navigator.serviceWorker.ready)
-  const worker = await runningWorker(context)
-  const identify = async (userId: string) => {
-    await page.evaluate(async (userId) => {
-      const registration = await navigator.serviceWorker.ready
-      registration.active?.postMessage({
-        type: 'identity',
-        userId,
-        installationId: '00000000-0000-4000-8000-000000000001',
-      })
-    }, userId)
-    await expect.poll(() => workerIdentity(context)).toMatchObject({ userId })
-  }
-  await identify('00000000-0000-4000-8000-000000000002')
-  await worker.evaluate(
-    ({ endpoint, p256dh, auth }) => {
-      const scope = self as unknown as {
-        registration: { pushManager: { subscribe(): Promise<unknown> } }
-        fetch: typeof fetch
-        __renewRelease?: () => void
-        __renewDone?: Promise<unknown>
-        __renewRequests: number
-      }
-      scope.__renewRequests = 0
-      const fetchOriginal = scope.fetch.bind(self)
-      scope.fetch = async (url, options) => {
-        if (url !== '/api/push/subscriptions') return fetchOriginal(url, options)
-        scope.__renewRequests += 1
-        return new Response('{}')
-      }
-      scope.registration.pushManager.subscribe = async () => {
-        await new Promise<void>((resolve) => {
-          scope.__renewRelease = resolve
+for (const sameAccount of [false, true]) {
+  test(`a subscription renewal that waits through ${sameAccount ? 'sign-out and a new login of the same account' : 'identity handover'} cannot register for the next login`, async ({
+    browser,
+    baseURL,
+  }) => {
+    const keys = newBrowserKeys('renewal')
+    const context = await newPushBrowser(browser, baseURL ?? '', keys)
+    const page = await context.newPage()
+    await page.goto('/')
+    await page.evaluate(() => navigator.serviceWorker.ready)
+    const worker = await runningWorker(context)
+    const identify = async (userId: string) => {
+      await page.evaluate(async (userId) => {
+        const registration = await navigator.serviceWorker.ready
+        registration.active?.postMessage({
+          type: 'identity',
+          userId,
+          installationId: '00000000-0000-4000-8000-000000000001',
         })
-        return { toJSON: () => ({ endpoint, keys: { p256dh, auth } }) }
-      }
-      const event = new Event('pushsubscriptionchange')
-      Object.defineProperty(event, 'waitUntil', {
-        value: (promise: Promise<unknown>) => {
-          scope.__renewDone = promise
-        },
-      })
-      self.dispatchEvent(event)
-    },
-    { endpoint: keys.endpoint, p256dh: keys.p256dh, auth: keys.auth },
-  )
-  await expect
-    .poll(() =>
-      worker.evaluate(() =>
-        Boolean((self as unknown as { __renewRelease?: unknown }).__renewRelease),
-      ),
+      }, userId)
+      await expect.poll(() => workerIdentity(context)).toMatchObject({ userId })
+    }
+    await identify('00000000-0000-4000-8000-000000000002')
+    await worker.evaluate(
+      ({ endpoint, p256dh, auth }) => {
+        const scope = self as unknown as {
+          registration: { pushManager: { subscribe(): Promise<unknown> } }
+          fetch: typeof fetch
+          __renewRelease?: () => void
+          __renewDone?: Promise<unknown>
+          __renewRequests: number
+        }
+        scope.__renewRequests = 0
+        const fetchOriginal = scope.fetch.bind(self)
+        scope.fetch = async (url, options) => {
+          if (url !== '/api/push/subscriptions') return fetchOriginal(url, options)
+          scope.__renewRequests += 1
+          return new Response('{}')
+        }
+        scope.registration.pushManager.subscribe = async () => {
+          await new Promise<void>((resolve) => {
+            scope.__renewRelease = resolve
+          })
+          return { toJSON: () => ({ endpoint, keys: { p256dh, auth } }) }
+        }
+        const event = new Event('pushsubscriptionchange')
+        Object.defineProperty(event, 'waitUntil', {
+          value: (promise: Promise<unknown>) => {
+            scope.__renewDone = promise
+          },
+        })
+        self.dispatchEvent(event)
+      },
+      { endpoint: keys.endpoint, p256dh: keys.p256dh, auth: keys.auth },
     )
-    .toBe(true)
-  await identify('00000000-0000-4000-8000-000000000003')
-  await worker.evaluate(async () => {
-    const scope = self as unknown as { __renewRelease: () => void; __renewDone: Promise<unknown> }
-    scope.__renewRelease()
-    await scope.__renewDone
+    await expect
+      .poll(() =>
+        worker.evaluate(() =>
+          Boolean((self as unknown as { __renewRelease?: unknown }).__renewRelease),
+        ),
+      )
+      .toBe(true)
+    const next = sameAccount
+      ? '00000000-0000-4000-8000-000000000002'
+      : '00000000-0000-4000-8000-000000000003'
+    if (sameAccount) {
+      await page.evaluate(async () => {
+        const registration = await navigator.serviceWorker.ready
+        registration.active?.postMessage({
+          type: 'signed-out',
+          userId: '00000000-0000-4000-8000-000000000002',
+        })
+      })
+      await expect.poll(() => workerIdentity(context)).toBeUndefined()
+    }
+    await identify(next)
+    await worker.evaluate(async () => {
+      const scope = self as unknown as { __renewRelease: () => void; __renewDone: Promise<unknown> }
+      scope.__renewRelease()
+      await scope.__renewDone
+    })
+    expect(
+      await worker.evaluate(() => (self as unknown as { __renewRequests: number }).__renewRequests),
+    ).toBe(0)
+    expect(await workerIdentity(context)).toMatchObject({
+      userId: next,
+    })
   })
-  expect(
-    await worker.evaluate(() => (self as unknown as { __renewRequests: number }).__renewRequests),
-  ).toBe(0)
-  expect(await workerIdentity(context)).toMatchObject({
-    userId: '00000000-0000-4000-8000-000000000003',
-  })
-})
+}
 
 test('a foreign push without a known identity cannot guess ownership and unsubscribe the installation', async ({
   browser,
