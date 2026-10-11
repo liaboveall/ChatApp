@@ -1358,7 +1358,7 @@ V-17 的真实无效 key 401 已验证；真实 402/429 仍未验证，模拟错
 - **显示与点击**：载荷手工校验（版本、种类、长度、只允许本站路径）；有聚焦且可见的窗口正停在那个会话时不显示；同一会话的通知用同一 tag 替换并再次提醒。点击时聚焦已开的窗口并告诉页面去哪里，页面只在 `userId` 是当前账号时才跳转；没有窗口就打开新窗口。浏览器换订阅（`pushsubscriptionchange`）时尽力重新订阅并登记。
 - **角标**：推送到达时 Worker 设置应用角标（Badging API）；**退出时 Worker 不碰角标**，由页面在外壳卸载时清除。原因：Chromium 的无界面测试版本没有给 Worker 提供角标服务，Worker 一调用，浏览器就以「坏消息」为由终止整个渲染进程，页面一起崩溃（E2E 实测：`No binder found for interface blink.mojom.BadgeService for the service worker scope`）。真实的 Chrome/Edge 有这项服务，推送时的调用保留。
 - **开关推送**（设置 → 通知）：先要通知权限 → 取服务器公钥 → 订阅（服务器换过公钥则先退订再订）→ 告诉 Worker 身份 → 登记订阅；服务器拒绝则把浏览器端刚建的订阅退掉，不留半成品。关闭时删除服务器上本安装的订阅并退订。所有请求经 `forScreen`（D-174）。
-- **浏览器测试里的 Worker**：Chromium 项目带着 Worker 跑全部用例（Playwright 在 Chromium 里能看到并拦截受控页面的请求，上面的角标崩溃就是这样发现的）；WebKit 与 Firefox 项目默认 `serviceWorkers: 'block'`，因为 Playwright 在这两个引擎里拦不住 Worker 控制的页面发出的请求（依赖 `route` 暂扣回答的迟到回答类用例全部超时），WebKit 导航时还会丢失框架；专门测 Worker 的 `pwa.spec.ts` 在所有引擎里打开它。外壳就绪约 300 毫秒后会读一次通知列表，登录助手等它完成再返回，免得它和测试的下一步赛跑。
+- **浏览器测试里的 Worker**：Chromium 项目带着 Worker 跑全部用例（Playwright 在 Chromium 里能看到并拦截受控页面的请求，上面的角标崩溃就是这样发现的）；WebKit 与 Firefox 项目默认 `serviceWorkers: 'block'`（主配置和真实解码链的 `playwright.media.config.ts` 都适用，`scripts/playwright-service-worker.test.ts` 守着），因为 Playwright 在这两个引擎里拦不住 Worker 控制的页面发出的请求（依赖 `route` 暂扣回答的迟到回答类用例全部超时），WebKit 导航时还会丢失框架；专门测 Worker 的 `pwa.spec.ts` 在所有引擎里打开它。外壳就绪约 300 毫秒后会读一次通知列表，登录助手等它完成再返回，免得它和测试的下一步赛跑。
 
 ### D-207 · 安装后的应用窗口（2026-10-09，M6 实现，落实 01 第 3.5 节、02 第 7 节）
 
