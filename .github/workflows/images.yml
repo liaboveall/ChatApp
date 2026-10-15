@@ -40,7 +40,9 @@ jobs:
         run: bun scripts/production-image-smoke.ts .test-runs/image-candidate/release.json
       - name: Native production boot, TLS chat smoke and fresh-target backup recovery
         # Production operations manage private UID-10001 files as root (docs/31).
-        run: sudo --preserve-env=PATH bun --no-env-file scripts/test-production.ts .test-runs/image-candidate/release.json
+        run: |
+          bun_binary="$(command -v bun)"
+          sudo env "PATH=$PATH" "$bun_binary" --no-env-file scripts/test-production.ts .test-runs/image-candidate/release.json
       - name: Collect public metadata without traversing private runtime directories
         if: always()
         run: |
