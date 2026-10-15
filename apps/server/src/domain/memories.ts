@@ -3,6 +3,7 @@ import {
   type AgentMemory,
   type AgentSource,
   AppError,
+  type DeletionOperation,
   memoryContentSchema,
 } from '@chatapp/contracts'
 import {
@@ -24,6 +25,8 @@ import {
   validateAgentSources,
 } from './agent-access.ts'
 import { writeAudit } from './audit.ts'
+import { applyDeletion } from './deletion-apply.ts'
+import { assertDeletionMutable, prepareDeletion, settleDeletion } from './deletion-operations.ts'
 import type { Deps } from './deps.ts'
 import { enqueueMemoryEmbedding, RETRIEVAL } from './embeddings.ts'
 import type { SessionPrincipal } from './principal.ts'
@@ -43,6 +46,7 @@ export const hasMemoryIntent = (prompt: string): boolean => {
 }
 /** Expired summaries lose their plaintext and provenance even if the conversation is never opened again. */
 export async function purgeExpiredSummaries(deps: Deps): Promise<number> {
+  if (deps.deletionJournal) throw new Error('summary retention must use the journaled batch')
   const rows = await deps.db.execute<{ conversation_id: string }>(sql`
     delete from agent_conversation_state where conversation_id in (
       select conversation_id from agent_conversation_state
@@ -255,6 +259,8 @@ export async function deleteMemory(
   principal: SessionPrincipal,
   id: string,
 ): Promise<AgentMemory> {
+  if (deps.deletionJournal)
+    throw new Error('journaled memory removal requires requestMemoryDeletion')
   return await deps.db.transaction(async (tx) => {
     await lockAndRevalidate(tx, deps, principal)
     const row = await deleteMemoryRow(tx, deps, principal.userId, id)
@@ -267,6 +273,38 @@ export async function deleteMemory(
     return memoryDto(row)
   })
 }
+export async function requestMemoryDeletion(
+  deps: Deps,
+  principal: SessionPrincipal,
+  id: string,
+): Promise<AgentMemory | DeletionOperation> {
+  if (!deps.deletionJournal) return await deleteMemory(deps, principal, id)
+  const operation = await deps.db.transaction(async (tx) => {
+    await lockAndRevalidate(tx, deps, principal)
+    const [row] = await tx
+      .select()
+      .from(agentMemories)
+      .where(and(eq(agentMemories.id, id), eq(agentMemories.userId, principal.userId)))
+      .for('update')
+    if (!row) throw new AppError('NOT_FOUND', 'Memory not found')
+    return await prepareDeletion(tx, deps, principal.userId, {
+      action: 'memory_delete',
+      target: { id, userId: principal.userId, contentVersion: row.contentVersion },
+    })
+  })
+  const status = await settleDeletion(deps, operation.id, applyDeletion)
+  if (status.status !== 'completed') return status
+  return await deps.db.transaction(async (tx) => {
+    await lockAndRevalidate(tx, deps, principal)
+    const [row] = await tx
+      .select()
+      .from(agentMemories)
+      .where(and(eq(agentMemories.id, id), eq(agentMemories.userId, principal.userId)))
+    if (!row) throw new AppError('NOT_FOUND', 'Memory not found')
+    return memoryDto(row)
+  })
+}
+
 export async function setMemoryPrivacy(
   deps: Deps,
   principal: SessionPrincipal,
@@ -286,6 +324,7 @@ export async function setMemoryPrivacy(
         ),
       )
     if (!row) throw new AppError('NOT_FOUND', 'Memory not found')
+    await assertDeletionMutable(tx, 'memory', id)
     if (row.contentVersion !== input.expectedContentVersion)
       throw new AppError('VERSION_CONFLICT', 'Memory changed')
     // Derived private memories retain their private provenance. Consent only applies to manually added content.

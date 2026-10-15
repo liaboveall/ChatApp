@@ -1,0 +1,7 @@
+[Unit]
+Description=ChatApp monitoring once a minute
+[Timer]
+OnBootSec=1min
+OnUnitActiveSec=1min
+[Install]
+WantedBy=timers.target

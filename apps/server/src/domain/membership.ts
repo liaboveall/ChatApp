@@ -4,7 +4,7 @@
  * removed or banned. The caller has locked the people involved and then the conversation (so `conversation.lastSeq` is
  * exact) and has already decided that the change is allowed.
  */
-import type { MemberRole, NotifyLevel } from '@chatapp/contracts'
+import type { MemberRole, NotifyLevel, SiteLimits } from '@chatapp/contracts'
 import { LIMITS } from '@chatapp/contracts'
 import { conversationInvites, conversationMembers, conversations, type Tx } from '@chatapp/db'
 import { and, eq, inArray, isNull, ne, sql } from 'drizzle-orm'
@@ -170,5 +170,7 @@ export async function countLiveMemberships(
   return counts
 }
 
-export const memberLimitOf = (kind: ConversationRow['kind']): number =>
-  kind === 'channel' ? LIMITS.channelMemberLimit : LIMITS.groupMemberLimit
+export const memberLimitOf = (
+  kind: ConversationRow['kind'],
+  limits: Pick<SiteLimits, 'channelMemberLimit' | 'groupMemberLimit'> = LIMITS,
+): number => (kind === 'channel' ? limits.channelMemberLimit : limits.groupMemberLimit)

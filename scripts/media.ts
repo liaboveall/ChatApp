@@ -20,7 +20,7 @@ import {
 } from 'node:fs'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { mediaEnvironment } from '../apps/media/src/runtime/environment.ts'
+import { MEDIA_CONTAINER_ENVIRONMENT } from '../apps/media/src/runtime/environment.ts'
 
 export const ROOT = realpathSync(fileURLToPath(new URL('..', import.meta.url)))
 export const MEDIA_PROJECT = 'chatapp-media'
@@ -37,7 +37,7 @@ const ID = /^[0-9a-f]{64}$/
 const OWNER = /^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/
 const IMAGE_ENV = { PATH: '/usr/local/bin:/usr/bin:/bin', LANG: 'C.UTF-8', TMPDIR: '/tmp' }
 const TMPFS = 'size=268435456,mode=1777,nosuid,nodev,noexec'
-const HEALTH_TEST = ['CMD', '/usr/bin/test', '-S', '/run/chatapp-media/media.sock']
+const HEALTH_TEST = ['CMD', '/usr/local/bin/media-health']
 const SOURCE_PATHS = ['apps/server/src', 'packages/contracts/src', 'packages/db/src']
 const PRIVATE_VOLUMES = ['media-socket', 'embedding-socket', 'embedding-models'] as const
 const EMBEDDING_MOUNTS = [
@@ -456,7 +456,7 @@ export function verifyRuntime(
     }
   const actual = environment(config.Env)
   const expected = media
-    ? mediaEnvironment('/tmp')
+    ? MEDIA_CONTAINER_ENVIRONMENT
     : { ...IMAGE_ENV, ...(worker ?? configCheckWorker()) }
   if (!media && worker)
     requireCondition(

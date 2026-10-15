@@ -4,7 +4,13 @@
  * typed and not sent is kept per conversation in memory. Sending is optimistic: the message appears at once as "sending".
  * Up arrow in an empty field edits my last message; a reply or an edit shows a bar above the field and Escape ends it.
  */
-import { type Conversation, LIMITS, messageBodySchema, UPLOAD_LIMITS } from '@chatapp/contracts'
+import {
+  type Conversation,
+  deletionOperationSchema,
+  LIMITS,
+  messageBodySchema,
+  okResponseSchema,
+} from '@chatapp/contracts'
 import { useQuery } from '@tanstack/react-query'
 import { ArrowUp, Eye, Paperclip, Pencil, Smile, X } from 'lucide-react'
 import {
@@ -22,6 +28,7 @@ import { engine, forScreen, outbox } from '@/app/sync.ts'
 import { MentionContext } from '@/components/markdown/mention-context.ts'
 import { MessageBody } from '@/components/markdown/message-body.tsx'
 import { Button, IconButton } from '@/components/ui/button.tsx'
+import { useSiteLimits } from '@/features/settings/site-limits.ts'
 import { api } from '@/lib/api.ts'
 import { describeError } from '@/lib/error-messages.ts'
 import { messageBodyPreview } from '@/lib/message-text.ts'
@@ -45,6 +52,7 @@ import { m } from '@/paraglide/messages.js'
 import { startRun } from '../agent/api.ts'
 import { useAgent } from '../agent/store.ts'
 import { uploadFile } from '../attachments/upload.ts'
+import { waitForDeletion } from '../deletions/wait.ts'
 import { saveEdit } from '../message-actions/actions.ts'
 import { lastEditable } from '../message-actions/eligibility.ts'
 import { useMessageCommands } from '../message-actions/use-message-commands.ts'
@@ -93,6 +101,7 @@ export function Composer({
   }, [draft, agentMode, agentScope, attachmentKey, selectedPanel])
   const stored = useCompose((state) => modeOf(state, id, membershipId))
   const win = useTimelineWindow(id)
+  const limits = useSiteLimits()
   const { data: account } = useQuery(meQuery)
   const commands = useMessageCommands(id)
   const users = useUsers()
@@ -150,9 +159,9 @@ export function Composer({
     }
     for (const file of files) {
       if (
-        file.size > UPLOAD_LIMITS.fileBytes ||
+        file.size > limits.fileBytes ||
         (['image/jpeg', 'image/png', 'image/gif', 'image/webp', 'image/avif'].includes(file.type) &&
-          file.size > UPLOAD_LIMITS.imageBytes)
+          file.size > limits.imageBytes)
       ) {
         showToast(m.media_too_large())
         continue
@@ -180,10 +189,19 @@ export function Composer({
   const discardUpload = (entryId: string): void => {
     const entry = uploadsOf(useUploads.getState(), id).find((item) => item.id === entryId)
     removeUpload(id, entryId)
-    if (entry?.uploadId)
-      void forScreen(id, () => api(`/api/uploads/${entry.uploadId}`, { method: 'DELETE' })).catch(
-        () => undefined,
+    if (entry?.uploadId) {
+      const ticket = engine.ticket(id)
+      void forScreen(id, () =>
+        api(`/api/uploads/${entry.uploadId}`, {
+          method: 'DELETE',
+          schema: okResponseSchema.or(deletionOperationSchema),
+        }),
       )
+        .then(async (answer) => {
+          if (answer && 'operationId' in answer) await waitForDeletion(answer, ticket)
+        })
+        .catch(() => undefined)
+    }
   }
   const insert = (
     text: string,
@@ -332,6 +350,7 @@ export function Composer({
     ) {
       const messages = engine.windowOf(id)?.messages ?? []
       const target = lastEditable(messages, {
+        limits,
         meId: account?.id ?? '',
         conversation: {
           kind: conversation.kind,

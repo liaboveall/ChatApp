@@ -48,6 +48,7 @@ import { assertIdempotencyKey, claimIdempotency, completeIdempotency } from './i
 import { addMembers, countLiveMemberships, memberLimitOf, removeMember } from './membership.ts'
 import type { SessionPrincipal } from './principal.ts'
 import { accountAllowsSession, lockAndRevalidate } from './sessions.ts'
+import { readSiteLimits } from './site-policy.ts'
 import { appendSystemMessage } from './system-messages.ts'
 import { inTransaction } from './tx.ts'
 
@@ -206,17 +207,22 @@ export async function insertConversation(
       if (!allowed.has(id)) skipped.push({ userId: id, reason: 'unavailable' })
     usable = named.filter((id) => allowed.has(id))
   }
+  const limits = await readSiteLimits(deps, tx)
   const counts = await countLiveMemberships(tx, [creatorId, ...usable])
-  if ((counts.get(creatorId) ?? 0) >= LIMITS.maxConversationsPerUser) {
+  if ((counts.get(creatorId) ?? 0) >= limits.maxConversationsPerUser) {
     throw new AppError('QUOTA_EXCEEDED', 'You are in as many conversations as allowed', {
-      details: { resource: 'conversations', limit: LIMITS.maxConversationsPerUser },
+      details: { resource: 'conversations', limit: limits.maxConversationsPerUser },
     })
   }
   // People who are at their own limit are left out rather than failing the whole creation.
-  const joiners = usable.filter((id) => (counts.get(id) ?? 0) < LIMITS.maxConversationsPerUser)
+  const joiners = usable.filter((id) => (counts.get(id) ?? 0) < limits.maxConversationsPerUser)
   for (const id of usable)
     if (!joiners.includes(id)) skipped.push({ userId: id, reason: 'limit_reached' })
 
+  if (joiners.length + 1 > memberLimitOf(input.kind, limits))
+    throw new AppError('QUOTA_EXCEEDED', 'This conversation is full', {
+      details: { resource: 'members', limit: memberLimitOf(input.kind, limits) },
+    })
   const id = deps.newId()
   await tx.insert(conversations).values({
     id,
@@ -427,15 +433,16 @@ export async function joinConversation(
     if (ban) throw new AppError('CONVERSATION_BANNED', 'You are banned from this conversation')
 
     const conversation = access.conversation
-    if (conversation.memberCount >= memberLimitOf(conversation.kind)) {
+    const limits = await readSiteLimits(deps, tx)
+    if (conversation.memberCount >= memberLimitOf(conversation.kind, limits)) {
       throw new AppError('QUOTA_EXCEEDED', 'This conversation is full', {
-        details: { resource: 'members', limit: memberLimitOf(conversation.kind) },
+        details: { resource: 'members', limit: memberLimitOf(conversation.kind, limits) },
       })
     }
     const counts = await countLiveMemberships(tx, [principal.userId])
-    if ((counts.get(principal.userId) ?? 0) >= LIMITS.maxConversationsPerUser) {
+    if ((counts.get(principal.userId) ?? 0) >= limits.maxConversationsPerUser) {
       throw new AppError('QUOTA_EXCEEDED', 'You are in as many conversations as allowed', {
-        details: { resource: 'conversations', limit: LIMITS.maxConversationsPerUser },
+        details: { resource: 'conversations', limit: limits.maxConversationsPerUser },
       })
     }
     await addMembers(tx, deps, conversation, [{ userId: principal.userId, addedBy: null }])
@@ -577,12 +584,35 @@ export async function archiveConversation(
   deps: Deps,
   principal: SessionPrincipal,
   conversationId: string,
+  options: { siteAdminOnly?: boolean; idempotencyKey?: string; expectedVersion?: number } = {},
 ): Promise<Conversation> {
   return await inTransaction(deps.db, async (tx) => {
     const now = deps.clock.now()
     const user = await lockAndRevalidate(tx, deps, principal)
+    if (options.siteAdminOnly && user.role !== 'admin')
+      throw new AppError('FORBIDDEN', 'Only site administrators can manage the site')
     const actor = { userId: principal.userId, siteRole: user.role }
     const access = await requireAccess(tx, actor, conversationId, 'archive', { lock: true, now })
+    const claim = options.idempotencyKey
+      ? await claimIdempotency(
+          tx,
+          deps,
+          {
+            actorKey: principal.userId,
+            operation: 'admin.conversation.archive',
+            targetKey: conversationId,
+            key: options.idempotencyKey,
+          },
+          fingerprint({ expectedVersion: options.expectedVersion }),
+        )
+      : null
+    if (claim?.status === 'replay')
+      return await viewOrGone(tx, principal.userId, conversationId, now)
+    if (
+      options.expectedVersion !== undefined &&
+      options.expectedVersion !== access.conversation.metadataVersion
+    )
+      throw new AppError('CONFLICT', 'The conversation changed; refresh before trying again')
     if (access.conversation.archivedAt === null) {
       await tx
         .update(conversations)
@@ -597,6 +627,8 @@ export async function archiveConversation(
         metadata: { siteAdmin: access.member?.role !== 'owner' },
       })
     }
+    if (claim?.status === 'new')
+      await completeIdempotency(tx, claim.id, { type: 'conversation', id: conversationId })
     return await viewOrGone(tx, principal.userId, conversationId, now)
   })
 }
@@ -611,6 +643,7 @@ export async function restoreConversation(
   principal: SessionPrincipal,
   conversationId: string,
   input: RestoreConversationRequest,
+  options: { siteAdminOnly?: boolean; idempotencyKey?: string; expectedVersion?: number } = {},
 ): Promise<Conversation> {
   // Who is locked next depends on the owner: look first (no lock), confirm under the lock.
   const [peek] = await deps.db
@@ -625,10 +658,34 @@ export async function restoreConversation(
       const user = await lockAndRevalidate(tx, deps, principal, {
         alsoLock: ownerCandidate ? [ownerCandidate] : [],
       })
+      if (options.siteAdminOnly && user.role !== 'admin')
+        throw new AppError('FORBIDDEN', 'Only site administrators can manage the site')
       const actor = { userId: principal.userId, siteRole: user.role }
       const access = await requireAccess(tx, actor, conversationId, 'restore', { lock: true, now })
+      const claim = options.idempotencyKey
+        ? await claimIdempotency(
+            tx,
+            deps,
+            {
+              actorKey: principal.userId,
+              operation: 'admin.conversation.restore',
+              targetKey: conversationId,
+              key: options.idempotencyKey,
+            },
+            fingerprint({ input, expectedVersion: options.expectedVersion }),
+          )
+        : null
+      if (claim?.status === 'replay')
+        return await viewOrGone(tx, principal.userId, conversationId, now)
       const conversation = access.conversation
+      if (
+        options.expectedVersion !== undefined &&
+        options.expectedVersion !== conversation.metadataVersion
+      )
+        throw new AppError('CONFLICT', 'The conversation changed; refresh before trying again')
       if (conversation.archivedAt === null) {
+        if (claim?.status === 'new')
+          await completeIdempotency(tx, claim.id, { type: 'conversation', id: conversationId })
         return await viewOrGone(tx, principal.userId, conversationId, now)
       }
 
@@ -711,6 +768,8 @@ export async function restoreConversation(
         targetId: conversationId,
         metadata: { renamed: input.name !== undefined, newOwner: conversation.ownerId === null },
       })
+      if (claim?.status === 'new')
+        await completeIdempotency(tx, claim.id, { type: 'conversation', id: conversationId })
       return await viewOrGone(tx, principal.userId, conversationId, now)
     }),
   )

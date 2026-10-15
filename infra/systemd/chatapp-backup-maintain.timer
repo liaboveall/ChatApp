@@ -1,0 +1,8 @@
+[Unit]
+Description=ChatApp daily verified backup retention
+[Timer]
+OnCalendar=*-*-* 04:00:00
+Persistent=true
+RandomizedDelaySec=120
+[Install]
+WantedBy=timers.target

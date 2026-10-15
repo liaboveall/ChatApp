@@ -9,6 +9,7 @@ import {
 } from '@chatapp/contracts/media'
 import {
   cleanVideoFacts,
+  inlineVideoCodecs,
   MediaError,
   probeArgs,
   remuxArgs,
@@ -31,6 +32,8 @@ export async function processVideo(
   const facts = videoFacts(await probe(probeArgs(input, demuxer), directory), demuxer)
   const limit = Math.min(request.maxOutputBytes, MEDIA_LIMITS.inputBytes)
   try {
+    // FFmpeg 9 can remux FFV1 into MP4, which remains download-only in the product.
+    if (!inlineVideoCodecs(facts)) throw new MediaError('unsupported')
     await remux(remuxArgs(input, demuxer), directory, output, limit)
     const cleaned = cleanVideoFacts(await probe(probeArgs(output, 'mov'), directory), facts)
     const digest = await inspectFile(output, limit)

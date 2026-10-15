@@ -1,19 +1,40 @@
 # Both multi-architecture indexes verified against Docker Hub on 2026-10-06.
 FROM oven/bun:1.4.2-slim@sha256:cb3bbbb08e13a4a2ff400f24c7a2a1d5efa83f6ef8544d52d95a519631e2fc61 AS bun
+FROM debian:trixie-slim@sha256:a29215f6a35e51e22adffa17f89e9d2ef06214e64a2bad10d765c46aea49f11f AS ffmpeg
+RUN apt-get update && apt-get install -y --no-install-recommends build-essential pkg-config nasm xz-utils libx264-dev libdav1d-dev && rm -rf /var/lib/apt/lists/*
+# Official release signature verified against FCF986EA15E6E293A5644F10B4322F04D67658D8; retain the exact source hash.
+ADD --checksum=sha256:8c3850283eb25fa026482078a04051e0be17347b09ef81a0849bec15a96e002e https://ffmpeg.org/releases/ffmpeg-9.0.2.tar.xz /tmp/ffmpeg.tar.xz
+RUN mkdir /source && tar -xJf /tmp/ffmpeg.tar.xz -C /source --strip-components=1 \
+    && cd /source && ./configure --prefix=/usr --disable-shared --enable-static --disable-autodetect --disable-network --enable-protocol=file,pipe --disable-doc --disable-ffplay --enable-gpl --enable-libx264 --enable-libdav1d \
+    && make -j4 && make install \
+    && install -D -m 0644 COPYING.GPLv2 /usr/share/doc/chatapp-ffmpeg/COPYING.GPLv2
+COPY infra/media-health.c /tmp/media-health.c
+RUN cc -O2 -fstack-protector-strong -D_FORTIFY_SOURCE=3 -Wl,-z,relro,-z,now /tmp/media-health.c -o /usr/local/bin/media-health
 FROM debian:trixie-slim@sha256:a29215f6a35e51e22adffa17f89e9d2ef06214e64a2bad10d765c46aea49f11f AS base
 COPY --from=bun /usr/local/bin/bun /usr/local/bin/bun
-# Debian 13 is the current stable release; this ffmpeg version was checked on packages.debian.org.
+# No distro ffmpeg build or optional desktop/XML/TLS libraries are carried into the decoder runtime.
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends ca-certificates libstdc++6 ffmpeg=7:7.1.5-0+deb13u1 \
+    && apt-get upgrade -y && apt-get install -y --no-install-recommends ca-certificates libstdc++6 libx264-164 libdav1d7 \
     && rm -rf /var/lib/apt/lists/* \
     && groupadd --gid 10001 chatapp \
     && useradd --uid 10001 --gid 10001 --no-create-home --no-log-init --shell /usr/sbin/nologin chatapp \
     && install -d -m 0700 -o 10001 -g 10001 /run/chatapp-media
+COPY --from=ffmpeg /usr/bin/ffmpeg /usr/bin/ffprobe /usr/bin/
+COPY --from=ffmpeg /usr/share/doc/chatapp-ffmpeg /usr/share/doc/chatapp-ffmpeg
+LABEL chatapp.ffmpeg.version="9.0.2" chatapp.ffmpeg.source-sha256="8c3850283eb25fa026482078a04051e0be17347b09ef81a0849bec15a96e002e"
 ENV PATH=/usr/local/bin:/usr/bin:/bin LANG=C.UTF-8 TMPDIR=/tmp
 ENV MALLOC_ARENA_MAX=2 UV_THREADPOOL_SIZE=1 VIPS_CONCURRENCY=1 OMP_NUM_THREADS=1 \
     BUN_JSC_numberOfGCMarkers=1 BUN_JSC_numberOfDFGCompilerThreads=1 \
     BUN_JSC_numberOfFTLCompilerThreads=1 BUN_JSC_maxNumberOfWorklistThreads=1
 WORKDIR /app
+
+FROM base AS runtime-libraries
+RUN apt-get update && apt-get install -y --no-install-recommends python3 && rm -rf /var/lib/apt/lists/*
+COPY infra/runtime-libraries.py /runtime-libraries.py
+RUN python3 /runtime-libraries.py /runtime /usr/lib/*-linux-gnu/libx264.so.* /usr/lib/*-linux-gnu/libdav1d.so.*
+# Fixed fault observers exist only in the explicitly selected test image.
+FROM runtime-libraries AS fault-libraries
+RUN python3 /runtime-libraries.py /fault-runtime /usr/bin/dash /usr/bin/sleep /usr/bin/stat /usr/bin/dd
 
 FROM base AS dependencies
 # Only lock/manifest metadata and the two media workspaces. Unselected workspaces need no source or manifests.
@@ -21,8 +42,26 @@ COPY package.json bun.lock ./
 COPY packages/contracts/package.json packages/contracts/package.json
 COPY apps/media/package.json apps/media/package.json
 RUN bun install --frozen-lockfile --production --ignore-scripts --filter @chatapp/media
+COPY scripts/production-prune.ts /app/production-prune.ts
+RUN bun --no-env-file /app/production-prune.ts
 
-FROM base AS application
+FROM gcr.io/distroless/cc-debian13:nonroot@sha256:e792ab3d241a468a4fd7519ddbbebe66b49b5f365771716ea688ad40b6c6f1c2 AS application
+COPY --from=base /usr/local/bin/bun /usr/local/bin/bun
+COPY --from=base /etc/passwd /etc/passwd
+COPY --from=base /etc/group /etc/group
+COPY --from=base --chown=10001:10001 --chmod=0700 /run/chatapp-media /run/chatapp-media
+USER 0:0
+RUN ["/usr/local/bin/bun", "--no-env-file", "-e", "await import('node:fs/promises').then(async fs=>{await fs.chmod('/run/chatapp-media',0o700);await fs.chown('/run/chatapp-media',10001,10001)})"]
+COPY --from=runtime-libraries /runtime/ /
+COPY --from=ffmpeg /usr/bin/ffmpeg /usr/bin/ffprobe /usr/bin/
+COPY --from=ffmpeg /usr/local/bin/media-health /usr/local/bin/media-health
+COPY --from=ffmpeg /usr/share/doc/chatapp-ffmpeg /usr/share/doc/chatapp-ffmpeg
+LABEL chatapp.ffmpeg.version="9.0.2" chatapp.ffmpeg.source-sha256="8c3850283eb25fa026482078a04051e0be17347b09ef81a0849bec15a96e002e"
+ENV PATH=/usr/local/bin:/usr/bin:/bin LANG=C.UTF-8 TMPDIR=/tmp
+ENV MALLOC_ARENA_MAX=2 UV_THREADPOOL_SIZE=1 VIPS_CONCURRENCY=1 OMP_NUM_THREADS=1 \
+    BUN_JSC_numberOfGCMarkers=1 BUN_JSC_numberOfDFGCompilerThreads=1 \
+    BUN_JSC_numberOfFTLCompilerThreads=1 BUN_JSC_maxNumberOfWorklistThreads=1
+WORKDIR /app
 COPY --from=dependencies /app/package.json ./package.json
 COPY --from=dependencies /app/node_modules ./node_modules
 # Preserve workspace-local node_modules as well as their manifests (Bun's isolated linker).
@@ -35,10 +74,18 @@ CMD ["bun", "--no-env-file", "/app/apps/media/src/server.ts"]
 
 # Explicit opt-in only, for a separately verified compose.test project. No fixture is an ancestor of runtime.
 FROM application AS fault
+COPY --from=fault-libraries /fault-runtime/ /
+COPY --from=fault-libraries /fault-runtime/usr/bin/dash /usr/bin/sh
 COPY apps/media/test ./apps/media/test
 LABEL chatapp.media.image="fault"
 CMD ["bun", "--no-env-file", "/app/apps/media/test/fault-server.ts"]
 
 # The last/default target, and compose.media.yml's target, contain runtime code only.
 FROM application AS runtime
+USER 0:0
+ARG APPLICATION_SHA=0000000000000000000000000000000000000000
+ARG APPLICATION_SOURCE_HASH=0000000000000000000000000000000000000000000000000000000000000000
+RUN ["/usr/local/bin/bun", "--no-env-file", "-e", "const applicationSha=process.env.APPLICATION_SHA,applicationSourceHash=process.env.APPLICATION_SOURCE_HASH;if(!/^[a-f0-9]{40}$/.test(applicationSha||'')||!/^[a-f0-9]{64}$/.test(applicationSourceHash||''))throw Error('release binding required');await Bun.write('/app/release.json',JSON.stringify({format:1,applicationSha,applicationSourceHash})+'\\n')"]
+LABEL org.opencontainers.image.revision=$APPLICATION_SHA chatapp.source-hash=$APPLICATION_SOURCE_HASH
+USER 10001:10001
 LABEL chatapp.media.image="runtime"

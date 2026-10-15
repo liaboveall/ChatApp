@@ -3,6 +3,8 @@
 import { expireApprovals } from '../domain/agent-approvals.ts'
 import { purgeAgentContent, recoverAgentRuns } from '../domain/agent-runs.ts'
 import { cleanupAttachments, reconcileStorage } from '../domain/attachment-processing.ts'
+import { applyDeletion } from '../domain/deletion-apply.ts'
+import { dispatchDeletions } from '../domain/deletion-operations.ts'
 import type { Deps } from '../domain/deps.ts'
 import {
   purgeExpiredRecords,
@@ -14,6 +16,7 @@ import { purgeExpiredSummaries } from '../domain/memories.ts'
 import { purgeExpiredNotifications } from '../domain/notifications.ts'
 import { pruneStaleSubscriptions } from '../domain/push.ts'
 import { reconcileRegistrations } from '../domain/registration.ts'
+import { prepareRetention } from '../domain/retention.ts'
 import { purgeTaskContent, reconcileTasks } from '../domain/tasks.ts'
 import { purgeFinishedWork, recoverExpiredWork, workBacklog } from '../domain/work-queue.ts'
 import { describeError, type Logger } from '../lib/logger.ts'
@@ -25,6 +28,7 @@ export type Maintenance = {
   cleanup(): Promise<void>
   attachmentCleanup(): Promise<void>
   storageReconcile(): Promise<void>
+  deletions(): Promise<void>
 }
 
 export function createMaintenance(parts: {
@@ -34,6 +38,7 @@ export function createMaintenance(parts: {
   cleanupMs?: number
   attachmentCleanupMs?: number
   storageReconcileMs?: number
+  deletionMs?: number
 }): Maintenance {
   const { deps, log } = parts
   const timers: ReturnType<typeof setInterval>[] = []
@@ -53,6 +58,9 @@ export function createMaintenance(parts: {
     })
   }
 
+  const deletions = guarded('deletions', async () => {
+    await dispatchDeletions(deps, applyDeletion)
+  })
   const reconcile = guarded('reconcile', async () => {
     await recoverAgentRuns(deps)
     const expired = await expireApprovals(deps)
@@ -86,9 +94,10 @@ export function createMaintenance(parts: {
     const sessions = await purgeSessionsAndOrigins(deps)
     const expired = await purgeExpiredRecords(deps)
     const logs = await purgeSyncLogs(deps)
-    const agentContent = await purgeAgentContent(deps)
-    const taskContent = await purgeTaskContent(deps)
-    const summaries = await purgeExpiredSummaries(deps)
+    if (deps.deletionJournal) await prepareRetention(deps)
+    const agentContent = deps.deletionJournal ? 0 : await purgeAgentContent(deps)
+    const taskContent = deps.deletionJournal ? 0 : await purgeTaskContent(deps)
+    const summaries = deps.deletionJournal ? 0 : await purgeExpiredSummaries(deps)
     // Notifications are kept 90 days (docs/01 section 7); subscriptions that stopped working are dropped.
     const notifications = await purgeExpiredNotifications(deps)
     const subscriptions = await pruneStaleSubscriptions(deps)
@@ -107,6 +116,7 @@ export function createMaintenance(parts: {
 
   return {
     start() {
+      timers.push(setInterval(() => void deletions(), parts.deletionMs ?? 5000))
       timers.push(setInterval(() => void reconcile(), parts.reconcileMs ?? 60_000))
       timers.push(setInterval(() => void cleanup(), parts.cleanupMs ?? 600_000))
       timers.push(setInterval(() => void attachmentCleanup(), parts.attachmentCleanupMs ?? 60_000))
@@ -119,6 +129,7 @@ export function createMaintenance(parts: {
         ),
       )
       void reconcile()
+      void deletions()
       void attachmentCleanup()
       void storageReconcile()
     },
@@ -131,5 +142,6 @@ export function createMaintenance(parts: {
     cleanup,
     attachmentCleanup,
     storageReconcile,
+    deletions,
   }
 }

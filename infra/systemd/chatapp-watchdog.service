@@ -1,0 +1,9 @@
+[Unit]
+Description=ChatApp owned-container heartbeat watchdog
+After=docker.service
+[Service]
+Type=oneshot
+WorkingDirectory=/opt/chatapp/source
+ExecStart=/opt/chatapp/bin/bun --no-env-file /opt/chatapp/tools/watchdog.js /opt/chatapp/private
+TimeoutStartSec=1min
+UMask=0077

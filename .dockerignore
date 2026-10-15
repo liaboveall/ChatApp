@@ -6,5 +6,8 @@ coverage
 apps/web
 design
 docs
-scripts
+scripts/*
+!scripts/production-prune.ts
 **/*.log
+**/*.test.ts
+**/*.test.tsx

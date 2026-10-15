@@ -12,6 +12,7 @@ import {
   agentRunRequestSchema,
   agentRunResponseSchema,
   agentUsageSchema,
+  deletionOperationSchema,
   messageSearchQuerySchema,
   messageSearchResponseSchema,
   okResponseSchema,
@@ -23,10 +24,10 @@ import { getAgentUsage } from '../../domain/agent-budget.ts'
 import {
   cancelAgentRun,
   createAgentRun,
-  deleteAgentConversation,
   getAgentContext,
   getAgentRun,
   regenerateAgentRun,
+  requestAgentConversationDeletion,
   switchAgentKeySource,
 } from '../../domain/agent-runs.ts'
 import { searchMessages } from '../../domain/search.ts'
@@ -45,8 +46,6 @@ export function agentRoutes(app: OpenAPIHono<HttpEnv>, services: Services): void
   const { deps } = services
   app.use('/api/agent/*', requireSession(services))
   app.use('/api/search/messages', requireSession(services))
-  app.use('/api/admin/agent-runs', requireSession(services))
-  app.use('/api/admin/agent-runs/*', requireSession(services))
   app.openapi(
     createRoute({
       method: 'get',
@@ -276,11 +275,17 @@ export function agentRoutes(app: OpenAPIHono<HttpEnv>, services: Services): void
       request: { params: idParam },
       responses: {
         200: json(okResponseSchema, 'Assistant conversation and content removed'),
+        202: json(deletionOperationSchema, 'Deletion pending; content may still be visible'),
         ...errors,
       },
     }),
     async (c) => {
-      await deleteAgentConversation(deps, principalOf(c), c.req.valid('param').id)
+      const status = await requestAgentConversationDeletion(
+        deps,
+        principalOf(c),
+        c.req.valid('param').id,
+      )
+      if (status) return c.json(status, 202)
       return c.json({ status: 'ok' as const }, 200)
     },
   )

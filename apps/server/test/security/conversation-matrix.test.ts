@@ -21,6 +21,7 @@ import {
   conversations,
   messageHidden,
   messages,
+  reports,
   userConversationStates,
 } from '@chatapp/db'
 import { and, eq, inArray } from 'drizzle-orm'
@@ -146,6 +147,7 @@ afterEach(async () => {
   await db()
     .delete(userConversationStates)
     .where(inArray(userConversationStates.conversationId, ids))
+  await db().delete(reports).where(inArray(reports.conversationId, ids))
   await db().delete(conversations).where(inArray(conversations.id, ids))
 })
 
@@ -215,6 +217,7 @@ const TABLES = [
   'conversation_changes',
   'user_conversation_states',
   'message_hidden',
+  'reports',
 ]
 
 /**
@@ -236,6 +239,7 @@ async function snapshot(f: Fixture): Promise<unknown[][]> {
       .from(userConversationStates)
       .where(eq(userConversationStates.conversationId, f.id)),
     db().select().from(messageHidden).where(eq(messageHidden.messageId, f.messageId)),
+    db().select().from(reports).where(eq(reports.conversationId, f.id)),
   ])
   return tables.map((rows) =>
     [...rows].sort((a, b) => JSON.stringify(a).localeCompare(JSON.stringify(b))),
@@ -328,6 +332,90 @@ const aimedAt = (f: Fixture, who: Person | null): Person =>
   f.kind === 'dm' ? (who?.id === P.member.id ? P.owner : P.member) : P.target
 
 const CASES: Case[] = [
+  {
+    route: 'POST /api/reports',
+    messageScoped: true,
+    build: ({ f }) => ({
+      method: 'POST',
+      path: '/api/reports',
+      body: { messageId: f.messageId, reason: 'spam', details: 'moderation' },
+      headers: key(),
+    }),
+    expect: {
+      group: row(404, OK, OK, OK, 404),
+      channel: row(404, OK, OK, OK, 404),
+      dm: row(404, OK, 404, OK, 404),
+      none: row(404, 404, 404, 404, 404),
+    },
+  },
+  {
+    route: 'GET /api/admin/conversations',
+    build: () => ({ method: 'GET', path: '/api/admin/conversations' }),
+    expect: {
+      group: row(403, 403, 403, 403, OK),
+      channel: row(403, 403, 403, 403, OK),
+      dm: row(403, 403, 403, 403, OK),
+      none: row(403, 403, 403, 403, OK),
+    },
+  },
+  {
+    route: 'GET /api/admin/conversations/{id}/bans',
+    fixture: { ban: true },
+    build: ({ f }) => ({ method: 'GET', path: `/api/admin/conversations/${f.id}/bans` }),
+    expect: {
+      group: row(403, 403, 403, 403, OK),
+      channel: row(403, 403, 403, 403, OK),
+      dm: row(403, 403, 403, 403, 404),
+      none: row(403, 403, 403, 403, 404),
+    },
+  },
+  {
+    route: 'POST /api/admin/conversations/{id}/unban',
+    fixture: { ban: true },
+    build: ({ f }) => ({
+      method: 'POST',
+      path: `/api/admin/conversations/${f.id}/unban`,
+      body: { userId: P.extra.id },
+      headers: key(),
+    }),
+    expect: {
+      group: row(403, 403, 403, 403, OK),
+      channel: row(403, 403, 403, 403, OK),
+      dm: row(403, 403, 403, 403, 404),
+      none: row(403, 403, 403, 403, 404),
+    },
+  },
+  {
+    route: 'POST /api/admin/conversations/{id}/archive',
+    build: async ({ f }) => ({
+      method: 'POST',
+      path: `/api/admin/conversations/${f.id}/archive`,
+      body: { expectedVersion: await metadataVersionOf(f) },
+      headers: key(),
+    }),
+    expect: {
+      group: row(403, 403, 403, 403, OK),
+      channel: row(403, 403, 403, 403, OK),
+      dm: row(403, 403, 403, 403, 404),
+      none: row(403, 403, 403, 403, 404),
+    },
+  },
+  {
+    route: 'POST /api/admin/conversations/{id}/restore',
+    fixture: { archived: true },
+    build: async ({ f }) => ({
+      method: 'POST',
+      path: `/api/admin/conversations/${f.id}/restore`,
+      body: { expectedVersion: await metadataVersionOf(f) },
+      headers: key(),
+    }),
+    expect: {
+      group: row(403, 403, 403, 403, OK),
+      channel: row(403, 403, 403, 403, OK),
+      dm: row(403, 403, 403, 403, 404),
+      none: row(403, 403, 403, 403, 404),
+    },
+  },
   {
     route: 'DELETE /api/conversations/{id}',
     build: ({ f }) => ({ method: 'DELETE', path: `/api/conversations/${f.id}` }),
@@ -870,6 +958,8 @@ describe('the table is complete', () => {
       '/api/sync',
       '/api/me/changes',
       '/api/search/messages',
+      '/api/admin/conversations',
+      '/api/reports',
     ]
     const routes = new Set<string>()
     for (const [path, item] of Object.entries(document.paths ?? {})) {

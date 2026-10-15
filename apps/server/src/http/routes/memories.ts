@@ -1,11 +1,17 @@
 import {
   addMemorySchema,
+  deletionOperationSchema,
   editMemoryPrivacySchema,
   memoryListSchema,
   memoryResponseSchema,
 } from '@chatapp/contracts'
 import { createRoute, type OpenAPIHono } from '@hono/zod-openapi'
-import { addMemory, deleteMemory, listMemories, setMemoryPrivacy } from '../../domain/memories.ts'
+import {
+  addMemory,
+  listMemories,
+  requestMemoryDeletion,
+  setMemoryPrivacy,
+} from '../../domain/memories.ts'
 import type { HttpEnv, Services } from '../context.ts'
 import { principalOf, requireSession } from '../middleware/session.ts'
 import { POLICIES } from '../policies.ts'
@@ -80,12 +86,19 @@ export function memoryRoutes(app: OpenAPIHono<HttpEnv>, services: Services) {
       tags: ['memories'],
       security: [{ cookieAuth: [] }],
       request: { params: idParam },
-      responses: { 200: json(memoryResponseSchema, 'Deleted memory'), ...errors },
+      responses: {
+        200: json(memoryResponseSchema, 'Deleted memory'),
+        202: json(deletionOperationSchema, 'Deletion pending; content may still be visible'),
+        ...errors,
+      },
     }),
-    async (c) =>
-      c.json(
-        { memory: await deleteMemory(services.deps, principalOf(c), c.req.valid('param').id) },
-        200,
-      ),
+    async (c) => {
+      const result = await requestMemoryDeletion(
+        services.deps,
+        principalOf(c),
+        c.req.valid('param').id,
+      )
+      return 'operationId' in result ? c.json(result, 202) : c.json({ memory: result }, 200)
+    },
   )
 }

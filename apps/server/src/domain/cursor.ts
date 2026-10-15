@@ -76,6 +76,16 @@ export type AdminRunsCursor = {
   x: number
 }
 type AnyCursor =
+  | {
+      k: 'admin-catalog'
+      u: string
+      ae: number
+      re: string
+      section: string
+      f: string
+      o: [string, string]
+      x: number
+    }
   | AdminRunsCursor
   | ConversationCursor
   | UserCursor

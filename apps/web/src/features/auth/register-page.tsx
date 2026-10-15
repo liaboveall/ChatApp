@@ -250,6 +250,9 @@ export function RegisterPage({ services = defaultServices }: { services?: Servic
         {m.register_have_account()}
         <Link to="/login">{m.register_login_link()}</Link>
       </p>
+      <p className="auth-foot">
+        <Link to="/privacy">{m.privacy_title()}</Link>
+      </p>
     </AuthCard>
   )
 }

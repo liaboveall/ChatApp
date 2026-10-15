@@ -1,0 +1,17 @@
+# Fresh production databases only; development/test volumes keep their original Debian image.
+FROM postgres:18.6-alpine@sha256:77f585114c32fbca283dc835b0596f4e52b51b4c6662d7810b2f4084f60a1873 AS vector
+RUN apk add --no-cache build-base $DOCKER_PG_LLVM_DEPS
+ADD --checksum=sha256:10bf9938906e5d643bbc4a7eea104b6f57ba4898e5b76b20e60484ea1d5a7f8f https://github.com/pgvector/pgvector/archive/refs/tags/v0.8.6.tar.gz /tmp/vector.tar.gz
+RUN mkdir /source && tar -xzf /tmp/vector.tar.gz -C /source --strip-components=1 \
+    && cd /source && make OPTFLAGS="" -j4 && make install DESTDIR=/out \
+    && install -D -m 0644 LICENSE /out/usr/share/doc/chatapp-pgvector/LICENSE
+
+FROM postgres:18.6-alpine@sha256:77f585114c32fbca283dc835b0596f4e52b51b4c6662d7810b2f4084f60a1873 AS runtime
+RUN apk upgrade --no-cache && rm /usr/local/bin/gosu
+COPY --from=vector /out/ /
+ARG APPLICATION_SHA
+ARG APPLICATION_SOURCE_HASH
+RUN test "${#APPLICATION_SHA}" = 40 && test "${#APPLICATION_SOURCE_HASH}" = 64 \
+    && printf '{"format":1,"applicationSha":"%s","applicationSourceHash":"%s"}\n' "$APPLICATION_SHA" "$APPLICATION_SOURCE_HASH" > /usr/share/doc/chatapp-pgvector/release.json
+LABEL org.opencontainers.image.revision=$APPLICATION_SHA chatapp.source-hash=$APPLICATION_SOURCE_HASH chatapp.postgres.version="18.6" chatapp.pgvector.version="0.8.6"
+USER 70:70

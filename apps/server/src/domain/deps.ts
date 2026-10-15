@@ -10,6 +10,7 @@ import type { MediaClient } from '../runtime/media.ts'
 import type { PushService } from '../runtime/push.ts'
 import type { BlobStore } from '../storage/port.ts'
 import type { AiKeyVerifier } from './ai-keys.ts'
+import type { DeletionJournal } from './deletion-journal.ts'
 
 export type DomainConfig = {
   /** Site origin used in links sent by email. */
@@ -43,6 +44,8 @@ export type Deps = {
   passwords: PasswordHasher
   log: Logger
   blobs?: BlobStore
+  /** Independent offsite deletion acceptance; composition roots must require it in production. */
+  deletionJournal?: DeletionJournal
   /** Only the worker composition root installs IPC; the API never runs a decoder. */
   media?: MediaClient
   /** API only: checks a member's own key with the provider's free model list before it is stored (M5a). */

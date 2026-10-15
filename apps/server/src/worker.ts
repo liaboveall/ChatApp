@@ -8,7 +8,10 @@ import { Queue } from 'bullmq'
 import { sdkPasswords } from './auth/passwords.ts'
 import { loadAiConfig } from './config/ai.ts'
 import { type Config, ConfigError, loadConfig } from './config/index.ts'
+import { loadJournalSettings } from './config/journal.ts'
+import { withPhysicalDeletion } from './domain/backups.ts'
 import type { Deps } from './domain/deps.ts'
+import { assertRestoreUnlocked } from './domain/restore.ts'
 import { createAgentWorker } from './jobs/agent.ts'
 import { createDispatcher } from './jobs/dispatcher.ts'
 import { createEmailWorker } from './jobs/email.ts'
@@ -31,6 +34,7 @@ import { createLogger, describeError } from './lib/logger.ts'
 import { createBullConnection, createValkey } from './lib/valkey.ts'
 import { createEventBus } from './realtime/bus.ts'
 import { createPresenceStore } from './realtime/presence.ts'
+import { createRuntimeDeletionJournal } from './runtime/deletion-journal.ts'
 import { EMBEDDING_MODELS } from './runtime/embedding-catalog.ts'
 import {
   createEmbeddingClient,
@@ -39,6 +43,7 @@ import {
 } from './runtime/embeddings.ts'
 import { uuidv7 } from './runtime/ids.ts'
 import { createMediaClient } from './runtime/media.ts'
+import { startProcessHealth } from './runtime/process-health.ts'
 import { createPushService } from './runtime/push-service.ts'
 import { assertDatabaseReady } from './startup.ts'
 import { createBlobStore } from './storage/s3.ts'
@@ -55,6 +60,15 @@ async function main(): Promise<void> {
     throw error
   }
   const log = createLogger({ level: config.logLevel, service: 'worker' })
+  if (process.env.RESTORE_MODE && !['normal', 'isolated'].includes(process.env.RESTORE_MODE))
+    throw new Error('invalid restore mode')
+  if (process.env.RESTORE_MODE === 'isolated')
+    throw new Error('isolated restore cannot start outward workers')
+  const journalSettings = loadJournalSettings(process.env)
+  log.info('worker.starting', { reason: 'journal' })
+  const deletionJournal = journalSettings
+    ? await createRuntimeDeletionJournal(journalSettings)
+    : undefined
   // Crash injection exists only for the isolated fault suite (docs/08 section 4); anywhere else it refuses to start.
   const pauseAt = process.env.CHATAPP_FAULT_PAUSE
   if (pauseAt && config.env !== 'test') {
@@ -63,11 +77,14 @@ async function main(): Promise<void> {
   }
   const ai = loadAiConfig(process.env, { requireKey: false })
   const embeddingConfig = embeddingSettings(process.env)
-  const embeddingChild = await startEmbeddingChild(embeddingConfig)
   const { apiKey: _apiKey, ...aiPolicy } = ai
 
   const database = createDatabase(config.databaseUrl, { max: 6, applicationName: 'chatapp-worker' })
+  log.info('worker.starting', { reason: 'database' })
   await assertDatabaseReady(database.db, config, log)
+  await assertRestoreUnlocked(database.db)
+  const embeddingChild = await startEmbeddingChild(embeddingConfig)
+  log.info('worker.starting', { reason: 'valkey' })
   const valkey = await createValkey(config.valkeyUrl, 'worker', {
     onError: (error) => log.warn('valkey.error', describeError(error)),
   })
@@ -90,7 +107,10 @@ async function main(): Promise<void> {
       ai: aiPolicy,
       aiKeyEncryptionKey: config.aiKeyEncryptionKey,
     },
-    blobs: createBlobStore(config.s3),
+    blobs: createBlobStore(config.s3, {
+      physicalDeletion: (remove) => withPhysicalDeletion({ db: database.db }, remove),
+    }),
+    ...(deletionJournal ? { deletionJournal } : {}),
     media: createMediaClient(),
     ...(config.push ? { push: createPushService(config, valkey) } : {}),
     passwords: sdkPasswords,
@@ -203,6 +223,7 @@ async function main(): Promise<void> {
     log,
   })
 
+  log.info('worker.starting', { reason: 'event_bus' })
   await bus.subscribe((event) => {
     if (event.type === 'work.wake') dispatcher.wake()
   })
@@ -210,11 +231,13 @@ async function main(): Promise<void> {
   maintenance.start()
   presence.start()
   log.info('worker.started', { reason: config.env })
+  const health = await startProcessHealth(process.env.PROCESS_HEALTH_FILE)
 
   let stopping = false
   const shutdown = async () => {
     if (stopping) return
     stopping = true
+    await health.stop()
     log.info('worker.stopping')
     await dispatcher.stop()
     await maintenance.stop()

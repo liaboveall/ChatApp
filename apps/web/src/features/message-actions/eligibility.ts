@@ -4,7 +4,7 @@
  * menu does not show what would be refused. A refusal that still happens (the window ran out while the menu was open) is
  * handled where the action is called. Pure: the clock is an argument.
  */
-import { type Conversation, LIMITS, type Message } from '@chatapp/contracts'
+import { type ClientSiteLimits, type Conversation, LIMITS, type Message } from '@chatapp/contracts'
 
 export type ActionInput = {
   message: Message
@@ -15,6 +15,7 @@ export type ActionInput = {
   siteRole: 'user' | 'admin'
   /** Milliseconds, as the server's clock reads (the client corrects its own with the server's time). */
   now: number
+  limits?: Pick<ClientSiteLimits, 'messageEditWindowMs' | 'messageRecallWindowMs'>
 }
 
 export type MessageActions = {
@@ -50,9 +51,14 @@ export function actionsFor(input: ActionInput): MessageActions {
     reply: canSpeak && !gone && !isSystem,
     copy: message.body !== null && message.body !== '',
     edit:
-      canSpeak && mine && !gone && message.status === 'sent' && age < LIMITS.messageEditWindowMs,
-    // The server adds five seconds of grace for the network; the client shows the plain two minutes (L-07).
-    recall: me !== null && live && mine && !gone && age < LIMITS.messageRecallWindowMs,
+      canSpeak &&
+      mine &&
+      !gone &&
+      message.status === 'sent' &&
+      age < (input.limits ?? LIMITS).messageEditWindowMs,
+    // The client uses the site window; the five-second network grace belongs only to the server (L-07).
+    recall:
+      me !== null && live && mine && !gone && age < (input.limits ?? LIMITS).messageRecallWindowMs,
     hideForMe: me !== null,
     adminDelete:
       live &&

@@ -90,3 +90,8 @@ export const patchMeRequestSchema = z
     { message: 'Nothing to change' },
   )
 export type PatchMeRequest = z.infer<typeof patchMeRequestSchema>
+
+/** Re-entered password authorizes this one irreversible deletion, never stored in its journal intent. */
+export const deleteAccountRequestSchema = z
+  .object({ password: z.string().min(1).max(LIMITS.passwordMaxLength) })
+  .strict()

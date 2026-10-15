@@ -1,0 +1,2 @@
+ALTER TABLE "upload_reservations" ADD COLUMN "image_max_bytes" bigint DEFAULT 20971520 NOT NULL;--> statement-breakpoint
+ALTER TABLE "upload_reservations" ADD CONSTRAINT "upload_reservations_image_limit" CHECK ("upload_reservations"."image_max_bytes" > 0 and "upload_reservations"."image_max_bytes" <= 20971520);

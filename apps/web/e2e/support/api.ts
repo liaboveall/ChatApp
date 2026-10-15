@@ -57,6 +57,10 @@ async function admin(): Promise<APIRequestContext> {
   cachedAdmin = context
   return context
 }
+/** Shared administrator fixture for catalog tests. Its session belongs to the runner and must not be signed out. */
+export async function administratorApi(): Promise<APIRequestContext> {
+  return await admin()
+}
 
 /** A one-use invitation code from the administrator. */
 export async function createInviteCode(): Promise<string> {

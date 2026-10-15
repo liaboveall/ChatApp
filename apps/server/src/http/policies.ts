@@ -17,9 +17,14 @@ export const POLICIES = {
   resetRequestAccount: { name: 'reset-request.account', limit: 3, windowMs: minutes(60) },
   resetConsumeIp: { name: 'reset-consume.ip', limit: 30, windowMs: minutes(60) },
   changePasswordUser: { name: 'change-password.user', limit: 10, windowMs: minutes(60) },
+  deleteAccountUser: { name: 'delete-account.user', limit: 10, windowMs: minutes(60) },
+  deletionStatusIp: { name: 'deletion-status.ip', limit: 120, windowMs: minutes(1) },
   wsConnectIp: { name: 'ws-connect.ip', limit: 120, windowMs: minutes(10) },
   passkeyIp: { name: 'passkey.ip', limit: 60, windowMs: minutes(10) },
   apiUser: { name: 'api.user', limit: 600, windowMs: minutes(1) },
+  adminWriteUser: { name: 'admin-write.user', limit: 60, windowMs: minutes(1) },
+  reportUser: { name: 'report.user', limit: 20, windowMs: hours(1) },
+  monitoringIp: { name: 'monitoring.ip', limit: 20, windowMs: minutes(1) },
 
   // Conversations and messages (docs/01 section 7), counted per person.
   /** 10 messages per 10 seconds in one conversation. */

@@ -21,6 +21,7 @@ import { VList, type VListHandle } from 'virtua'
 import { engine, outbox } from '@/app/sync.ts'
 import { Button } from '@/components/ui/button.tsx'
 import { ConfirmDialog } from '@/components/ui/confirm-dialog.tsx'
+import { useSiteLimits } from '@/features/settings/site-limits.ts'
 import { useAppearance } from '@/lib/appearance.ts'
 import { meQuery } from '@/lib/queries.ts'
 import { serverNow } from '@/lib/realtime.ts'
@@ -35,6 +36,7 @@ import { deleteAsModerator, hideMessage } from '../message-actions/actions.ts'
 import { actionsFor } from '../message-actions/eligibility.ts'
 import { type MenuTarget, MessageMenu } from '../message-actions/message-menu.tsx'
 import { useMessageCommands } from '../message-actions/use-message-commands.ts'
+import { ReportDialog } from '../reports/report-dialog.tsx'
 import { MessageAnnouncer } from './announcer.tsx'
 import { buildItems, type TimelineItem } from './items.ts'
 import { JumpToLatest } from './jump-to-latest.tsx'
@@ -81,6 +83,7 @@ function useShift(firstKey: string | undefined): boolean {
 }
 
 export function Timeline({ conversation, window: win, users, meId, handleRef }: TimelineProps) {
+  const limits = useSiteLimits()
   const id = conversation.id
   const handle = useRef<VListHandle>(null)
   const wrap = useRef<HTMLDivElement>(null)
@@ -96,6 +99,7 @@ export function Timeline({ conversation, window: win, users, meId, handleRef }: 
   const [focusedId, setFocusedId] = useState<string | null>(null)
   const [flashId, setFlashId] = useState<string | null>(null)
   const [menu, setMenu] = useState<MenuTarget | null>(null)
+  const [report, setReport] = useState<import('@chatapp/contracts').Message | null>(null)
   const commands = useMessageCommands(id)
   const { data: account } = useQuery(meQuery)
   const siteRole = account?.role ?? 'user'
@@ -487,6 +491,7 @@ export function Timeline({ conversation, window: win, users, meId, handleRef }: 
     flashId,
     actionsOf: (message) =>
       actionsFor({
+        limits,
         message,
         meId,
         conversation: {
@@ -614,7 +619,9 @@ export function Timeline({ conversation, window: win, users, meId, handleRef }: 
         onRecall={commands.recall}
         onHide={commands.askHide}
         onAdminDelete={commands.askDelete}
+        onReport={setReport}
       />
+      {report ? <ReportDialog message={report} onClose={() => setReport(null)} /> : null}
       <ConfirmDialog
         open={commands.confirm?.kind === 'hide'}
         onOpenChange={(open) => !open && commands.clearConfirm()}

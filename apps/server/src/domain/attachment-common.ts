@@ -1,10 +1,44 @@
-import { AppError, type Attachment } from '@chatapp/contracts'
-import { type attachments, type DbOrTx, siteStorage } from '@chatapp/db'
-import { eq } from 'drizzle-orm'
+import { AppError, type Attachment, UPLOAD_LIMITS } from '@chatapp/contracts'
+import { attachments, type DbOrTx, siteStorage, uploadReservations, workItems } from '@chatapp/db'
+import { and, eq, inArray, isNull, lt, notExists, or, sql } from 'drizzle-orm'
 import type { Deps } from './deps.ts'
 
 export type AttachmentRow = typeof attachments.$inferSelect
 export const attachmentMissing = () => new AppError('NOT_FOUND', 'Attachment not found')
+/** One expiry predicate for normal cleanup, accepted retention batches and isolated recovery. */
+export function expiredAttachmentWhere(tx: DbOrTx, cutoff: Date) {
+  return and(
+    isNull(attachments.messageId),
+    inArray(attachments.status, ['uploading', 'processing', 'ready']),
+    sql`not exists (select 1 from users where avatar_attachment_id = ${attachments.id}) and not exists (select 1 from conversations where avatar_attachment_id = ${attachments.id})`,
+    or(
+      and(
+        eq(attachments.status, 'uploading'),
+        eq(uploadReservations.status, 'reserved'),
+        lt(uploadReservations.expiresAt, cutoff),
+      ),
+      and(
+        eq(attachments.status, 'processing'),
+        notExists(
+          tx
+            .select({ one: sql`1` })
+            .from(workItems)
+            .where(
+              and(
+                eq(workItems.entityId, attachments.id),
+                eq(workItems.kind, 'media'),
+                sql`${workItems.status} not in ('dead','done')`,
+              ),
+            ),
+        ),
+      ),
+      and(
+        eq(attachments.status, 'ready'),
+        lt(attachments.createdAt, new Date(cutoff.getTime() - UPLOAD_LIMITS.orphanMs)),
+      ),
+    ),
+  )
+}
 export function blobStore(deps: Deps) {
   if (!deps.blobs) throw new AppError('CAPACITY_UNAVAILABLE', 'Storage unavailable')
   return deps.blobs

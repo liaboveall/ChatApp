@@ -6,7 +6,7 @@
 
 import { Menu as BaseMenu } from '@base-ui/react/menu'
 import type { Message } from '@chatapp/contracts'
-import { Copy, CornerUpLeft, EyeOff, Pencil, ShieldX, Undo2 } from 'lucide-react'
+import { Copy, CornerUpLeft, EyeOff, Flag, Pencil, ShieldX, Undo2 } from 'lucide-react'
 import { MenuItem } from '@/components/ui/menu.tsx'
 import { m } from '@/paraglide/messages.js'
 import type { MessageActions } from './eligibility.ts'
@@ -24,6 +24,7 @@ export type MessageMenuProps = {
   onRecall: (message: Message) => void
   onHide: (message: Message) => void
   onAdminDelete: (message: Message) => void
+  onReport?: (message: Message) => void
 }
 
 export function MessageMenu({ target, onClose, ...on }: MessageMenuProps) {
@@ -77,6 +78,21 @@ export function MessageMenu({ target, onClose, ...on }: MessageMenuProps) {
                 {actions.adminDelete ? (
                   <MenuItem icon={ShieldX} danger onClick={() => on.onAdminDelete(message)}>
                     {m.action_admin_delete()}
+                  </MenuItem>
+                ) : null}
+                {on.onReport &&
+                actions.hideForMe &&
+                message.kind !== 'system' &&
+                !message.deletedAt &&
+                !message.recalledAt ? (
+                  <MenuItem
+                    icon={Flag}
+                    onClick={() => {
+                      onClose()
+                      on.onReport?.(message)
+                    }}
+                  >
+                    {m.report_title()}
                   </MenuItem>
                 ) : null}
               </>

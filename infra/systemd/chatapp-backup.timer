@@ -1,0 +1,8 @@
+[Unit]
+Description=ChatApp backup every twelve hours
+[Timer]
+OnCalendar=*-*-* 00,12:00:00
+Persistent=true
+RandomizedDelaySec=120
+[Install]
+WantedBy=timers.target

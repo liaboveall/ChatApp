@@ -9,9 +9,15 @@ import {
   users,
   workItems,
 } from '@chatapp/db'
-import { and, eq, gt, inArray, isNull, lt, lte, notExists, or, sql } from 'drizzle-orm'
+import { and, eq, gt, inArray, lte, notExists, sql } from 'drizzle-orm'
 import { MediaClientError } from '../runtime/media.ts'
-import { blobStore, classifyFile, lockStorage } from './attachment-common.ts'
+import { PhysicalDeletionDeferred } from '../storage/port.ts'
+import {
+  blobStore,
+  classifyFile,
+  expiredAttachmentWhere,
+  lockStorage,
+} from './attachment-common.ts'
 import { enforce, loadAccess } from './authorize.ts'
 import { enqueueHint, recordUserChange } from './changes.ts'
 import type { Deps } from './deps.ts'
@@ -173,7 +179,7 @@ export async function processAttachment(
     const type = classifyFile(await prefix(store.read(claim.input.storageKey, 0, 64)))
     if (
       (type.kind === 'image' || claim.a.purpose !== 'message') &&
-      claim.input.sizeBytes > UPLOAD_LIMITS.imageBytes
+      claim.input.sizeBytes > claim.r.imageMaxBytes
     )
       throw new AppError('PAYLOAD_TOO_LARGE', 'Image exceeds limit')
     if (claim.a.purpose !== 'message' && type.kind !== 'image')
@@ -277,7 +283,7 @@ export async function processAttachment(
           operation: claim.a.purpose === 'message' ? type.kind : 'avatar',
           inputBytes: claim.input.sizeBytes,
           inputSha256: claim.input.sha256 ?? '',
-          maxOutputBytes: type.kind === 'image' ? UPLOAD_LIMITS.imageBytes : claim.r.reservedBytes,
+          maxOutputBytes: type.kind === 'image' ? claim.r.imageMaxBytes : claim.r.reservedBytes,
         },
         store.read(claim.input.storageKey),
         save,
@@ -482,7 +488,7 @@ async function failAttachment(
       (generation !== undefined && a.generation !== generation)
     )
       return
-    await retireAttachment(tx, deps, id)
+    if (await retireAttachment(tx, deps, id, { finalStatus: 'failed' })) return
     await tx
       .update(attachments)
       .set({ status: 'failed', version: sql`${attachments.version}+1` })
@@ -506,35 +512,7 @@ export async function cleanupAttachments(
     .select({ a: attachments, r: uploadReservations })
     .from(attachments)
     .innerJoin(uploadReservations, eq(uploadReservations.attachmentId, attachments.id))
-    .where(
-      and(
-        inArray(attachments.status, ['uploading', 'processing', 'ready']),
-        or(
-          and(eq(uploadReservations.status, 'reserved'), lt(uploadReservations.expiresAt, now)),
-          and(
-            eq(attachments.status, 'processing'),
-            notExists(
-              deps.db
-                .select({ one: sql`1` })
-                .from(workItems)
-                .where(
-                  and(
-                    eq(workItems.entityId, attachments.id),
-                    eq(workItems.kind, 'media'),
-                    sql`${workItems.status} not in ('dead','done')`,
-                  ),
-                ),
-            ),
-          ),
-          and(
-            eq(attachments.status, 'ready'),
-            isNull(attachments.messageId),
-            lt(attachments.createdAt, new Date(now.getTime() - UPLOAD_LIMITS.orphanMs)),
-            sql`not exists (select 1 from users where avatar_attachment_id = ${attachments.id}) and not exists (select 1 from conversations where avatar_attachment_id = ${attachments.id})`,
-          ),
-        ),
-      ),
-    )
+    .where(expiredAttachmentWhere(deps.db, now))
     .limit(100)
   let retired = 0,
     deleted = 0
@@ -574,8 +552,7 @@ export async function cleanupAttachments(
         sql`select 1 from users where avatar_attachment_id = ${a.id} union all select 1 from conversations where avatar_attachment_id = ${a.id}`,
       )
       if (pointers.length) return
-      await retireAttachment(tx, deps, a.id)
-      retired++
+      if (!(await retireAttachment(tx, deps, a.id))) retired++
     })
   }
   const pending = await deps.db
@@ -584,7 +561,12 @@ export async function cleanupAttachments(
     .where(and(eq(attachmentObjects.status, 'deleting'), lte(attachmentObjects.deleteAfter, now)))
     .limit(200)
   for (const object of pending) {
-    await store.delete(object.storageKey)
+    try {
+      await store.delete(object.storageKey)
+    } catch (error) {
+      if (error instanceof PhysicalDeletionDeferred) continue
+      throw error
+    }
     if (await store.stat(object.storageKey)) continue
     await inTransaction(deps.db, async (tx) => {
       await lockStorage(tx)

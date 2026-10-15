@@ -24,6 +24,7 @@ import type { Deps } from './deps.ts'
 import { notifyAdmins } from './notifications.ts'
 import type { SessionPrincipal } from './principal.ts'
 import { lockAndRevalidate, lockUsers } from './sessions.ts'
+import { readAgentLimits, readSitePolicy } from './site-policy.ts'
 import { inTransaction } from './tx.ts'
 
 /** Site calls cool down per provider; own-key calls per provider and member. */
@@ -73,19 +74,19 @@ async function lockAccounts(
     .select({ limit: users.aiDailyTokens })
     .from(users)
     .where(eq(users.id, userId))
-  const policy = aiPolicy(deps)
+  const { policy } = await readSitePolicy(deps, tx)
   const specs = [
     {
       scope: 'user_day' as const,
       ownerKey: userId,
       periodStart: period.day,
-      limitUnits: user?.limit ?? policy.dailyTokens,
+      limitUnits: user?.limit ?? policy.userDailyTokens,
     },
     {
       scope: 'site_month' as const,
       ownerKey: 'site',
       periodStart: period.month,
-      limitUnits: policy.siteMicroUsd,
+      limitUnits: policy.monthlyMicroUsd,
     },
   ]
   const locked: (typeof budgetAccounts.$inferSelect)[] = []
@@ -165,11 +166,13 @@ export function createAgentLedger(
 ): PaidCallLedger {
   const reserveWithinLease = async (attempt: PaidAttempt): Promise<void> => {
     await withAgentLease(deps, lease, async (tx, run) => {
-      if (stepIndex >= (run.mode === 'fast' ? 8 : 16))
+      if (stepIndex >= (await readAgentLimits(deps, tx, run.mode)).steps)
         throw new AppError('QUOTA_EXCEEDED', 'The step limit was reached')
       const own = run.keySource === 'user'
       // The site's pause protects the site budget; an own key only records usage (docs/06 section 8).
       if (!own) {
+        if ((await readSitePolicy(deps, tx)).policy.aiPaused)
+          throw new AppError('AI_BUDGET_EXHAUSTED', 'Model admission is paused')
         const [paused] = await tx
           .select()
           .from(appSettings)
@@ -497,7 +500,7 @@ export async function getAgentUsage(deps: Deps, principal: SessionPrincipal): Pr
         day.settledUnits + day.reservedUnits >= day.limitUnits * 0.8 ||
         (month.limitUnits > 0 &&
           month.settledUnits + month.reservedUnits >= month.limitUnits * 0.8),
-      paused: paused?.value === true,
+      paused: paused?.value === true || (await readSitePolicy(deps, tx)).policy.aiPaused,
     }
   })
 }

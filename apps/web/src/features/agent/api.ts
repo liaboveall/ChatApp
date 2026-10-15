@@ -8,6 +8,7 @@ import {
   agentRunDetailSchema,
   agentRunResponseSchema,
   conversationSchema,
+  deletionOperationSchema,
   memoryResponseSchema,
   messageEnvelopeSchema,
   okResponseSchema,
@@ -21,13 +22,23 @@ import { useDrafts } from '@/lib/sync/drafts.ts'
 import { registerStoreReset } from '@/lib/sync/stores.ts'
 import { showToast } from '@/lib/toast.ts'
 import { m } from '@/paraglide/messages.js'
+import { waitForDeletion } from '../deletions/wait.ts'
 import { rememberContext, rememberRun, useAgent } from './store.ts'
 
 export const undoMemory = (id: string, conversationId: string) =>
   forScreen(
     conversationId,
-    () => api(`/api/me/memories/${id}`, { method: 'DELETE', schema: memoryResponseSchema }),
-    () => {
+    async () => {
+      const ticket = engine.ticket(conversationId)
+      const result = await api(`/api/me/memories/${id}`, {
+        method: 'DELETE',
+        schema: memoryResponseSchema.or(deletionOperationSchema),
+      })
+      if ('operationId' in result && !(await waitForDeletion(result, ticket))) return null
+      return true
+    },
+    (completed) => {
+      if (!completed) return
       void queryClient.invalidateQueries({ queryKey: ['memories'] })
     },
   )
@@ -109,10 +120,17 @@ export const deleteAgentChat = (id: string) =>
   forScreen(
     id,
     async () => {
-      await api(`/api/conversations/${id}`, { method: 'DELETE', schema: okResponseSchema })
+      const ticket = engine.ticket(id)
+      const result = await api(`/api/conversations/${id}`, {
+        method: 'DELETE',
+        schema: okResponseSchema.or(deletionOperationSchema),
+      })
+      if ('operationId' in result && !(await waitForDeletion(result, ticket))) return false
       return true
     },
-    (_, ticket) => engine.leftConversation(id, ticket),
+    (completed, ticket) => {
+      if (completed) engine.leftConversation(id, ticket)
+    },
   )
 
 /**

@@ -245,6 +245,14 @@ export type VideoFacts = {
   audio: MediaProbeStream | undefined
 }
 
+/** Container support in FFmpeg does not imply that browsers can play the copied codecs. */
+export function inlineVideoCodecs(facts: VideoFacts): boolean {
+  return (
+    ['h264', 'hevc', 'av1', 'vp9'].includes(facts.video.codec_name ?? '') &&
+    (!facts.audio || ['aac', 'mp3', 'opus'].includes(facts.audio.codec_name ?? ''))
+  )
+}
+
 export function videoFacts(probe: MediaProbe, demuxer: VideoDemuxer): VideoFacts {
   const expected = {
     mov: 'mov,mp4,m4a,3gp,3g2,mj2',

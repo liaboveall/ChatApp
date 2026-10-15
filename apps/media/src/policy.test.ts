@@ -12,6 +12,7 @@ import {
   imageBounds,
   imageDecodeFailure,
   imageFormat,
+  inlineVideoCodecs,
   MediaError,
   outputName,
   probeArgs,
@@ -195,6 +196,19 @@ describe('raster admission without loading native decoders', () => {
 })
 
 describe('bounded video policy without executing ffmpeg', () => {
+  test('new container codecs cannot silently promote download-only files to inline video', () => {
+    const facts = videoFacts(probe, 'mov')
+    expect(inlineVideoCodecs(facts)).toBe(true)
+    expect(inlineVideoCodecs({ ...facts, video: { ...facts.video, codec_name: 'ffv1' } })).toBe(
+      false,
+    )
+    expect(
+      inlineVideoCodecs({ ...facts, audio: { index: 1, codec_type: 'audio', codec_name: 'flac' } }),
+    ).toBe(false)
+    expect(
+      inlineVideoCodecs({ ...facts, audio: { index: 1, codec_type: 'audio', codec_name: 'aac' } }),
+    ).toBe(true)
+  })
   test('only fixed container demuxers, never a playlist or URL', () => {
     expect(videoDemuxer(iso('isom'))).toBe('mov')
     expect(videoDemuxer(new Uint8Array([0x1a, 0x45, 0xdf, 0xa3]))).toBe('matroska')

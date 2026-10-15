@@ -16,3 +16,9 @@ export function mediaEnvironment(temporaryDirectory: string): Record<string, str
     BUN_JSC_maxNumberOfWorklistThreads: '1',
   }
 }
+
+/** Distroless adds a fixed public CA path to the supervisor; decoder children keep the narrower environment above. */
+export const MEDIA_CONTAINER_ENVIRONMENT: Readonly<Record<string, string>> = {
+  ...mediaEnvironment('/tmp'),
+  SSL_CERT_FILE: '/etc/ssl/certs/ca-certificates.crt',
+}

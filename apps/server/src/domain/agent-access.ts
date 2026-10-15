@@ -22,6 +22,7 @@ import { enforce, loadAccess } from './authorize.ts'
 import type { Deps } from './deps.ts'
 import type { DelegatedPrincipal } from './principal.ts'
 import { accountAllowsSession, lockUsers, type SessionRef, validateSessions } from './sessions.ts'
+import { readSitePolicy } from './site-policy.ts'
 import { inTransaction } from './tx.ts'
 
 export type AgentRunRow = typeof agentRuns.$inferSelect
@@ -125,6 +126,12 @@ export async function validateAgentSources(
   depth = 0,
 ): Promise<void> {
   if (depth > 8) throw contextChanged()
+  const { policy } = await readSitePolicy(deps, tx)
+  if (
+    run.contentPurgedAt ||
+    run.createdAt.getTime() + policy.runContentDays * 86_400_000 <= deps.clock.now().getTime()
+  )
+    throw contextChanged()
   if (!run.conversationId) throw contextChanged()
   if (run.keySource === 'site' && (run.keyRevision !== null || run.privacyClass !== 'standard'))
     throw contextChanged()

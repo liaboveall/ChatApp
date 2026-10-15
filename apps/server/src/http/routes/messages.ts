@@ -2,6 +2,7 @@
 import {
   changesQuerySchema,
   conversationChangesResponseSchema,
+  deletionOperationSchema,
   editMessageRequestSchema,
   messageEnvelopeSchema,
   messagesQuerySchema,
@@ -14,15 +15,15 @@ import {
 } from '@chatapp/contracts'
 import { createRoute, type OpenAPIHono, type z } from '@hono/zod-openapi'
 import {
-  deleteMessageAsModerator,
   editMessage,
   getMessage,
   hideMessage,
   listMessages,
-  recallMessage,
   replayMessage,
+  requestMessageDeletion,
   sendMessage,
 } from '../../domain/messages.ts'
+import { readSiteLimits } from '../../domain/site-policy.ts'
 import { getConversationChanges, getSyncHeads, getUserChanges } from '../../domain/sync.ts'
 import type { HttpEnv, Services } from '../context.ts'
 import { principalOf, requireSession } from '../middleware/session.ts'
@@ -116,7 +117,7 @@ const editRoute = createRoute({
   method: 'patch',
   path: '/api/messages/{id}',
   tags: ['messages'],
-  summary: 'Edit within 24 hours (author only); conditional on changeSeq',
+  summary: 'Edit within the current site window (author only); conditional on changeSeq',
   security: [{ cookieAuth: [] }],
   request: { params: idParam, body: body(editMessageRequestSchema) },
   responses: {
@@ -131,10 +132,15 @@ const recallRoute = createRoute({
   method: 'post',
   path: '/api/messages/{id}/recall',
   tags: ['messages'],
-  summary: 'Recall within two minutes (author only); repeating it returns the same end state',
+  summary:
+    'Recall within the current site window (author only); repeating it returns the same end state',
   security: [{ cookieAuth: [] }],
   request: { params: idParam },
-  responses: { 200: json(messageEnvelopeSchema, 'Recalled'), ...accessErrors },
+  responses: {
+    200: json(messageEnvelopeSchema, 'Recalled'),
+    202: json(deletionOperationSchema, 'Deletion pending; content may still be visible'),
+    ...accessErrors,
+  },
 })
 
 const hideRoute = createRoute({
@@ -154,7 +160,11 @@ const deleteRoute = createRoute({
   summary: 'Delete for everybody (owner, administrator or site administrator); audited',
   security: [{ cookieAuth: [] }],
   request: { params: idParam },
-  responses: { 200: json(okResponseSchema, 'Deleted'), ...accessErrors },
+  responses: {
+    200: json(okResponseSchema, 'Deleted'),
+    202: json(deletionOperationSchema, 'Deletion pending; content may still be visible'),
+    ...accessErrors,
+  },
 })
 
 const headsRoute = createRoute({
@@ -196,10 +206,17 @@ export function messageRoutes(app: OpenAPIHono<HttpEnv>, services: Services): vo
   app.openapi(sendRoute, async (c) => {
     const principal = principalOf(c)
     const { id } = c.req.valid('param')
+    const limits = await readSiteLimits(deps, deps.db)
     // Per person and conversation, then per person overall (docs/01 section 7); the person's own limit, never the IP's.
     await limiter.enforce([
-      { policy: POLICIES.messageConversationUser, subject: `${principal.userId}:${id}` },
-      { policy: POLICIES.messageUser, subject: principal.userId },
+      {
+        policy: { ...POLICIES.messageConversationUser, limit: limits.messageRateConversationLimit },
+        subject: `${principal.userId}:${id}`,
+      },
+      {
+        policy: { ...POLICIES.messageUser, limit: limits.messageRateUserLimit },
+        subject: principal.userId,
+      },
     ])
     const result = await sendMessage(deps, principal, id, c.req.valid('json'))
     return c.json(result.envelope, result.created ? 201 : 200)
@@ -208,9 +225,16 @@ export function messageRoutes(app: OpenAPIHono<HttpEnv>, services: Services): vo
   app.openapi(replayRoute, async (c) => {
     const principal = principalOf(c)
     const { id } = c.req.valid('param')
+    const limits = await readSiteLimits(deps, deps.db)
     await limiter.enforce([
-      { policy: POLICIES.messageConversationUser, subject: `${principal.userId}:${id}` },
-      { policy: POLICIES.messageUser, subject: principal.userId },
+      {
+        policy: { ...POLICIES.messageConversationUser, limit: limits.messageRateConversationLimit },
+        subject: `${principal.userId}:${id}`,
+      },
+      {
+        policy: { ...POLICIES.messageUser, limit: limits.messageRateUserLimit },
+        subject: principal.userId,
+      },
     ])
     const result = await replayMessage(deps, principal, id, c.req.valid('json'))
     return c.json(result.envelope, result.created ? 201 : 200)
@@ -241,9 +265,17 @@ export function messageRoutes(app: OpenAPIHono<HttpEnv>, services: Services): vo
     )
   })
 
-  app.openapi(recallRoute, async (c) =>
-    c.json(await recallMessage(deps, principalOf(c), c.req.valid('param').id), 200),
-  )
+  app.openapi(recallRoute, async (c) => {
+    const result = await requestMessageDeletion(
+      deps,
+      principalOf(c),
+      c.req.valid('param').id,
+      'message_recall',
+    )
+    if (result && 'operationId' in result) return c.json(result, 202)
+    if (result && 'message' in result) return c.json(result, 200)
+    throw new Error('missing recall result')
+  })
 
   app.openapi(hideRoute, async (c) => {
     await hideMessage(deps, principalOf(c), c.req.valid('param').id)
@@ -251,7 +283,13 @@ export function messageRoutes(app: OpenAPIHono<HttpEnv>, services: Services): vo
   })
 
   app.openapi(deleteRoute, async (c) => {
-    await deleteMessageAsModerator(deps, principalOf(c), c.req.valid('param').id)
+    const result = await requestMessageDeletion(
+      deps,
+      principalOf(c),
+      c.req.valid('param').id,
+      'message_delete',
+    )
+    if (result && 'operationId' in result) return c.json(result, 202)
     return c.json({ status: 'ok' as const }, 200)
   })
 

@@ -32,6 +32,7 @@ import type { Deps } from './deps.ts'
 import { addMembers, countLiveMemberships, memberLimitOf } from './membership.ts'
 import type { SessionPrincipal } from './principal.ts'
 import { lockAndRevalidate } from './sessions.ts'
+import { readSiteLimits } from './site-policy.ts'
 import { inTransaction } from './tx.ts'
 
 const DAY_MS = 86_400_000
@@ -306,15 +307,16 @@ export async function acceptConversationInvite(
         (locked.settings.whoCanInvite ?? 'all_members') === 'all_members')
     if (!creatorMayInvite) throw invalid()
 
-    if (locked.memberCount >= memberLimitOf(locked.kind)) {
+    const limits = await readSiteLimits(deps, tx)
+    if (locked.memberCount >= memberLimitOf(locked.kind, limits)) {
       throw new AppError('QUOTA_EXCEEDED', 'This conversation is full', {
-        details: { resource: 'members', limit: memberLimitOf(locked.kind) },
+        details: { resource: 'members', limit: memberLimitOf(locked.kind, limits) },
       })
     }
     const counts = await countLiveMemberships(tx, [principal.userId])
-    if ((counts.get(principal.userId) ?? 0) >= LIMITS.maxConversationsPerUser) {
+    if ((counts.get(principal.userId) ?? 0) >= limits.maxConversationsPerUser) {
       throw new AppError('QUOTA_EXCEEDED', 'You are in as many conversations as allowed', {
-        details: { resource: 'conversations', limit: LIMITS.maxConversationsPerUser },
+        details: { resource: 'conversations', limit: limits.maxConversationsPerUser },
       })
     }
 

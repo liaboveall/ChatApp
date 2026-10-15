@@ -49,6 +49,9 @@ export async function applyAppGrants(db: Db, options: { role: string }): Promise
   await run(db, 'grant usage on schema public to %I', role)
   await run(db, 'grant select, insert, update, delete on all tables in schema public to %I', role)
   await run(db, 'grant usage, select on all sequences in schema public to %I', role)
+  // Only the separate owner/backup process reads migration history; the API and ordinary workers cannot.
+  await run(db, 'revoke all on schema drizzle from %I', role)
+  await run(db, 'revoke all on drizzle.__drizzle_migrations from %I', role)
   const owner = await currentUser(db)
   await run(
     db,

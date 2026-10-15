@@ -193,6 +193,7 @@ function outcomeOf(approval: AgentApproval, effect: AgentEffect | undefined): st
         ? m.agent_approval_rejected()
         : m.agent_approval_closed()
   const status = effect?.result.status
+  if (status === 'pending') return m.deletion_pending()
   const done =
     status === 'remembered'
       ? m.agent_effect_remembered()
