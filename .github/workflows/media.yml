@@ -47,5 +47,7 @@ jobs:
           path: |
             .test-runs/m3/*/result.json
             .test-runs/m3/*/business-result.json
+            .test-runs/m3-build/*/diagnostic.json
           if-no-files-found: warn
           retention-days: 14
+          include-hidden-files: true

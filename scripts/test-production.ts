@@ -233,6 +233,31 @@ volumes:
     ])
     await writeFile(join(root, `${name}.log`), out + '\n' + error, { mode: 0o600 })
     if (code !== 0) {
+      for (const line of error.split('\n')) {
+        try {
+          const diagnostic = JSON.parse(line) as Record<string, unknown>
+          if (
+            diagnostic.stage === 'garage-initialization' &&
+            typeof diagnostic.operation === 'string' &&
+            /^(GetClusterLayout|GetClusterStatus|UpdateClusterLayout|ApplyClusterLayout|CreateKey|CreateBucket|AllowBucketKey)$/.test(
+              diagnostic.operation,
+            ) &&
+            ['network_or_timeout', 'http_status', 'invalid_json'].includes(
+              String(diagnostic.reason),
+            )
+          ) {
+            receipt.operatorFailure = {
+              stage: diagnostic.stage,
+              operation: diagnostic.operation,
+              reason: diagnostic.reason,
+              statusCode: Number.isInteger(diagnostic.statusCode) ? diagnostic.statusCode : null,
+            }
+            console.error(JSON.stringify(receipt.operatorFailure))
+          }
+        } catch {
+          // Raw operator output stays in the private evidence directory.
+        }
+      }
       if (name !== 'cleanup') {
         const secretValues = (
           await Promise.all(

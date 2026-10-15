@@ -198,6 +198,29 @@ async function docker(
     if (timedOut) throw new Error(`media-test: docker ${args[0]} exceeded its bounded deadline`)
     if (code !== 0) {
       const failure = new TextDecoder().decode(stderr)
+      if (args[0] === 'build') {
+        const reason = /no space left|not enough space/i.test(failure)
+          ? 'disk_full'
+          : /toomanyrequests|429 Too Many Requests/i.test(failure)
+            ? 'registry_rate_limit'
+            : /checksum mismatch|Hash Sum mismatch/i.test(failure)
+              ? 'checksum_mismatch'
+              : /failed to fetch|Unable to fetch/i.test(failure)
+                ? 'package_fetch'
+                : /timeout|failed to resolve|Could not connect|network is unreachable|unexpected status.*50[234]/i.test(
+                      failure,
+                    )
+                  ? 'network_or_registry'
+                  : 'unclassified'
+        const directory = join(ROOT, '.test-runs', 'm3-build', randomUUID())
+        await mkdir(directory, { recursive: true, mode: 0o700 })
+        await writeFile(join(directory, 'private-build.log'), failure, { mode: 0o600 })
+        const diagnostic = { stage: 'docker_build', reason, exitCode: code }
+        await writeFile(join(directory, 'diagnostic.json'), JSON.stringify(diagnostic), {
+          mode: 0o600,
+        })
+        console.error(JSON.stringify(diagnostic))
+      }
       const category = /not running|is restarting/i.test(failure)
         ? 'container_not_running'
         : /resource temporarily unavailable|cannot fork/i.test(failure)
