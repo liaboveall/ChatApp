@@ -1,5 +1,4 @@
 import { lstat } from 'node:fs/promises'
-import { workerHealthStatus } from './process-health.ts'
 
 try {
   const service = process.argv[2]
@@ -11,6 +10,7 @@ try {
     process.exit(response.ok ? 0 : 1)
   }
   if (service === 'worker') {
+    const { workerHealthStatus } = await import('./process-health.ts')
     const path = process.env.PROCESS_HEALTH_FILE ?? '/tmp/chatapp-worker-health.json'
     if (!/^\/tmp\/chatapp-[a-z-]+\.json$/.test(path)) process.exit(1)
     const info = await lstat(path)
