@@ -389,6 +389,19 @@ volumes:
       '-e',
       "const r=await fetch('https://offsite:9443/local-fixture-health');if(!r.ok)throw Error('fixture health'); console.log('TLS_fixture_ready')",
     ])
+    await execute('private-staging-permissions', [
+      ...base,
+      'run',
+      '--rm',
+      '--no-deps',
+      '-T',
+      '--entrypoint',
+      'bun',
+      'tools',
+      '--no-env-file',
+      '-e',
+      "import{lstat}from'node:fs/promises';for(const path of ['/var/lib/chatapp/backup','/var/lib/chatapp/restore','/var/lib/chatapp/models']){const s=await lstat(path);if(!s.isDirectory()||(s.mode&0o777)!==0o700||s.uid!==10001||s.gid!==10001)throw Error('private staging ownership or mode changed')}console.log('private_staging_permissions_verified')",
+    ])
     const setup = `${project}-storage-setup`
     await execute('storage-initialize', [
       ...base,

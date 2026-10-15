@@ -525,6 +525,8 @@ export async function checkProduction(directory: string) {
       join(target, 'compose.env'),
       '-f',
       COMPOSE,
+      '--profile',
+      'operations',
       'config',
       '--format',
       'json',
@@ -535,7 +537,7 @@ export async function checkProduction(directory: string) {
       {
         network_mode?: string
         environment?: Record<string, string>
-        volumes?: { target: string }[]
+        volumes?: { target: string; volume?: { nocopy?: boolean } }[]
         ports?: { host_ip: string }[]
       }
     >
@@ -549,6 +551,23 @@ export async function checkProduction(directory: string) {
     throw new Error('media network/credential isolation invalid')
   if (media.volumes?.some((volume) => volume.target !== '/run/chatapp-media'))
     throw new Error('media filesystem isolation invalid')
+  const initializedVolumes = new Set([
+    '/run/chatapp-media',
+    '/run/chatapp-embedding',
+    '/var/lib/chatapp/models',
+    '/var/lib/garage/meta',
+    '/var/lib/garage/data',
+    '/var/lib/chatapp/backup',
+    '/var/lib/chatapp/restore',
+  ])
+  for (const service of Object.values(rendered.services ?? {})) {
+    if (
+      service.volumes?.some(
+        (volume) => initializedVolumes.has(volume.target) && volume.volume?.nocopy !== true,
+      )
+    )
+      throw new Error('explicitly initialized volumes must disable image copy-up')
+  }
   for (const name of ['api', 'worker']) {
     const service = rendered.services?.[name]
     if (
