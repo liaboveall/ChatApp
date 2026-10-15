@@ -42,6 +42,7 @@ COPY packages/db/drizzle ./packages/db/drizzle
 ARG APPLICATION_SHA
 ARG APPLICATION_SOURCE_HASH
 USER 0:0
+RUN ["/usr/local/bin/bun", "--no-env-file", "-e", "import{mkdir,chown,chmod}from'node:fs/promises';for(const path of ['/run/chatapp-media','/run/chatapp-embedding','/var/lib/chatapp/models']){await mkdir(path,{recursive:true,mode:0o700});await chown(path,10001,10001);await chmod(path,0o700)}"]
 RUN ["/usr/local/bin/bun", "--no-env-file", "-e", "const applicationSha=process.env.APPLICATION_SHA,applicationSourceHash=process.env.APPLICATION_SOURCE_HASH;if(!/^[a-f0-9]{40}$/.test(applicationSha||'')||!/^[a-f0-9]{64}$/.test(applicationSourceHash||''))throw Error('release binding required');await Bun.write('/app/release.json',JSON.stringify({format:1,applicationSha,applicationSourceHash})+'\\n')"]
 LABEL org.opencontainers.image.revision=$APPLICATION_SHA chatapp.source-hash=$APPLICATION_SOURCE_HASH
 USER 10001:10001

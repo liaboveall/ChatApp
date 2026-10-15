@@ -39,6 +39,7 @@ x-application: &application
   tmpfs:
     - /tmp:size=268435456,mode=1777,nosuid,nodev,noexec
 
+# Shared runtime/operator volumes are initialized explicitly; image copy-up must not replace their private modes.
 x-data: &data
   labels:
     chatapp.production.owner: ${CHATAPP_OWNER}
@@ -59,7 +60,7 @@ services:
         target: /run/chatapp-keys/journal-keyring.json
         read_only: true
         bind: {create_host_path: false}
-      - embedding-socket:/run/chatapp-embedding:ro
+      - {type: volume, source: embedding-socket, target: /run/chatapp-embedding, read_only: true, volume: {nocopy: true}}
     depends_on:
       postgres: {condition: service_healthy}
       valkey: {condition: service_healthy}
@@ -93,9 +94,9 @@ services:
         target: /run/chatapp-keys/journal-keyring.json
         read_only: true
         bind: {create_host_path: false}
-      - media-socket:/run/chatapp-media:ro
-      - embedding-socket:/run/chatapp-embedding
-      - embedding-models:/var/lib/chatapp/models:ro
+      - {type: volume, source: media-socket, target: /run/chatapp-media, read_only: true, volume: {nocopy: true}}
+      - {type: volume, source: embedding-socket, target: /run/chatapp-embedding, volume: {nocopy: true}}
+      - {type: volume, source: embedding-models, target: /var/lib/chatapp/models, read_only: true, volume: {nocopy: true}}
     depends_on:
       postgres: {condition: service_healthy}
       valkey: {condition: service_healthy}
@@ -119,7 +120,8 @@ services:
     memswap_limit: 512m
     tmpfs:
       - /tmp:size=268435456,mode=1777,nosuid,nodev,noexec
-    volumes: [media-socket:/run/chatapp-media]
+    volumes:
+      - {type: volume, source: media-socket, target: /run/chatapp-media, volume: {nocopy: true}}
     healthcheck:
       test: ["CMD", "/usr/local/bin/media-health"]
       interval: 10s
@@ -184,8 +186,8 @@ services:
         target: /etc/garage.toml
         read_only: true
         bind: {create_host_path: false}
-      - garage-meta:/var/lib/garage/meta
-      - garage-data:/var/lib/garage/data
+      - {type: volume, source: garage-meta, target: /var/lib/garage/meta, volume: {nocopy: true}}
+      - {type: volume, source: garage-data, target: /var/lib/garage/data, volume: {nocopy: true}}
     healthcheck:
       test: ["CMD", "/garage", "status"]
       interval: 10s
@@ -207,13 +209,13 @@ services:
       - -e
       - 'import{mkdir,chown,chmod}from"node:fs/promises";for(const path of ["/run/chatapp-media","/run/chatapp-embedding","/var/lib/chatapp/models","/var/lib/garage/meta","/var/lib/garage/data","/var/lib/chatapp/backup","/var/lib/chatapp/restore"]){await mkdir(path,{recursive:true,mode:0o700});await chown(path,10001,10001);await chmod(path,0o700)}'
     volumes:
-      - media-socket:/run/chatapp-media
-      - embedding-socket:/run/chatapp-embedding
-      - embedding-models:/var/lib/chatapp/models
-      - garage-meta:/var/lib/garage/meta
-      - garage-data:/var/lib/garage/data
-      - backup-stage:/var/lib/chatapp/backup
-      - restore-stage:/var/lib/chatapp/restore
+      - {type: volume, source: media-socket, target: /run/chatapp-media, volume: {nocopy: true}}
+      - {type: volume, source: embedding-socket, target: /run/chatapp-embedding, volume: {nocopy: true}}
+      - {type: volume, source: embedding-models, target: /var/lib/chatapp/models, volume: {nocopy: true}}
+      - {type: volume, source: garage-meta, target: /var/lib/garage/meta, volume: {nocopy: true}}
+      - {type: volume, source: garage-data, target: /var/lib/garage/data, volume: {nocopy: true}}
+      - {type: volume, source: backup-stage, target: /var/lib/chatapp/backup, volume: {nocopy: true}}
+      - {type: volume, source: restore-stage, target: /var/lib/chatapp/restore, volume: {nocopy: true}}
 
   tools:
     <<: *application
@@ -250,9 +252,9 @@ services:
         target: /run/chatapp-keys/restic-password
         read_only: true
         bind: {create_host_path: false}
-      - backup-stage:/var/lib/chatapp/backup
-      - restore-stage:/var/lib/chatapp/restore
-      - embedding-models:/var/lib/chatapp/models
+      - {type: volume, source: backup-stage, target: /var/lib/chatapp/backup, volume: {nocopy: true}}
+      - {type: volume, source: restore-stage, target: /var/lib/chatapp/restore, volume: {nocopy: true}}
+      - {type: volume, source: embedding-models, target: /var/lib/chatapp/models, volume: {nocopy: true}}
 
 volumes:
   pg: *data
