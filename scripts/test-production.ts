@@ -554,16 +554,51 @@ volumes:
       `import{copyFile,chmod}from'node:fs/promises';await copyFile('/var/lib/chatapp/backup/benchmark-${benchmarkId}/fixture.json','/run/chatapp-load/fixture.json');await copyFile('/fixture/load-script.js','/run/chatapp-load/chat.js');for(const file of ['fixture.json','chat.js'])await chmod('/run/chatapp-load/'+file,0o600);console.log('private_load_fixture_prepared')`,
     ])
     await execute('gateway', [...base, 'up', '--detach', 'gateway'])
-    const loadName = `${project}-load-smoke`
-    await execute('load-smoke', [...base, 'run', '--name', loadName, '--no-deps', 'load'])
-    await ownContainers()
-    await execute('load-result', [
-      'docker',
-      'cp',
-      `${loadName}:/result/summary.json`,
-      join(root, 'load-summary.json'),
+    await execute('gateway-readiness', [
+      ...base,
+      'run',
+      '--rm',
+      '--no-deps',
+      '-T',
+      '--entrypoint',
+      'bun',
+      'tools',
+      '--no-env-file',
+      '-e',
+      "let ready=false;for(let attempt=0;attempt<100;attempt++){try{const r=await fetch('https://closed.chatapp.invalid:9444/api/readyz',{redirect:'error',signal:AbortSignal.timeout(1000)});await r.body?.cancel();if(r.status===200){ready=true;break}}catch{}await Bun.sleep(100)}if(!ready)throw Error('TLS gateway not ready');console.log('TLS_gateway_ready')",
     ])
-    await chmod(join(root, 'load-summary.json'), 0o600)
+    const loadName = `${project}-load-smoke`
+    let loadFailure: unknown,
+      loadFailed = false
+    try {
+      await execute('load-smoke', [...base, 'run', '--name', loadName, '--no-deps', 'load'])
+    } catch (error) {
+      loadFailed = true
+      loadFailure = error
+    }
+    // Preserve the fixed-field summary even when k6 rejects a threshold; cleanup must not erase its evidence.
+    await ownContainers()
+    const loadLabels = JSON.parse(
+      await runPrivate(['docker', 'inspect', '--format', '{{json .Config.Labels}}', loadName]),
+    ) as Record<string, string>
+    if (
+      loadLabels['chatapp.production.owner'] !== owner ||
+      loadLabels['com.docker.compose.project'] !== project ||
+      loadLabels['com.docker.compose.service'] !== 'load' ||
+      loadLabels['chatapp.production.release'] !== manifest.APPLICATION_SOURCE_HASH
+    )
+      throw new Error('load result container ownership mismatch')
+    const saved = Bun.spawn(
+      ['docker', 'cp', `${loadName}:/result/summary.json`, join(root, 'load-summary.json')],
+      { stdout: 'pipe', stderr: 'pipe' },
+    )
+    await Promise.all([new Response(saved.stdout).text(), new Response(saved.stderr).text()])
+    const loadSummarySaved = (await saved.exited) === 0
+    receipt.loadSummaryPreserved = loadSummarySaved
+    if (loadSummarySaved) await chmod(join(root, 'load-summary.json'), 0o600)
+    if (loadFailed) throw loadFailure
+    if (!loadSummarySaved) throw new Error('load summary unavailable')
+    await ownContainers()
     receipt.loadScope = 'smoke-chat-HTTPS-through-production-Nginx-config-only'
     await execute('fixture-admin', [
       ...base,
