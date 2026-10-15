@@ -1,7 +1,12 @@
-import { type AgentMemory, memoryListSchema, memoryResponseSchema } from '@chatapp/contracts'
+import {
+  type AgentMemory,
+  deletionOperationSchema,
+  memoryListSchema,
+  memoryResponseSchema,
+} from '@chatapp/contracts'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { type FormEvent, useState } from 'react'
-import { forScreen } from '@/app/sync.ts'
+import { engine, forScreen } from '@/app/sync.ts'
 import { Button } from '@/components/ui/button.tsx'
 import { Switch } from '@/components/ui/controls.tsx'
 import { Banner, Skeleton } from '@/components/ui/feedback.tsx'
@@ -10,6 +15,7 @@ import { describeError } from '@/lib/error-messages.ts'
 import { useSyncScope } from '@/lib/sync/hooks.ts'
 import { showToast } from '@/lib/toast.ts'
 import { m } from '@/paraglide/messages.js'
+import { waitForDeletion } from '../deletions/wait.ts'
 import { Box, Group, Row } from './settings-ui.tsx'
 
 export function MemoriesGroup() {
@@ -51,15 +57,18 @@ export function MemoriesGroup() {
       remove?: boolean
       share?: boolean
     }) =>
-      forScreen(null, () =>
-        api(`/api/me/memories/${memory.id}`, {
+      forScreen(null, async () => {
+        const ticket = engine.ticket(null)
+        const result = await api(`/api/me/memories/${memory.id}`, {
           method: remove ? 'DELETE' : 'PATCH',
           ...(remove
             ? {}
             : { json: { allowSite: share, expectedContentVersion: memory.contentVersion } }),
-          schema: memoryResponseSchema,
-        }),
-      ),
+          schema: memoryResponseSchema.or(deletionOperationSchema),
+        })
+        if ('operationId' in result) return (await waitForDeletion(result, ticket)) ? true : null
+        return result
+      }),
     onSuccess: async (answer) => {
       if (answer !== null) await refresh()
     },

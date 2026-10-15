@@ -99,6 +99,7 @@ bun run doctor                 # end-to-end checks; add --ai to test the selecte
 
 - **`.env.example`**：提交到仓库，列出所有变量及说明，不含真实密钥。
 - **`.env.local`**：不提交，已被 `.gitignore` 忽略；`guard` 脚本也会拦截任何被 git 跟踪的 env 文件。它由 `bun run setup` 生成，当前助手需自己填写完整 `SOCLAAS_API_KEY`；显式改用 DeepSeek 才填写对应 key 与价格。`POSTGRES_PORT`、`VALKEY_PORT` 是主机端口，连接串里的端口始终跟着它们，`setup` 重复运行是安全的（D-172）。
+- **M7 异地 R2（2026-10-12，实现中）**：`.env.local` 的 `DELETION_JOURNAL_S3_*` 与 `BACKUP_S3_*` 分别连接独立私有测试桶，保留原 Garage 配置。真实 R2 准入、加密链和凭据撤销实验已执行；本人确认两个桶的 r2.dev/公开自定义域名均关闭、恢复材料已存到原主机之外。API/worker 支持显式 journal 配置，生产缺配置拒绝启动；开发配置仍为 `DELETION_JOURNAL_ENABLED=false`，实验只在脚本拥有的随机前缀运行。小样本 restic 异地恢复通过，但整台源主机失效、全量数据和恢复权限重新确认仍未验收，详见 [28](28-m7-implementation-2026-10-12.md)。密钥不打印、不提交；S3 凭据不能代替加密恢复材料。
 - **读取方式**：
   - Bun 只会从**当前目录**自动加载 `.env.local`，而且 `bun test`（`NODE_ENV=test`）根本不自动加载它。所以根目录的脚本都显式传 `--env-file=.env.local`；测试的 `APP_ENV=test` 由 `bunfig.toml` 的 preload 强制设置，配置加载器在测试环境下改用 `DATABASE_(OWNER_)URL_TEST`、`VALKEY_URL_TEST`、`S3_BUCKET_TEST`，并拒绝库名不以 `_test` 结尾、与开发共用 Valkey 库号或桶的配置。
   - 前端（M1b）：Vite 的 `envDir` 指向仓库根目录，`envPrefix` 设为 `VITE_PUBLIC_`，因此前端只能读取以它开头的变量。这些变量里不要放任何需要保密的内容。
@@ -114,6 +115,12 @@ bun run doctor                 # end-to-end checks; add --ai to test the selecte
 - 不使用 `docker system prune` / `volume prune` 或按名字前缀删除；不继承开发 compose 的 name、container_name、卷或 bind 挂载。
 - M3 启用媒体时，本地开发的 worker 也运行在 Linux 容器内，经内部网络访问开发依赖，与 media 共享私有 Unix socket；不能假定宿主机 Bun 可访问 Docker 内 Unix socket。故障套件使用同样的 worker/media 拓扑，凭据和卷仍隔离。纯后端热重载在 M1a 阶段继续在宿主机运行。
 - M7 本地删除 journal 使用第二套独立存储服务模拟故障；V-19 最终证据仍须真实异地服务及原主机不可访问场景。只开本机第二桶不能证明灾难独立性。
+
+### M7 异地实验（实现中）
+
+**云端与独立恢复安排（D-210、D-211）**：最小部署条件齐备后提前进入云端封闭部署，在服务器完成 M7 压测、ARM 容量、备份与运维验收，本地继续开发与回归。现有本机作为云端源主机的独立恢复设备，正式开放前完成全量演练；恢复使用新建项目/库/桶/卷，不使用或覆盖本机开发数据。源主机失效、全量校验、权限及 RPO/RTO 要求见 [10 第 7 节](10-deployment.md#7-一致备份与恢复隔离d-071)。下面的本机小样本脚本继续只作分项证据，不能替代该演练。
+
+`test:m7:offsite`、`test:m7:journal`、`test:m7:recovery` 显式访问专属 R2 测试目标，不进入普通集成套件。恢复实验创建两套独立实例，删除仅限通过所有权核验的实验实例/对象；结果写入忽略的 `.test-runs/m7/`。restic 使用锁定 digest 的 Docker 镜像。`setup:m7:recovery` 创建独立加密材料，必须另存主机之外；已有配置时拒绝覆盖。`setup:m7:rotation` 只在随机实验前缀准备轮换，负责人在 Cloudflare 替换并撤销测试凭据后才运行 `test:m7:rotation` 验证旧凭据实际失效；它不能自动管理 Cloudflare 凭据。不能把这些小样本实验当作 V-19/AT-33 或正式备份服务完成。
 
 ### M3 富消息开发与验证（D-176–D-180）
 

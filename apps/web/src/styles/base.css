@@ -5,6 +5,11 @@ body {
   height: 100%;
 }
 
+/* The app and its portal layers scroll internally. Keep WebKit's root from collecting off-screen popup overflow. */
+html {
+  overflow: hidden;
+}
+
 body {
   margin: 0;
   background: var(--bg-app);

@@ -34,6 +34,7 @@ import {
 import type { PaidCallLedger } from '../domain/ai-budget.ts'
 import { markKeyRejected, runKey } from '../domain/ai-keys.ts'
 import type { Deps } from '../domain/deps.ts'
+import { readAgentLimits } from '../domain/site-policy.ts'
 import { AiTransportError, aiProviderOptions, denyAiDownloads, guardedAiModel } from './ai.ts'
 
 /** Deliberately deterministic; only APP_ENV=test may run mock integration and browser cases. */
@@ -116,6 +117,8 @@ function mockEffectAnswer(output: { type: string; value?: unknown }): string {
       return '已记住，可以在设置中查看和删除。'
     case 'forgotten':
       return '已删除这条记忆。'
+    case 'pending':
+      return '删除已受理，仍在处理中，完成前内容可能仍然可见。'
     case 'failed':
       return `没能完成：${String(value.error)}。`
     default:
@@ -138,6 +141,7 @@ function mockAgentModel(
     input: { limit: 30 },
   },
 ): LanguageModel {
+  const pacing = deps.config.ai?.mockStream ?? { chunkChars: 80, chunkDelayMs: 20 }
   const ledger = trackedLedger(
     createAgentLedger(deps, lease, stepIndex, price),
     experimentLedger,
@@ -255,12 +259,16 @@ function mockAgentModel(
         })
       else {
         chunks.push({ type: 'text-start', id: 'text-1' })
-        for (let i = 0; i < text.length; i += 80)
-          chunks.push({ type: 'text-delta', id: 'text-1', delta: text.slice(i, i + 80) })
+        for (let i = 0; i < text.length; i += pacing.chunkChars)
+          chunks.push({
+            type: 'text-delta',
+            id: 'text-1',
+            delta: text.slice(i, i + pacing.chunkChars),
+          })
         chunks.push({ type: 'text-end', id: 'text-1' })
       }
       chunks.push({ type: 'finish', finishReason, usage })
-      return { stream: simulateReadableStream({ chunks, chunkDelayInMs: 20 }) }
+      return { stream: simulateReadableStream({ chunks, chunkDelayInMs: pacing.chunkDelayMs }) }
     },
   })
 }
@@ -339,7 +347,10 @@ export async function executeAgentRun(parts: AgentExecution, id: string): Promis
     lease = claimed.lease
     const currentLease = lease
     const context = await buildAgentContext(deps, currentLease)
-    const limits = AI_LIMITS[context.run.mode]
+    const limits = {
+      ...AI_LIMITS[context.run.mode],
+      ...(await readAgentLimits(deps, deps.db, context.run.mode)),
+    }
     // The run's source was pinned at creation: an own key always goes to DeepSeek with its own models (docs/06 14).
     own = context.run.keySource === 'user'
     const route = own

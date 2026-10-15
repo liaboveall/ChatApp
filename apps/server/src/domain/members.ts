@@ -32,6 +32,7 @@ import {
 } from './membership.ts'
 import type { SessionPrincipal } from './principal.ts'
 import { accountAllowsSession, lockAndRevalidate } from './sessions.ts'
+import { readSiteLimits } from './site-policy.ts'
 import { inTransaction } from './tx.ts'
 import { loadUserSummaries, toUserSummary } from './users.ts'
 
@@ -179,7 +180,8 @@ export async function addPeople(
 
   const skipped: AddMembersResponse['skipped'] = []
   const toAdd: string[] = []
-  let room = memberLimitOf(conversation.kind) - conversation.memberCount
+  const limits = await readSiteLimits(deps, tx)
+  let room = memberLimitOf(conversation.kind, limits) - conversation.memberCount
   for (const id of ids) {
     const candidate = known.get(id)
     if (!candidate || !accountAllowsSession(candidate, now)) {
@@ -188,7 +190,7 @@ export async function addPeople(
       skipped.push({ userId: id, reason: 'already_member' })
     } else if (banned.has(id)) {
       skipped.push({ userId: id, reason: 'banned' })
-    } else if (room <= 0 || (counts.get(id) ?? 0) >= LIMITS.maxConversationsPerUser) {
+    } else if (room <= 0 || (counts.get(id) ?? 0) >= limits.maxConversationsPerUser) {
       skipped.push({ userId: id, reason: 'limit_reached' })
     } else {
       toAdd.push(id)
@@ -354,10 +356,13 @@ export async function unbanConversationMember(
   principal: SessionPrincipal,
   conversationId: string,
   targetUserId: string,
+  options: { siteAdminOnly?: boolean } = {},
 ): Promise<void> {
   await inTransaction(deps.db, async (tx) => {
     const now = deps.clock.now()
     const user = await lockAndRevalidate(tx, deps, principal)
+    if (options.siteAdminOnly && user.role !== 'admin')
+      throw new AppError('FORBIDDEN', 'Only site administrators can manage the site')
     const actor = { userId: principal.userId, siteRole: user.role }
     await requireAccess(tx, actor, conversationId, 'unban', { lock: true, now })
     const removed = await tx

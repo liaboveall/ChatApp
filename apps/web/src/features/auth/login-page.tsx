@@ -1,16 +1,21 @@
-import { emailSchema } from '@chatapp/contracts'
+import { deletionOperationSchema, emailSchema } from '@chatapp/contracts'
 import { useQueryClient } from '@tanstack/react-query'
 import { Link, useNavigate } from '@tanstack/react-router'
 import { Fingerprint } from 'lucide-react'
-import { type FormEvent, useState } from 'react'
+import { type FormEvent, useEffect, useState } from 'react'
 import { Button } from '@/components/ui/button.tsx'
 import { Banner } from '@/components/ui/feedback.tsx'
 import { PasswordField, TextField } from '@/components/ui/fields.tsx'
-import { ApiError } from '@/lib/api.ts'
+import {
+  forgetAccountDeletion,
+  observeAccountDeletion,
+  pendingAccountDeletion,
+} from '@/lib/account-deletion.ts'
+import { ApiError, api } from '@/lib/api.ts'
 import { describeError } from '@/lib/error-messages.ts'
 import { PRODUCT_NAME } from '@/lib/product.ts'
-import { meQuery } from '@/lib/queries.ts'
-import { type SessionEnd, sessionStarted } from '@/lib/session.ts'
+import { meQuery, queryKeys } from '@/lib/queries.ts'
+import { currentGeneration, type SessionEnd, sessionStarted } from '@/lib/session.ts'
 import { classifyPasskeyError, passkeysSupported, signInWithPasskey } from '@/lib/webauthn.ts'
 import { m } from '@/paraglide/messages.js'
 import { authApi } from './auth-api.ts'
@@ -41,6 +46,10 @@ function reasonText(reason: SessionEnd | undefined): string | null {
       return m.login_reason_password_changed()
     case 'signed-out':
       return m.login_reason_signed_out()
+    case 'account-deletion-pending':
+      return m.settings_account_deletion_pending()
+    case 'account-deleted':
+      return m.settings_account_deleted()
     default:
       return null
   }
@@ -54,7 +63,23 @@ export function LoginPage({ redirectTo, reason, services = defaultServices }: Lo
   const [errors, setErrors] = useState<{ email?: string; password?: string }>({})
   const [notice, setNotice] = useState<Notice | null>(null)
   const [busy, setBusy] = useState<'password' | 'passkey' | null>(null)
-  const hint = reasonText(reason)
+  const [accountDeleted, setAccountDeleted] = useState(false)
+  const hint = accountDeleted ? m.settings_account_deleted() : reasonText(reason)
+  useEffect(() => {
+    if (reason !== 'account-deletion-pending') return
+    const pending = pendingAccountDeletion()
+    if (!pending) return
+    const generation = currentGeneration(),
+      controller = new AbortController()
+    void observeAccountDeletion(pending, {
+      signal: controller.signal,
+      current: () => currentGeneration() === generation && !queryClient.getQueryData(queryKeys.me),
+      read: (url) =>
+        api(url, { schema: deletionOperationSchema, signal: controller.signal, anonymous: true }),
+      completed: () => setAccountDeleted(true),
+    })
+    return () => controller.abort()
+  }, [reason, queryClient])
 
   async function finish(): Promise<void> {
     // The cookie is set; load the identity before leaving, so the app never starts in an anonymous state.
@@ -91,6 +116,7 @@ export function LoginPage({ redirectTo, reason, services = defaultServices }: Lo
     setErrors(next)
     if (next.email || next.password || !parsedEmail.success) return
     setBusy('password')
+    forgetAccountDeletion()
     try {
       await services.signIn({ email: parsedEmail.data, password })
       await finish()
@@ -105,6 +131,7 @@ export function LoginPage({ redirectTo, reason, services = defaultServices }: Lo
     if (busy) return
     setNotice(null)
     setBusy('passkey')
+    forgetAccountDeletion()
     try {
       await services.signInWithPasskey()
       await finish()

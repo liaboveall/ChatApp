@@ -16,7 +16,8 @@ export function openTestDatabases(): TestDatabases {
     throw new Error('DATABASE_OWNER_URL_TEST is required for integration tests')
   const app = createDatabase(config.databaseUrl, { max: 5, applicationName: 'chatapp-test-app' })
   const owner = createDatabase(config.databaseOwnerUrl, {
-    max: 2,
+    // Backup holds a catalog fence plus an exported snapshot while another connection imports/copies it.
+    max: 5,
     applicationName: 'chatapp-test-owner',
   })
   return {

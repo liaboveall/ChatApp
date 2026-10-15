@@ -5,6 +5,7 @@
  * (D-154). Failures are worded here; losing access to the conversation is the engine's business.
  */
 import {
+  deletionOperationSchema,
   type EditMessageRequest,
   type Message,
   messageEnvelopeSchema,
@@ -17,6 +18,7 @@ import { type EditMode, settleEdit } from '@/lib/sync/compose.ts'
 import type { RequestTicket } from '@/lib/sync/types.ts'
 import { showToast } from '@/lib/toast.ts'
 import { m } from '@/paraglide/messages.js'
+import { waitForDeletion } from '../deletions/wait.ts'
 
 type Kind = 'edit' | 'recall' | 'hide' | 'delete'
 
@@ -76,14 +78,18 @@ export async function saveEdit(mode: EditMode, body: string): Promise<void> {
 export async function recallMessage(message: Message): Promise<void> {
   const ticket = engine.ticket(message.conversationId)
   try {
-    engine.ingestMessage(
-      await api(`/api/messages/${message.id}/recall`, {
-        method: 'POST',
-        json: {},
-        schema: messageEnvelopeSchema,
-      }),
-      ticket,
-    )
+    const result = await api(`/api/messages/${message.id}/recall`, {
+      method: 'POST',
+      json: {},
+      schema: messageEnvelopeSchema.or(deletionOperationSchema),
+    })
+    if ('operationId' in result) {
+      if (!(await waitForDeletion(result, ticket))) return
+      engine.ingestMessage(
+        await api(`/api/messages/${message.id}`, { schema: messageEnvelopeSchema }),
+        ticket,
+      )
+    } else engine.ingestMessage(result, ticket)
   } catch (error) {
     fail(message, 'recall', error, ticket)
   }
@@ -108,7 +114,11 @@ export async function hideMessage(message: Message): Promise<void> {
 export async function deleteAsModerator(message: Message): Promise<void> {
   const ticket = engine.ticket(message.conversationId)
   try {
-    await api(`/api/messages/${message.id}`, { method: 'DELETE', schema: okResponseSchema })
+    const result = await api(`/api/messages/${message.id}`, {
+      method: 'DELETE',
+      schema: okResponseSchema.or(deletionOperationSchema),
+    })
+    if ('operationId' in result) await waitForDeletion(result, ticket)
   } catch (error) {
     fail(message, 'delete', error, ticket)
   }

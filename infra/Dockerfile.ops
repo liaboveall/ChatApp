@@ -1,0 +1,64 @@
+# PostgreSQL 18 clients and restic belong only to the operator image. No Docker socket is required.
+FROM golang:1.27.2-trixie@sha256:e58d6f83b3416618d8bcac2b3dde1b7f7e3c4a77d25e88637f8bbae81536c48d AS restic
+# Keep the upstream release; apply the four dependency security updates with Go's checksum database.
+RUN go mod download github.com/restic/restic@v0.19.1 \
+    && cp -a "$(go env GOMODCACHE)/github.com/restic/restic@v0.19.1" /source \
+    && chmod -R u+w /source && cd /source \
+    && go get golang.org/x/crypto@v0.58.0 golang.org/x/net@v0.61.0 golang.org/x/text@v0.43.0 google.golang.org/grpc@v1.84.0 \
+    && mkdir /out && CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o /out/restic ./cmd/restic \
+    && go list -m all > /out/restic-modules.txt && cp LICENSE /out/LICENSE
+
+FROM postgres:18.6-trixie@sha256:74935e72241653ca55e0414067e6d8763aceb8a810eb51b452253ec3dcfc4336 AS clients
+RUN apt-get update && apt-get install -y --no-install-recommends python3 && rm -rf /var/lib/apt/lists/*
+COPY infra/runtime-libraries.py /runtime-libraries.py
+RUN python3 /runtime-libraries.py /runtime /usr/lib/postgresql/18/bin/pg_dump /usr/lib/postgresql/18/bin/pg_restore
+
+FROM oven/bun:1.4.2-slim@sha256:cb3bbbb08e13a4a2ff400f24c7a2a1d5efa83f6ef8544d52d95a519631e2fc61 AS bun
+FROM debian:trixie-slim@sha256:a29215f6a35e51e22adffa17f89e9d2ef06214e64a2bad10d765c46aea49f11f AS base
+COPY --from=bun /usr/local/bin/bun /usr/local/bin/bun
+RUN apt-get update && apt-get install -y --no-install-recommends libstdc++6 ca-certificates \
+    && rm -rf /var/lib/apt/lists/* \
+    && groupadd --gid 10001 chatapp \
+    && useradd --uid 10001 --gid 10001 --no-create-home --no-log-init --shell /usr/sbin/nologin chatapp \
+    && install -d -m 0700 -o 10001 -g 10001 /var/lib/chatapp/backup /var/lib/chatapp/restore
+ENV PATH=/usr/local/bin:/usr/lib/postgresql/18/bin:/usr/bin:/bin LANG=C.UTF-8 TMPDIR=/tmp
+WORKDIR /app
+
+FROM base AS dependencies
+COPY package.json bun.lock ./
+COPY apps/server/package.json apps/server/package.json
+COPY packages/contracts/package.json packages/contracts/package.json
+COPY packages/db/package.json packages/db/package.json
+RUN bun install --frozen-lockfile --production --ignore-scripts --filter @chatapp/server
+COPY scripts/production-prune.ts /app/production-prune.ts
+RUN bun --no-env-file /app/production-prune.ts
+
+FROM gcr.io/distroless/cc-debian13:nonroot@sha256:e792ab3d241a468a4fd7519ddbbebe66b49b5f365771716ea688ad40b6c6f1c2 AS runtime
+COPY --from=base /usr/local/bin/bun /usr/local/bin/bun
+COPY --from=base /etc/passwd /etc/passwd
+COPY --from=base /etc/group /etc/group
+COPY --from=base --chown=10001:10001 --chmod=0700 /var/lib/chatapp/backup /var/lib/chatapp/backup
+COPY --from=base --chown=10001:10001 --chmod=0700 /var/lib/chatapp/restore /var/lib/chatapp/restore
+COPY --from=clients /runtime/ /
+COPY --from=restic /out/restic /usr/local/bin/restic
+COPY --from=restic /out/restic-modules.txt /out/LICENSE /usr/share/doc/chatapp-restic/
+LABEL chatapp.restic.version="0.19.1" chatapp.restic.compiler="1.27.2" chatapp.restic.security-patch="1"
+ENV PATH=/usr/local/bin:/usr/lib/postgresql/18/bin:/usr/bin:/bin LANG=C.UTF-8 TMPDIR=/tmp
+WORKDIR /app
+COPY --from=dependencies /app/package.json ./package.json
+COPY --from=dependencies /app/node_modules ./node_modules
+COPY --from=dependencies /app/apps/server ./apps/server
+COPY --from=dependencies /app/packages/contracts ./packages/contracts
+COPY --from=dependencies /app/packages/db ./packages/db
+COPY apps/server/src ./apps/server/src
+COPY packages/contracts/src ./packages/contracts/src
+COPY packages/db/src ./packages/db/src
+COPY packages/db/drizzle ./packages/db/drizzle
+ARG APPLICATION_SHA
+ARG APPLICATION_SOURCE_HASH
+USER 0:0
+RUN ["/usr/local/bin/bun", "--no-env-file", "-e", "const applicationSha=process.env.APPLICATION_SHA,applicationSourceHash=process.env.APPLICATION_SOURCE_HASH;if(!/^[a-f0-9]{40}$/.test(applicationSha||'')||!/^[a-f0-9]{64}$/.test(applicationSourceHash||''))throw Error('release binding required');await Bun.write('/app/release.json',JSON.stringify({format:1,applicationSha,applicationSourceHash})+'\\n')"]
+LABEL org.opencontainers.image.revision=$APPLICATION_SHA chatapp.source-hash=$APPLICATION_SOURCE_HASH
+USER 10001:10001
+ENTRYPOINT ["bun", "--no-env-file", "/app/apps/server/src/runtime/operations-cli.ts"]
+CMD ["help"]

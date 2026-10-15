@@ -8,7 +8,10 @@ import { createAuth } from './auth/better-auth.ts'
 import { sdkPasswords } from './auth/passwords.ts'
 import { loadAiConfig } from './config/ai.ts'
 import { type Config, ConfigError, loadConfig } from './config/index.ts'
+import { loadJournalSettings } from './config/journal.ts'
+import { withPhysicalDeletion } from './domain/backups.ts'
 import type { Deps } from './domain/deps.ts'
+import { assertRestoreUnlocked } from './domain/restore.ts'
 import { createReadiness } from './health.ts'
 import { createApp } from './http/app.ts'
 import type { Services } from './http/context.ts'
@@ -23,8 +26,11 @@ import { Gateway } from './realtime/gateway.ts'
 import { createPresenceStore } from './realtime/presence.ts'
 import { connectGatewayToBus } from './realtime/wiring.ts'
 import { deepSeekKeyVerifier, mockKeyVerifier } from './runtime/ai-key-verifier.ts'
+import { createRuntimeDeletionJournal } from './runtime/deletion-journal.ts'
 import { createEmbeddingClient, embeddingSettings } from './runtime/embeddings.ts'
 import { uuidv7 } from './runtime/ids.ts'
+import { createMonitoring } from './runtime/monitoring.ts'
+import { startProcessHealth } from './runtime/process-health.ts'
 import { capturedPushKey, createPushService } from './runtime/push-service.ts'
 import { startServer } from './runtime/server.ts'
 import { assertDatabaseReady, createWaker } from './startup.ts'
@@ -42,10 +48,19 @@ async function main(): Promise<void> {
     throw error
   }
   const log = createLogger({ level: config.logLevel, service: 'api' })
+  if (process.env.RESTORE_MODE && !['normal', 'isolated'].includes(process.env.RESTORE_MODE))
+    throw new Error('invalid restore mode')
+  if (process.env.RESTORE_MODE === 'isolated')
+    throw new Error('isolated restore cannot start the public API')
+  const journalSettings = loadJournalSettings(process.env)
+  const deletionJournal = journalSettings
+    ? await createRuntimeDeletionJournal(journalSettings)
+    : undefined
   const { apiKey: _apiKey, ...aiPolicy } = loadAiConfig(process.env, { requireKey: false })
 
   const database = createDatabase(config.databaseUrl, { max: 10, applicationName: 'chatapp-api' })
   await assertDatabaseReady(database.db, config, log)
+  await assertRestoreUnlocked(database.db)
   const valkey = await createValkey(config.valkeyUrl, 'api', {
     onError: (error) => log.warn('valkey.error', describeError(error)),
   })
@@ -68,7 +83,10 @@ async function main(): Promise<void> {
       ai: aiPolicy,
       aiKeyEncryptionKey: config.aiKeyEncryptionKey,
     },
-    blobs: createBlobStore(config.s3),
+    blobs: createBlobStore(config.s3, {
+      physicalDeletion: (remove) => withPhysicalDeletion({ db: database.db }, remove),
+    }),
+    ...(deletionJournal ? { deletionJournal } : {}),
     passwords: sdkPasswords,
     log,
     // Tests never reach a provider; elsewhere the free model list verifies a member's own key before it is stored.
@@ -95,6 +113,7 @@ async function main(): Promise<void> {
     { bus, presence: createPresenceStore(valkey, `presence:${config.env}`) },
   )
   const services: Services = {
+    monitoring: createMonitoring(process.env),
     config,
     deps,
     auth: createAuth(deps, { baseOrigin: config.origin, secret: config.auth.secret }),
@@ -120,7 +139,7 @@ async function main(): Promise<void> {
   // SEC-29: test-only routes must not exist outside APP_ENV=test.
   if (config.env !== 'test') assertNoTestRoutes(app)
 
-  await connectGatewayToBus(bus, gateway)
+  const disconnectGateway = await connectGatewayToBus(bus, gateway)
   gateway.start()
 
   const server = startServer({
@@ -131,14 +150,18 @@ async function main(): Promise<void> {
     port: config.apiPort,
   })
   log.info('api.started', { count: server.port, reason: config.env })
+  const health = await startProcessHealth(process.env.PROCESS_HEALTH_FILE, 'api')
 
   let stopping = false
   const shutdown = async () => {
     if (stopping) return
     stopping = true
+    await health.stop()
     log.info('api.stopping')
     gateway.shutdown()
+    await disconnectGateway()
     await server.stop()
+    await gateway.settled()
     valkey.disconnect()
     subscriber.disconnect()
     await database.close()

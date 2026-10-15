@@ -17,8 +17,10 @@ import { decideApproval } from '../../src/domain/agent-approvals.ts'
 import { createAgentRun, getAgentRun } from '../../src/domain/agent-runs.ts'
 import { writeAudit } from '../../src/domain/audit.ts'
 import { createConversation } from '../../src/domain/conversations.ts'
+import { prepareDeletion } from '../../src/domain/deletion-operations.ts'
 import { addMemory } from '../../src/domain/memories.ts'
 import { createNotification } from '../../src/domain/notifications.ts'
+import { lockAndRevalidate } from '../../src/domain/sessions.ts'
 import { enqueueWork } from '../../src/domain/work.ts'
 import { executeAgentRun } from '../../src/runtime/agent.ts'
 import { openTestDatabases, type TestDatabases, truncateAll } from '../support/db.ts'
@@ -54,6 +56,7 @@ const COVERED = [
   'attachments.variants',
   'audit_logs.metadata',
   'conversations.settings',
+  'deletion_operations.intent',
   'messages.meta',
   'notifications.data',
   'users.settings',
@@ -70,6 +73,30 @@ async function stored(table: string, column: string, where = 'true') {
 }
 
 describe('jsonb columns hold real JSON', () => {
+  test('durable deletion intents are strict JSON objects with queryable identifier targets', async () => {
+    const deps = makeDeps(dbs.app.db)
+    const principal = await makePrincipal(
+      deps,
+      await createActiveUser(deps, { username: 'jsonbdelete' }),
+    )
+    const memory = await addMemory(deps, principal, {
+      content: 'never in the journal',
+      allowSite: false,
+    })
+    await deps.db.transaction(async (tx) => {
+      await lockAndRevalidate(tx, deps, principal)
+      await prepareDeletion(tx, deps, principal.userId, {
+        action: 'memory_delete',
+        target: { id: memory.id, userId: principal.userId, contentVersion: memory.contentVersion },
+      })
+    })
+    const rows = await deps.db.execute(
+      sql`select jsonb_typeof(intent) as root, jsonb_typeof(intent->'target') as target, intent->>'action' as action, intent->'target'->>'id' as id from deletion_operations`,
+    )
+    expect(rows).toEqual([
+      { root: 'object', target: 'object', action: 'memory_delete', id: memory.id },
+    ])
+  })
   test('every jsonb column of the database is covered by this file', async () => {
     const rows = (await dbs.owner.db.execute(
       sql`select table_name || '.' || column_name as name from information_schema.columns where table_schema = 'public' and data_type = 'jsonb' order by 1`,

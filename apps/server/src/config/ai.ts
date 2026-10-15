@@ -1,4 +1,5 @@
 import { createHash } from 'node:crypto'
+import { type MockModelStream, mockModelStreamSchema } from '@chatapp/contracts'
 import { z } from 'zod'
 import type { AiPrice } from '../domain/ai-budget.ts'
 import { usdToMicro } from '../domain/ai-budget.ts'
@@ -20,6 +21,7 @@ export type AiConfig = {
   experimentMicroUsd: number
   /** The experiment reservation is subtracted, so two environments cannot each spend the same $20. */
   siteMicroUsd: number
+  mockStream?: MockModelStream
   /**
    * Members' own keys (M5a): always DeepSeek at its fixed endpoint, with its own model names and prices, never the site
    * provider's alias (docs/06 section 6). The test environment uses the mock model for them too.
@@ -36,6 +38,8 @@ const model = z.string().regex(/^[a-zA-Z0-9_.-]{1,100}$/)
 const schema = z.object({
   APP_ENV: z.enum(['development', 'test', 'production']).default('development'),
   AI_PROVIDER: z.enum(['deepseek', 'soclaas', 'mock']).optional(),
+  AI_MOCK_CHUNK_CHARS: mockModelStreamSchema.shape.chunkChars.optional(),
+  AI_MOCK_CHUNK_DELAY_MS: mockModelStreamSchema.shape.chunkDelayMs.optional(),
   DEEPSEEK_API_KEY: z.string().optional(),
   SOCLAAS_API_KEY: z.string().optional(),
   AI_MODEL_FAST: model.optional(),
@@ -68,6 +72,11 @@ export function loadAiConfig(
       parsed.error.issues.map((issue) => `${issue.path.join('.')}: invalid AI configuration`),
     )
   const raw = parsed.data
+  if (
+    raw.APP_ENV !== 'test' &&
+    (source.AI_MOCK_CHUNK_CHARS !== undefined || source.AI_MOCK_CHUNK_DELAY_MS !== undefined)
+  )
+    throw new ConfigError(['AI_MOCK_STREAM: restricted to the test environment'])
   const provider = raw.AI_PROVIDER ?? (raw.APP_ENV === 'test' ? 'mock' : 'soclaas')
   if (raw.APP_ENV === 'test' && provider !== 'mock')
     throw new ConfigError(['AI_PROVIDER: tests must use mock'])
@@ -146,6 +155,14 @@ export function loadAiConfig(
     monthlyMicroUsd,
     experimentMicroUsd,
     siteMicroUsd: monthlyMicroUsd - experimentMicroUsd,
+    ...(provider === 'mock'
+      ? {
+          mockStream: mockModelStreamSchema.parse({
+            chunkChars: raw.AI_MOCK_CHUNK_CHARS,
+            chunkDelayMs: raw.AI_MOCK_CHUNK_DELAY_MS,
+          }),
+        }
+      : {}),
     byok: { provider: byokProvider, models: byokModels, prices: byokPrices },
   }
 }

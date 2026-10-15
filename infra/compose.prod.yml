@@ -1,0 +1,271 @@
+# Closed production topology. Use a root-owned configuration directory and the deployment validator.
+name: ${CHATAPP_PROJECT:?prepare a private deployment configuration}
+
+x-runtime: &runtime
+  user: "10001:10001"
+  ipc: private
+  read_only: true
+  cap_drop: [ALL]
+  security_opt: ["no-new-privileges:true"]
+  init: true
+  restart: unless-stopped
+  logging:
+    driver: json-file
+    options: {max-size: "10m", max-file: "5"}
+  labels:
+    chatapp.production.owner: ${CHATAPP_OWNER:?prepare configuration}
+    chatapp.production.release: ${APPLICATION_SOURCE_HASH:?package the candidate source}
+
+x-application: &application
+  <<: *runtime
+  networks: [application]
+  image: ${SERVER_IMAGE:?build the candidate server image}
+  env_file:
+    - path: ${CHATAPP_CONFIG_DIR:?prepare configuration}/app.env
+      format: raw
+  environment:
+    APP_ENV: production
+    NODE_ENV: production
+    APPLICATION_SOURCE_HASH: ${APPLICATION_SOURCE_HASH}
+    API_HOST: 0.0.0.0
+    API_PORT: "3100"
+    DELETION_JOURNAL_ENABLED: "true"
+    DELETION_JOURNAL_KEYRING_FILE: /run/chatapp-keys/journal-keyring.json
+    MEDIA_SOCKET_PATH: /run/chatapp-media/media.sock
+    EMBEDDING_SOCKET_PATH: /run/chatapp-embedding/embedding.sock
+    EMBEDDING_CACHE_DIR: /var/lib/chatapp/models
+    PROCESS_HEALTH_FILE: /tmp/chatapp-api-health.json
+  pids_limit: 256
+  tmpfs:
+    - /tmp:size=268435456,mode=1777,nosuid,nodev,noexec
+
+x-data: &data
+  labels:
+    chatapp.production.owner: ${CHATAPP_OWNER}
+    chatapp.production.release: ${APPLICATION_SOURCE_HASH}
+
+services:
+  api:
+    <<: *application
+    command: ["bun", "--no-env-file", "/app/apps/server/src/api.ts"]
+    ports: ["127.0.0.1:${CHATAPP_API_PORT:?choose a free loopback port}:3100"]
+    cpus: 1.0
+    mem_limit: 1024m
+    memswap_limit: 1024m
+    volumes:
+      - type: bind
+        source: ${CHATAPP_CONFIG_DIR}/runtime/journal-keyring.json
+        target: /run/chatapp-keys/journal-keyring.json
+        read_only: true
+        bind: {create_host_path: false}
+      - embedding-socket:/run/chatapp-embedding:ro
+    depends_on:
+      postgres: {condition: service_healthy}
+      valkey: {condition: service_healthy}
+      garage: {condition: service_healthy}
+    healthcheck:
+      test: ["CMD", "bun", "--no-env-file", "/app/apps/server/src/runtime/healthcheck.ts", "api"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+
+  worker:
+    <<: *application
+    command: ["bun", "--no-env-file", "/app/apps/server/src/worker.ts"]
+    environment:
+      APP_ENV: production
+      NODE_ENV: production
+      APPLICATION_SOURCE_HASH: ${APPLICATION_SOURCE_HASH}
+      DELETION_JOURNAL_ENABLED: "true"
+      DELETION_JOURNAL_KEYRING_FILE: /run/chatapp-keys/journal-keyring.json
+      MEDIA_SOCKET_PATH: /run/chatapp-media/media.sock
+      EMBEDDING_SOCKET_PATH: /run/chatapp-embedding/embedding.sock
+      EMBEDDING_CACHE_DIR: /var/lib/chatapp/models
+      PROCESS_HEALTH_FILE: /tmp/chatapp-worker-health.json
+    cpus: 1.0
+    mem_limit: 1536m
+    memswap_limit: 1536m
+    volumes:
+      - type: bind
+        source: ${CHATAPP_CONFIG_DIR}/runtime/journal-keyring.json
+        target: /run/chatapp-keys/journal-keyring.json
+        read_only: true
+        bind: {create_host_path: false}
+      - media-socket:/run/chatapp-media:ro
+      - embedding-socket:/run/chatapp-embedding
+      - embedding-models:/var/lib/chatapp/models:ro
+    depends_on:
+      postgres: {condition: service_healthy}
+      valkey: {condition: service_healthy}
+      garage: {condition: service_healthy}
+      media: {condition: service_healthy}
+    healthcheck:
+      test: ["CMD", "bun", "--no-env-file", "/app/apps/server/src/runtime/healthcheck.ts", "worker"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+
+  media:
+    <<: *runtime
+    image: ${MEDIA_IMAGE:?build the candidate media image}
+    command: ["bun", "--no-env-file", "/app/apps/media/src/server.ts"]
+    network_mode: none
+    pids_limit: 64
+    cpus: 0.5
+    mem_limit: 512m
+    memswap_limit: 512m
+    tmpfs:
+      - /tmp:size=268435456,mode=1777,nosuid,nodev,noexec
+    volumes: [media-socket:/run/chatapp-media]
+    healthcheck:
+      test: ["CMD", "/usr/local/bin/media-health"]
+      interval: 10s
+      timeout: 2s
+      retries: 3
+      start_period: 15s
+
+  postgres:
+    <<: *runtime
+    networks: [application]
+    user: "70:70"
+    read_only: false
+    image: ${POSTGRES_IMAGE:?bind the native release}
+    env_file:
+      - path: ${CHATAPP_CONFIG_DIR}/db.env
+        format: raw
+    command: ["postgres", "-c", "shared_buffers=512MB", "-c", "max_connections=80"]
+    mem_limit: 2048m
+    memswap_limit: 2048m
+    pids_limit: 128
+    shm_size: 256m
+    volumes: [pg:/var/lib/postgresql]
+    tmpfs: ["/tmp:mode=1777,nosuid,nodev,noexec", "/var/run/postgresql:mode=3775,uid=70,gid=70"]
+    healthcheck:
+      test: ["CMD-SHELL", 'pg_isready -U "$$POSTGRES_USER" -d "$$POSTGRES_DB"']
+      interval: 10s
+      timeout: 3s
+      retries: 6
+      start_period: 30s
+
+  valkey:
+    <<: *runtime
+    networks: [application]
+    user: "999:999"
+    read_only: false
+    image: ${VALKEY_IMAGE:?bind the native release}
+    env_file:
+      - path: ${CHATAPP_CONFIG_DIR}/valkey.env
+        format: raw
+    command: ["sh", "-c", 'exec valkey-server --appendonly yes --maxmemory 384mb --maxmemory-policy noeviction --requirepass "$$REDISCLI_AUTH"']
+    mem_limit: 512m
+    memswap_limit: 512m
+    pids_limit: 64
+    volumes: [valkey:/data]
+    healthcheck:
+      test: ["CMD-SHELL", 'valkey-cli --no-auth-warning ping | grep -q PONG']
+      interval: 10s
+      timeout: 3s
+      retries: 3
+
+  garage:
+    <<: *runtime
+    networks: [application]
+    user: "10001:10001"
+    image: ${GARAGE_IMAGE:?bind the native release}
+    mem_limit: 512m
+    memswap_limit: 512m
+    pids_limit: 128
+    volumes:
+      - type: bind
+        source: ${CHATAPP_CONFIG_DIR}/runtime/garage.toml
+        target: /etc/garage.toml
+        read_only: true
+        bind: {create_host_path: false}
+      - garage-meta:/var/lib/garage/meta
+      - garage-data:/var/lib/garage/data
+    healthcheck:
+      test: ["CMD", "/garage", "status"]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+      start_period: 30s
+
+  initialize:
+    <<: *runtime
+    profiles: [operations]
+    image: ${SERVER_IMAGE:?build the candidate server image}
+    user: "0:0"
+    network_mode: none
+    cap_add: [CHOWN, DAC_OVERRIDE, FOWNER]
+    restart: "no"
+    command:
+      - bun
+      - --no-env-file
+      - -e
+      - 'import{mkdir,chown,chmod}from"node:fs/promises";for(const path of ["/run/chatapp-media","/run/chatapp-embedding","/var/lib/chatapp/models","/var/lib/garage/meta","/var/lib/garage/data","/var/lib/chatapp/backup","/var/lib/chatapp/restore"]){await mkdir(path,{recursive:true,mode:0o700});await chown(path,10001,10001);await chmod(path,0o700)}'
+    volumes:
+      - media-socket:/run/chatapp-media
+      - embedding-socket:/run/chatapp-embedding
+      - embedding-models:/var/lib/chatapp/models
+      - garage-meta:/var/lib/garage/meta
+      - garage-data:/var/lib/garage/data
+      - backup-stage:/var/lib/chatapp/backup
+      - restore-stage:/var/lib/chatapp/restore
+
+  tools:
+    <<: *application
+    profiles: [operations]
+    image: ${OPS_IMAGE:?build the candidate operations image}
+    environment:
+      APP_ENV: production
+      NODE_ENV: production
+      APPLICATION_SOURCE_HASH: ${APPLICATION_SOURCE_HASH}
+      CHATAPP_OWNER: ${CHATAPP_OWNER}
+      DELETION_JOURNAL_ENABLED: "true"
+      DELETION_JOURNAL_KEYRING_FILE: /run/chatapp-keys/journal-keyring.json
+      EMBEDDING_CACHE_DIR: /var/lib/chatapp/models
+    env_file:
+      - path: ${CHATAPP_CONFIG_DIR}/app.env
+        format: raw
+      - path: ${CHATAPP_CONFIG_DIR}/owner.env
+        format: raw
+      - path: ${CHATAPP_CONFIG_DIR}/backup.env
+        format: raw
+    entrypoint: ["bun", "--no-env-file", "/app/apps/server/src/runtime/operations-cli.ts"]
+    command: [help]
+    restart: "no"
+    mem_limit: 1024m
+    memswap_limit: 1024m
+    volumes:
+      - type: bind
+        source: ${CHATAPP_CONFIG_DIR}/runtime/journal-keyring.json
+        target: /run/chatapp-keys/journal-keyring.json
+        read_only: true
+        bind: {create_host_path: false}
+      - type: bind
+        source: ${CHATAPP_CONFIG_DIR}/runtime/restic-password
+        target: /run/chatapp-keys/restic-password
+        read_only: true
+        bind: {create_host_path: false}
+      - backup-stage:/var/lib/chatapp/backup
+      - restore-stage:/var/lib/chatapp/restore
+      - embedding-models:/var/lib/chatapp/models
+
+volumes:
+  pg: *data
+  valkey: *data
+  garage-meta: *data
+  garage-data: *data
+  media-socket: *data
+  embedding-socket: *data
+  embedding-models: *data
+  backup-stage: *data
+  restore-stage: *data
+
+networks:
+  application:
+    ipam:
+      config:
+        - subnet: ${CHATAPP_NETWORK_CIDR:?choose a free private /24}

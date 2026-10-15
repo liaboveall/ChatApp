@@ -78,6 +78,16 @@ export function SettingsSheet({ section, me, onClose, onSignOut }: SettingsSheet
                 <BaseDialog.Close render={<IconButton label={m.common_close()} icon={X} />} />
               </div>
               <div className="sheet__body scroll">
+                <div className="settings-site-links">
+                  <Link to="/privacy" onClick={onClose}>
+                    {m.privacy_title()}
+                  </Link>
+                  {me.role === 'admin' ? (
+                    <Link to="/admin" onClick={onClose}>
+                      {m.admin_title()}
+                    </Link>
+                  ) : null}
+                </div>
                 {section === 'appearance' ? <AppearanceSection /> : null}
                 {section === 'notifications' ? <NotificationsSection me={me} /> : null}
                 {section === 'account' ? <AccountSection me={me} onSignOut={onSignOut} /> : null}

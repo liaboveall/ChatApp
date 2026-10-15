@@ -101,9 +101,11 @@ export function Sidebar({
           </MenuItem>
         </Menu>
       </div>
-      <div className="sidebar__scroll scroll">
+      {/* Keyboard access is required when the scrolling conversation region has no focusable messages yet (WCAG 2.2). */}
+      {/* biome-ignore lint/a11y/noNoninteractiveTabindex: the named scroll region must accept keyboard scrolling even when empty. */}
+      <section className="sidebar__scroll scroll" aria-label={m.shell_sidebar_label()} tabIndex={0}>
         <SidebarList meId={me.id} currentId={currentId} />
-      </div>
+      </section>
       <div className="sidebar__user">
         <button
           type="button"

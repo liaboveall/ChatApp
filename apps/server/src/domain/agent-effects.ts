@@ -35,6 +35,7 @@ import { type AgentLease, type AgentRunRow, staleLease, withAgentLease } from '.
 import { appendAgentStep } from './agent-tools.ts'
 import { enforce, loadAccess } from './authorize.ts'
 import { insertConversation } from './conversations.ts'
+import { prepareDeletion } from './deletion-operations.ts'
 import type { Deps } from './deps.ts'
 import { addPeople } from './members.ts'
 import {
@@ -575,6 +576,24 @@ async function applyEffect(
       }
     }
     case 'forget': {
+      if (deps.deletionJournal) {
+        const [memory] = await tx
+          .select()
+          .from(agentMemories)
+          .where(and(eq(agentMemories.id, final.memoryId), eq(agentMemories.userId, run.userId)))
+          .for('update')
+        if (memory && !memory.deletedAt) {
+          const operation = await prepareDeletion(tx, deps, run.userId, {
+            action: 'memory_delete',
+            target: { id: memory.id, userId: run.userId, contentVersion: memory.contentVersion },
+          })
+          return {
+            entityType: 'memory',
+            entityId: memory.id,
+            result: { status: 'pending', operationId: operation.id, memoryId: memory.id },
+          }
+        }
+      }
       await deleteMemoryRow(tx, deps, run.userId, final.memoryId, run.id)
       return {
         entityType: 'memory',

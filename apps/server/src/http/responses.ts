@@ -2,6 +2,7 @@ import { AppError, ERROR_STATUS, type ErrorCode } from '@chatapp/contracts'
 import type { Context, ErrorHandler } from 'hono'
 import { HTTPException } from 'hono/http-exception'
 import { describeError, type Logger } from '../lib/logger.ts'
+import { pgErrorInfo } from '../lib/pg-error.ts'
 import type { HttpEnv } from './context.ts'
 
 /** Minimal shape of the SDK's APIError, which carries its own status and `{code, message}` body. */
@@ -58,6 +59,10 @@ const STATUS_TO_CODE: Record<number, ErrorCode> = {
 
 export function createErrorHandler(log: Logger): ErrorHandler<HttpEnv> {
   return (error, c) => {
+    if (pgErrorInfo(error)?.constraint === 'deletion_target_frozen')
+      return errorResponse(c, 'VERSION_CONFLICT', 'Deletion is pending', {
+        details: { reason: 'deletion_pending' },
+      })
     if (error instanceof AppError) {
       return errorResponse(c, error.code, error.message, {
         details: error.details,

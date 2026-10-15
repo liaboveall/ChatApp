@@ -6,6 +6,7 @@
  */
 import type { Me } from '@chatapp/contracts'
 import type { QueryClient } from '@tanstack/react-query'
+import { forgetAccountDeletion, pendingAccountDeletion } from './account-deletion.ts'
 import { cancelSessionRequests, setUnauthenticatedHandler } from './api.ts'
 import { forgetOfflineData } from './offline/wipe.ts'
 import { clearPendingInvite } from './pending-invite.ts'
@@ -15,7 +16,13 @@ import { clearScopedStorage } from './storage.ts'
 import { announce, listen } from './tab-sync.ts'
 
 /** Why the user is back at the sign-in page; the page explains it. */
-export type SessionEnd = 'signed-out' | 'expired' | 'ended-elsewhere' | 'password-changed'
+export type SessionEnd =
+  | 'signed-out'
+  | 'expired'
+  | 'ended-elsewhere'
+  | 'password-changed'
+  | 'account-deletion-pending'
+  | 'account-deleted'
 
 export type SessionDeps = {
   queryClient: QueryClient
@@ -83,6 +90,12 @@ export function endSession(reason: SessionEnd, options: { announce?: boolean } =
   if (!active && reason !== 'signed-out') return
   active = false
   const userId = signedInUserId()
+  if (
+    (reason === 'expired' || reason === 'ended-elsewhere' || reason === 'signed-out') &&
+    userId &&
+    pendingAccountDeletion(userId)
+  )
+    reason = 'account-deletion-pending'
   resetLocal(userId)
   if (options.announce !== false)
     announce(
@@ -95,6 +108,7 @@ export function endSession(reason: SessionEnd, options: { announce?: boolean } =
 
 /** A sign-in succeeded in this tab: refresh the identity and tell the other tabs. */
 export function sessionStarted(): void {
+  forgetAccountDeletion()
   if (!deps) return
   active = true
   generation += 1

@@ -6,6 +6,8 @@
  */
 import {
   AppError,
+  type DeletionIntent,
+  type DeletionOperation,
   type EditMessageRequest,
   type ExecutionSource,
   LIMITS,
@@ -34,6 +36,7 @@ import {
   messageHidden,
   messageMentions,
   messages,
+  reports,
   type Tx,
   users,
 } from '@chatapp/db'
@@ -50,10 +53,18 @@ import {
   recordUserChange,
   recordViewerChange,
 } from './changes.ts'
+import { applyDeletion } from './deletion-apply.ts'
+import {
+  assertDeletionMutable,
+  findDeletion,
+  prepareDeletion,
+  settleDeletion,
+} from './deletion-operations.ts'
 import type { Deps } from './deps.ts'
 import type { SessionPrincipal } from './principal.ts'
 import { enqueueMessageNotifications } from './push.ts'
 import { lockAndRevalidate } from './sessions.ts'
+import { readSiteLimits } from './site-policy.ts'
 import { inTransaction } from './tx.ts'
 import { retireAttachment } from './uploads.ts'
 import { usersDictionary } from './users.ts'
@@ -915,6 +926,7 @@ export async function editMessage(
     messageId,
     'edit_message',
     async (tx, ctx, conversationId) => {
+      await assertDeletionMutable(tx, 'message', messageId)
       const { row, now, viewer } = ctx
       if (row.kind !== 'user' || row.senderId !== principal.userId) {
         throw new AppError('FORBIDDEN', 'Only the author can edit a message', {
@@ -924,9 +936,10 @@ export async function editMessage(
       if (row.recalledAt !== null || row.deletedAt !== null) {
         throw new AppError('CONFLICT', 'The message was withdrawn', { details: { reason: 'gone' } })
       }
-      if (now.getTime() - row.createdAt.getTime() > LIMITS.messageEditWindowMs) {
+      const limits = await readSiteLimits(deps, tx)
+      if (now.getTime() - row.createdAt.getTime() > limits.messageEditWindowMs) {
         throw new AppError('WINDOW_EXPIRED', 'The time to edit this message has passed', {
-          details: { windowMs: LIMITS.messageEditWindowMs },
+          details: { windowMs: limits.messageEditWindowMs },
         })
       }
       if (input.expectedChangeSeq !== row.changeSeq) {
@@ -962,11 +975,124 @@ export async function editMessage(
  * The author withdraws within two minutes (the server adds five seconds of grace for the network). The body is cleared
  * in the same transaction, so nothing of it stays online (INV-06). Repeating the request returns the same end state.
  */
+export async function requestMessageDeletion(
+  deps: Deps,
+  principal: SessionPrincipal,
+  messageId: string,
+  action: 'message_recall' | 'message_delete',
+): Promise<MessageEnvelope | DeletionOperation | void> {
+  if (!deps.deletionJournal)
+    return action === 'message_recall'
+      ? await recallMessage(deps, principal, messageId)
+      : await deleteMessageAsModerator(deps, principal, messageId)
+  const prepared = await withMessage(
+    deps,
+    principal,
+    messageId,
+    action === 'message_recall' ? 'recall_message' : 'delete_message_of_others',
+    async (tx, ctx, conversationId) => {
+      const existing = await findDeletion(tx, principal.userId, action, messageId)
+      if (existing) return existing
+      const { row, now } = ctx
+      if (action === 'message_recall') {
+        const limits = await readSiteLimits(deps, tx)
+        if (row.kind !== 'user' || row.senderId !== principal.userId)
+          throw new AppError('FORBIDDEN', 'Only the author can recall a message', {
+            details: { reason: 'not_author' },
+          })
+        if (
+          !row.recalledAt &&
+          !row.deletedAt &&
+          now.getTime() - row.createdAt.getTime() >
+            limits.messageRecallWindowMs + LIMITS.messageRecallGraceMs
+        )
+          throw new AppError('WINDOW_EXPIRED', 'The time to recall this message has passed', {
+            details: { windowMs: limits.messageRecallWindowMs },
+          })
+      } else if (row.kind === 'system') {
+        throw new AppError('FORBIDDEN', 'System messages cannot be deleted', {
+          details: { reason: 'not_deletable' },
+        })
+      }
+      if (row.recalledAt || row.deletedAt) return null
+      return await prepareDeletion(tx, deps, principal.userId, {
+        action,
+        target: { id: messageId, conversationId, contentVersion: row.contentVersion },
+      })
+    },
+  )
+  if (prepared) {
+    const status = await settleDeletion(deps, prepared.id, applyDeletion)
+    if (status.status !== 'completed') return status
+  }
+  if (action === 'message_recall')
+    return await withMessage(
+      deps,
+      principal,
+      messageId,
+      'recall_message',
+      async (tx, ctx, id) => await envelopeOf(tx, ctx.viewer, id, messageId),
+    )
+}
+
+/** Same frozen identifier-only action online and during isolated restore; independent of the original session. */
+export async function applyMessageDeletion(
+  tx: Tx,
+  deps: Deps,
+  intent: Extract<DeletionIntent, { action: 'message_recall' | 'message_delete' }>,
+  actorId: string | null,
+): Promise<void> {
+  await tx
+    .update(reports)
+    .set({ details: null, resolutionNote: null })
+    .where(eq(reports.messageId, intent.target.id))
+  await tx
+    .select({ id: conversations.id })
+    .from(conversations)
+    .where(eq(conversations.id, intent.target.conversationId))
+    .for('update')
+  const [row] = await tx.select().from(messages).where(eq(messages.id, intent.target.id))
+  if (!row || row.recalledAt || row.deletedAt) return
+  if (
+    row.conversationId !== intent.target.conversationId ||
+    row.contentVersion > intent.target.contentVersion
+  )
+    throw new Error('frozen message identity mismatch')
+  const changeSeq = await allocateChangeSeq(tx, deps, row.conversationId)
+  await withdrawAttachments(tx, deps, row.id)
+  await tx
+    .update(messages)
+    .set({
+      body: null,
+      contentVersion: sql`${messages.contentVersion} + 1`,
+      changeSeq,
+      ...(intent.action === 'message_recall'
+        ? { recalledAt: deps.clock.now() }
+        : { deletedAt: deps.clock.now(), deletedBy: actorId }),
+    })
+    .where(eq(messages.id, row.id))
+  await recordMessageChange(tx, deps, {
+    conversationId: row.conversationId,
+    messageId: row.id,
+    changeSeq,
+    kind: intent.action === 'message_recall' ? 'message_recalled' : 'message_deleted',
+  })
+  if (intent.action === 'message_delete')
+    await writeAudit(tx, {
+      actorId,
+      action: 'message.delete',
+      targetType: 'message',
+      targetId: row.id,
+      metadata: { conversation: row.conversationId },
+    })
+}
+
 export async function recallMessage(
   deps: Deps,
   principal: SessionPrincipal,
   messageId: string,
 ): Promise<MessageEnvelope> {
+  if (deps.deletionJournal) throw new Error('journaled recall requires requestMessageDeletion')
   return await withMessage(
     deps,
     principal,
@@ -982,12 +1108,13 @@ export async function recallMessage(
       if (row.recalledAt !== null || row.deletedAt !== null) {
         return await envelopeOf(tx, viewer, conversationId, messageId)
       }
+      const limits = await readSiteLimits(deps, tx)
       if (
         now.getTime() - row.createdAt.getTime() >
-        LIMITS.messageRecallWindowMs + LIMITS.messageRecallGraceMs
+        limits.messageRecallWindowMs + LIMITS.messageRecallGraceMs
       ) {
         throw new AppError('WINDOW_EXPIRED', 'The time to recall this message has passed', {
-          details: { windowMs: LIMITS.messageRecallWindowMs },
+          details: { windowMs: limits.messageRecallWindowMs },
         })
       }
       const changeSeq = await allocateChangeSeq(tx, deps, conversationId)
@@ -1021,6 +1148,7 @@ export async function deleteMessageAsModerator(
   principal: SessionPrincipal,
   messageId: string,
 ): Promise<void> {
+  if (deps.deletionJournal) throw new Error('journaled removal requires requestMessageDeletion')
   await withMessage(
     deps,
     principal,
@@ -1136,7 +1264,11 @@ async function replaceMentions(
   if (accepted.length)
     await tx.insert(messageMentions).values(accepted.map((userId) => ({ messageId, userId })))
 }
-async function withdrawAttachments(tx: DbOrTx, deps: Deps, messageId: string) {
+async function withdrawAttachments(tx: import('@chatapp/db').Tx, deps: Deps, messageId: string) {
+  await tx
+    .update(reports)
+    .set({ details: null, resolutionNote: null })
+    .where(eq(reports.messageId, messageId))
   await tx.delete(messageMentions).where(eq(messageMentions.messageId, messageId))
   const files = await tx
     .select({ id: attachments.id })

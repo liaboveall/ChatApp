@@ -9,6 +9,7 @@ import type { SessionPrincipal } from '../domain/principal.ts'
 import type { createClientIpResolver } from '../lib/ip.ts'
 import type { Logger } from '../lib/logger.ts'
 import type { RateLimiter } from '../lib/rate-limit.ts'
+import type { Monitoring } from '../runtime/monitoring.ts'
 
 export type HttpEnv = {
   Bindings: {
@@ -37,6 +38,7 @@ export type Services = {
   isReady: () => Promise<boolean>
   /** Best-effort hint that work was committed, so the dispatcher scans now instead of at its next tick. */
   wake: () => void
+  monitoring?: Monitoring
   /** The WebSocket gateway of this process, once it exists; only the test routes reach into it (V-14). */
   realtime?: { disconnect(options: { userId?: string; code?: number }): number }
   /** APP_ENV=test only: what the simulated push service was asked to send (docs/08 scenario 9). */

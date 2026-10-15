@@ -1,9 +1,14 @@
 import type { Device, Me } from '@chatapp/contracts'
-import { changePasswordRequestSchema, meSchema } from '@chatapp/contracts'
+import {
+  changePasswordRequestSchema,
+  deletionOperationSchema,
+  meSchema,
+  okResponseSchema,
+} from '@chatapp/contracts'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Fingerprint, Laptop, LogOut, Pencil, Smartphone } from 'lucide-react'
-import { type FormEvent, useId, useMemo, useState } from 'react'
-import { forScreen } from '@/app/sync.ts'
+import { type FormEvent, useEffect, useId, useMemo, useState } from 'react'
+import { engine, forScreen } from '@/app/sync.ts'
 import { Badge } from '@/components/ui/badge.tsx'
 import { Button } from '@/components/ui/button.tsx'
 import { SegmentedControl } from '@/components/ui/controls.tsx'
@@ -17,6 +22,12 @@ import {
   PasswordRules,
   passwordAcceptable,
 } from '@/features/auth/password-rules.tsx'
+import { waitForDeletion } from '@/features/deletions/wait.ts'
+import {
+  forgetAccountDeletion,
+  pendingAccountDeletion,
+  rememberAccountDeletion,
+} from '@/lib/account-deletion.ts'
 import { ApiError, api } from '@/lib/api.ts'
 import { describeError, passwordProblemMessage } from '@/lib/error-messages.ts'
 import { devicesQuery, queryKeys, writeMeAnswer } from '@/lib/queries.ts'
@@ -621,6 +632,115 @@ function TimezoneGroup({ me }: { me: Me }) {
 
 // ───────────────────────── section ─────────────────────────
 
+function DeleteAccountGroup({ userId }: { userId: string }) {
+  const [open, setOpen] = useState(false)
+  const [password, setPassword] = useState('')
+  const [failure, setFailure] = useState<string | null>(null)
+  const [pending, setPending] = useState(() => pendingAccountDeletion(userId) !== null)
+  useEffect(() => {
+    const record = pendingAccountDeletion(userId)
+    if (!record) return
+    const ticket = engine.ticket(null)
+    if (ticket.scope?.userId !== userId) return
+    const controller = new AbortController()
+    void waitForDeletion(record.operation, ticket, {
+      signal: controller.signal,
+      pendingToast: false,
+    }).then((completed) => {
+      if (!completed || controller.signal.aborted || !engine.isCurrent(ticket)) return
+      forgetAccountDeletion()
+      showToast(m.settings_account_deleted())
+      endSession('account-deleted')
+    })
+    return () => controller.abort()
+  }, [userId])
+  const deletion = useMutation({
+    mutationFn: () =>
+      forScreen(null, async () => {
+        const ticket = engine.ticket(null)
+        const answer = await api('/api/me', {
+          method: 'DELETE',
+          json: { password },
+          schema: okResponseSchema.or(deletionOperationSchema),
+        })
+        if (!engine.isCurrent(ticket)) return null
+        setPassword('')
+        if ('operationId' in answer) {
+          if (ticket.scope) rememberAccountDeletion(ticket.scope.userId, answer)
+          setPending(true)
+          if (!(await waitForDeletion(answer, ticket, { pendingToast: false }))) return null
+        }
+        return engine.isCurrent(ticket) ? true : null
+      }),
+    onSuccess: (completed) => {
+      if (!completed) return
+      forgetAccountDeletion()
+      showToast(m.settings_account_deleted())
+      endSession('account-deleted')
+    },
+    onError: (error) =>
+      setFailure(
+        error instanceof ApiError && error.reason === 'wrong_password'
+          ? m.settings_password_wrong()
+          : describeError(error),
+      ),
+  })
+  function submit(event: FormEvent) {
+    event.preventDefault()
+    if (!password || deletion.isPending || pending) return
+    setFailure(null)
+    deletion.mutate()
+  }
+  return (
+    <Group title={m.settings_account_delete()}>
+      <p className="text-subheadline text-label-secondary">{m.settings_account_delete_effect()}</p>
+      {pending ? <Banner tone="warning">{m.deletion_pending()}</Banner> : null}
+      <div>
+        <Button kind="tinted" danger onClick={() => setOpen(true)}>
+          {m.settings_account_delete()}
+        </Button>
+      </div>
+      <Dialog
+        open={open}
+        onOpenChange={setOpen}
+        title={m.settings_account_delete()}
+        className="account-deletion-dialog"
+        actions={
+          <>
+            <Button kind="plain" onClick={() => setOpen(false)}>
+              {m.common_close()}
+            </Button>
+            <Button
+              type="submit"
+              form="delete-account"
+              danger
+              busy={deletion.isPending}
+              disabled={!password || pending}
+            >
+              {m.settings_account_delete_confirm()}
+            </Button>
+          </>
+        }
+      >
+        <form id="delete-account" className="grid gap-3" onSubmit={submit}>
+          <Banner tone="warning">{m.settings_account_delete_effect()}</Banner>
+          {failure ? <Banner tone="danger">{failure}</Banner> : null}
+          {pending ? <Banner tone="warning">{m.deletion_pending()}</Banner> : null}
+          <PasswordField
+            label={m.settings_password_current()}
+            autoComplete="current-password"
+            value={password}
+            showLabel={m.field_password_show()}
+            hideLabelText={m.field_password_hide()}
+            disabled={pending || deletion.isPending}
+            onChange={(event) => setPassword(event.currentTarget.value)}
+          />
+        </form>
+      </Dialog>
+    </Group>
+  )
+}
+
 export function AccountSection({ me, onSignOut }: { me: Me; onSignOut: () => void }) {
   const [passwordOpen, setPasswordOpen] = useState(false)
   return (
@@ -639,6 +759,7 @@ export function AccountSection({ me, onSignOut }: { me: Me; onSignOut: () => voi
       <ChangePasswordDialog me={me} open={passwordOpen} onOpenChange={setPasswordOpen} />
       <DevicesGroup />
       <TimezoneGroup me={me} />
+      <DeleteAccountGroup key={me.id} userId={me.id} />
       <div>
         <Button kind="tinted" icon={LogOut} onClick={onSignOut}>
           {m.settings_sign_out()}

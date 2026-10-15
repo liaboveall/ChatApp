@@ -1,0 +1,78 @@
+name: images
+on:
+  push:
+    branches: [main, v2]
+  pull_request:
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: images-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  native:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: ubuntu-24.04
+            architecture: x64
+          - runner: ubuntu-24.04-arm
+            architecture: arm64
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v7
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version-file: package.json
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 26
+      - run: bun install --frozen-lockfile
+      - name: Require native architecture
+        run: bun -e 'if (process.platform !== "linux" || process.arch !== process.env.EXPECTED_ARCH) process.exit(1)'
+        env:
+          EXPECTED_ARCH: ${{ matrix.architecture }}
+      - name: Build source-bound release images and public web package
+        run: bun scripts/production.ts package .test-runs/image-candidate
+      - name: Operator binaries and non-root runtime smoke
+        run: bun scripts/production-image-smoke.ts .test-runs/image-candidate/release.json
+      - name: Native production boot, TLS chat smoke and fresh-target backup recovery
+        run: bun --no-env-file scripts/test-production.ts .test-runs/image-candidate/release.json
+      - name: Preserve release metadata only
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: image-evidence-${{ matrix.architecture }}
+          path: |
+            .test-runs/image-candidate/release.json
+            .test-runs/image-candidate/image-smoke.json
+            .test-runs/production/**/receipt.json
+            .test-runs/production/**/load-summary.json
+          if-no-files-found: error
+          retention-days: 14
+  trivy:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v7
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version-file: package.json
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 26
+      - run: bun install --frozen-lockfile
+      - name: Build exact-source images
+        run: bun scripts/production.ts package .test-runs/scan-candidate
+      - name: Scan all runtime images with pinned Trivy
+        run: bun scripts/production-scan.ts .test-runs/scan-candidate/release.json
+      - name: Preserve vulnerability reports
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: image-vulnerability-reports
+          path: .test-runs/scan-candidate/trivy-*.json
+          if-no-files-found: error
+          retention-days: 14

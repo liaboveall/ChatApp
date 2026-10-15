@@ -3,7 +3,7 @@ import { randomBytes, randomUUID } from 'node:crypto'
 import { mkdir, readFile, realpath, stat, writeFile } from 'node:fs/promises'
 import { join, resolve } from 'node:path'
 import { SQL } from 'bun'
-import { mediaEnvironment } from '../../apps/media/src/runtime/environment.ts'
+import { MEDIA_CONTAINER_ENVIRONMENT } from '../../apps/media/src/runtime/environment.ts'
 import { enqueueWork } from '../../apps/server/src/domain/work.ts'
 import type { ClientInput } from '../../apps/server/test/media/container-client.ts'
 import {
@@ -13,6 +13,10 @@ import {
   manifestFingerprint,
   verifyFaultTarget,
 } from '../../apps/server/test/support/fault/manifest.ts'
+import {
+  type MockModelStream,
+  mockModelStreamSchema,
+} from '../../packages/contracts/src/benchmark.ts'
 import { createDatabase } from '../../packages/db/src/client.ts'
 import { startInstance, stopInstance } from './test-infra.ts'
 
@@ -20,6 +24,7 @@ const MiB = 1024 * 1024
 const SERVICES = ['media', 'worker', 'api'] as const
 export type MediaTestService = (typeof SERVICES)[number]
 export type ImageKind = 'runtime' | 'fault'
+type MediaTestOptions = { origin: string; apiPort: number; mockStream?: MockModelStream }
 const LIMITS = { media: 512 * MiB, worker: 1536 * MiB, api: 1024 * MiB }
 const BASE_ENV = { PATH: '/usr/local/bin:/usr/bin:/bin', LANG: 'C.UTF-8', TMPDIR: '/tmp' }
 const TMPFS = 'size=268435456,mode=1777,nosuid,nodev,noexec'
@@ -277,11 +282,7 @@ export class MediaTestInstance {
   #kind: ImageKind = 'runtime'
   readonly #browserPort?: number
 
-  private constructor(
-    manifest: FaultManifest,
-    restoredOwner?: string,
-    browser?: { origin: string; apiPort: number },
-  ) {
+  private constructor(manifest: FaultManifest, restoredOwner?: string, browser?: MediaTestOptions) {
     this.manifest = manifest
     if (browser) {
       check(
@@ -313,9 +314,12 @@ export class MediaTestInstance {
     const auth = randomBytes(32).toString('base64url')
     const token = randomBytes(32).toString('base64url')
     const epoch = randomBytes(16).toString('hex')
+    const pacing = mockModelStreamSchema.parse(browser?.mockStream ?? {})
     this.#env = {
       TEST_RUN_ID: manifest.runId,
       TEST_MEDIA_ORIGIN: browser?.origin ?? 'http://localhost:5173',
+      TEST_MOCK_CHUNK_CHARS: String(pacing.chunkChars),
+      TEST_MOCK_CHUNK_DELAY_MS: String(pacing.chunkDelayMs),
       TEST_PG_PASSWORD: new URL(e.databaseOwnerUrl).password,
       TEST_VALKEY_PASSWORD: new URL(e.valkeyUrl).password,
       TEST_GARAGE_CONFIG: join(ROOT, '.test-runs', manifest.runId, 'garage.toml'),
@@ -341,6 +345,9 @@ export class MediaTestInstance {
       NODE_ENV: 'test',
       APP_ORIGIN: browser?.origin ?? 'http://localhost:5173',
       APP_TIMEZONE: 'Asia/Shanghai',
+      PROCESS_HEALTH_FILE: '/tmp/chatapp-process-health.json',
+      AI_MOCK_CHUNK_CHARS: String(pacing.chunkChars),
+      AI_MOCK_CHUNK_DELAY_MS: String(pacing.chunkDelayMs),
       API_HOST: '0.0.0.0',
       API_PORT: '3100',
       DATABASE_URL: db,
@@ -375,7 +382,8 @@ export class MediaTestInstance {
     runId: string
     owner: string
     targets: Record<MediaTestService, { id: string; imageId: string }>
-    browser?: { origin: string; apiPort: number }
+    browser?: MediaTestOptions
+    reason?: string
   }): Promise<void> {
     check(/^[0-9a-f]{8}$/.test(receipt.runId), 'invalid rejected-start run')
     const path = join(ROOT, '.test-runs', receipt.runId, 'manifest.json')
@@ -420,7 +428,7 @@ export class MediaTestInstance {
         {
           runId: receipt.runId,
           status: 'harness-rejected-before-probes',
-          reason: 'named volume representation in HostConfig.Binds',
+          reason: receipt.reason ?? 'named volume representation in HostConfig.Binds',
           teardown: 'full-identity-owner-image-policy-and-core-markers-verified-then-removed',
         },
         null,
@@ -430,7 +438,7 @@ export class MediaTestInstance {
     )
   }
 
-  static async start(browser?: { origin: string; apiPort: number }): Promise<MediaTestInstance> {
+  static async start(browser?: MediaTestOptions): Promise<MediaTestInstance> {
     const { manifest } = await startInstance()
     const instance = new MediaTestInstance(manifest, undefined, browser)
     try {
@@ -681,7 +689,7 @@ export class MediaTestInstance {
       `${target.service}: restart/proc policy`,
     )
     const expectedEnv = Object.entries(
-      target.service === 'media' ? mediaEnvironment('/tmp') : this.#businessEnv,
+      target.service === 'media' ? MEDIA_CONTAINER_ENVIRONMENT : this.#businessEnv,
     ).map(([key, value]) => `${key}=${value}`)
     check(
       sameSet(info.Config.Env, expectedEnv),
@@ -931,6 +939,13 @@ export class MediaTestInstance {
     privateRoot: boolean
     report: Record<string, unknown> | null
   }> {
+    if (this.#kind === 'runtime')
+      return decode(
+        await this.exec(
+          'media',
+          `const fs=require('node:fs');const root='/tmp/chatapp-media';const s=fs.lstatSync(root);console.log(JSON.stringify({entries:fs.readdirSync(root).length,privateRoot:s.isDirectory()&&!s.isSymbolicLink()&&s.uid===10001&&s.gid===10001&&(s.mode&511)===448,report:null}))`,
+        ),
+      )
     const bytes = Buffer.from(
       await this.#execCommand('media', ['/bin/sh', '-c', TASK_STATE_CODE], undefined, 5000),
     )

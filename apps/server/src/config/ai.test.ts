@@ -5,6 +5,22 @@ const mockConfig = (source: Record<string, string> = {}) =>
   loadAiConfig({ APP_ENV: 'test', AI_PROVIDER: 'mock', ...source })
 
 describe('AI configuration', () => {
+  test('bounded mock pacing is test-only and cannot enter a real provider configuration', () => {
+    expect(mockConfig().mockStream).toEqual({ chunkChars: 80, chunkDelayMs: 20 })
+    expect(
+      mockConfig({ AI_MOCK_CHUNK_CHARS: '2', AI_MOCK_CHUNK_DELAY_MS: '25' }).mockStream,
+    ).toEqual({ chunkChars: 2, chunkDelayMs: 25 })
+    expect(() => mockConfig({ AI_MOCK_CHUNK_DELAY_MS: '1001' })).toThrow('invalid AI configuration')
+    expect(() => mockConfig({ AI_MOCK_CHUNK_CHARS: '0' })).toThrow('invalid AI configuration')
+    for (const APP_ENV of ['development', 'production'])
+      expect(() =>
+        loadAiConfig({
+          APP_ENV,
+          SOCLAAS_API_KEY: 'local-synthetic-fixture',
+          AI_MOCK_CHUNK_CHARS: '2',
+        }),
+      ).toThrow('restricted to the test environment')
+  })
   test('tests select mock and discard even an ambient real key', () => {
     expect(
       loadAiConfig({ APP_ENV: 'test', DEEPSEEK_API_KEY: 'fixture-do-not-send' }).apiKey,

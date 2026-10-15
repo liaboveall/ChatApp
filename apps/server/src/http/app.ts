@@ -16,13 +16,16 @@ import { agentRoutes } from './routes/agent.ts'
 import { attachmentRoutes } from './routes/attachments.ts'
 import { authRoutes } from './routes/auth.ts'
 import { conversationRoutes } from './routes/conversations.ts'
+import { deletionRoutes } from './routes/deletions.ts'
 import { healthRoutes } from './routes/health.ts'
 import { inviteRoutes } from './routes/invites.ts'
 import { meRoutes } from './routes/me.ts'
 import { memberRoutes } from './routes/members.ts'
 import { memoryRoutes } from './routes/memories.ts'
 import { messageRoutes } from './routes/messages.ts'
+import { monitoringRoutes } from './routes/monitoring.ts'
 import { notificationRoutes } from './routes/notifications.ts'
+import { siteAdminRoutes } from './routes/site-admin.ts'
 import { taskRoutes } from './routes/tasks.ts'
 import { testRoutes } from './routes/test.ts'
 import { userRoutes } from './routes/users.ts'
@@ -65,6 +68,7 @@ export function createApp(services: Services, options: AppOptions = {}): OpenAPI
   app.use('/api/*', bodyBudget(options.bodyBudget))
 
   healthRoutes(app, services)
+  monitoringRoutes(app, services)
   authRoutes(app, services)
   inviteRoutes(app, services)
   meRoutes(app, services)
@@ -73,10 +77,12 @@ export function createApp(services: Services, options: AppOptions = {}): OpenAPI
   memberRoutes(app, services)
   messageRoutes(app, services)
   attachmentRoutes(app, services)
+  siteAdminRoutes(app, services)
   agentRoutes(app, services)
   taskRoutes(app, services)
   memoryRoutes(app, services)
   notificationRoutes(app, services)
+  deletionRoutes(app, services)
 
   const clock = services.deps.clock
   if (services.config.env === 'test') {
@@ -92,6 +98,13 @@ export function createApp(services: Services, options: AppOptions = {}): OpenAPI
     type: 'apiKey',
     in: 'cookie',
     name: cookieNames(services.config.origin).sessionToken,
+  })
+  app.openAPIRegistry.registerComponent('securitySchemes', 'accountDeletionReceipt', {
+    type: 'apiKey',
+    in: 'cookie',
+    name: 'chatapp.account-deletion',
+    description:
+      'Ten-minute HttpOnly receipt for one account-deletion status GET only; never a session or write capability.',
   })
   if (services.config.env !== 'production') {
     app.doc31('/api/openapi.json', {

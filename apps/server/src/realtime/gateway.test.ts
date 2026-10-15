@@ -1,7 +1,7 @@
 import { describe, expect, test } from 'bun:test'
 import { WS_CLOSE } from '@chatapp/contracts'
 import { silentLogger } from '../lib/logger.ts'
-import { Gateway, type GatewayConfig, type Socket } from './gateway.ts'
+import { Gateway, type GatewayConfig, type GatewayServices, type Socket } from './gateway.ts'
 
 class FakeSocket implements Socket {
   sent: string[] = []
@@ -33,7 +33,7 @@ const config: GatewayConfig = {
   maxMessagesPerWindow: 3,
 }
 
-function setup(overrides: Partial<GatewayConfig> = {}) {
+function setup(overrides: Partial<GatewayConfig> = {}, services?: GatewayServices) {
   let now = 1_000_000
   let counter = 0
   const gateway = new Gateway(
@@ -46,6 +46,7 @@ function setup(overrides: Partial<GatewayConfig> = {}) {
     silentLogger,
     { ...config, ...overrides },
     () => now,
+    services,
   )
   const identity = (userId = 'u1') => ({
     sessionId: `s-${++counter}`,
@@ -61,6 +62,34 @@ function setup(overrides: Partial<GatewayConfig> = {}) {
 }
 
 describe('Gateway (unit, fake sockets)', () => {
+  test('settled waits for an in-flight membership query even after its last socket closes', async () => {
+    let release!: () => void
+    const waiting = new Promise<void>((resolve) => {
+      release = resolve
+    })
+    const { gateway, identity } = setup(
+      {},
+      {
+        bus: {} as GatewayServices['bus'],
+        presence: {} as GatewayServices['presence'],
+        memberships: async () => {
+          await waiting
+          return new Map()
+        },
+      },
+    )
+    gateway.accept(new FakeSocket(), identity())
+    gateway.shutdown()
+    let drained = false
+    const draining = gateway.settled().then(() => {
+      drained = true
+    })
+    await Promise.resolve()
+    expect(drained).toBe(false)
+    release()
+    await draining
+    expect(drained).toBe(true)
+  })
   test('accept sends hello with the identity and server time', () => {
     const { gateway, identity } = setup()
     const socket = new FakeSocket()

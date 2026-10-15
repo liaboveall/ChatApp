@@ -104,7 +104,7 @@ services:
       # Do not make a second IPC connection while a task is active.
       # A native one-PID check does not consume another Bun thread pool at the 64-PID hard limit.
       # The runner separately checks directory/socket uid, gid and mode against the extra manifest.
-      test: ["CMD", "/usr/bin/test", "-S", "/run/chatapp-media/media.sock"]
+      test: ["CMD", "/usr/local/bin/media-health"]
       interval: 2s
       timeout: 2s
       retries: 20
@@ -129,7 +129,10 @@ services:
       APP_ENV: test
       NODE_ENV: test
       APP_ORIGIN: ${TEST_MEDIA_ORIGIN:-http://localhost:5173}
+      AI_MOCK_CHUNK_CHARS: ${TEST_MOCK_CHUNK_CHARS:-80}
+      AI_MOCK_CHUNK_DELAY_MS: ${TEST_MOCK_CHUNK_DELAY_MS:-20}
       APP_TIMEZONE: Asia/Shanghai
+      PROCESS_HEALTH_FILE: /tmp/chatapp-process-health.json
       API_HOST: 0.0.0.0
       API_PORT: "3100"
       DATABASE_URL: ${TEST_MEDIA_DATABASE_URL:-unused}

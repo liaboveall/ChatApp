@@ -9,7 +9,14 @@ export const Route = createFileRoute('/_guest/login')({
   validateSearch: z.object({
     redirect: z.string().optional().catch(undefined),
     reason: z
-      .enum(['signed-out', 'expired', 'ended-elsewhere', 'password-changed'])
+      .enum([
+        'signed-out',
+        'expired',
+        'ended-elsewhere',
+        'password-changed',
+        'account-deletion-pending',
+        'account-deleted',
+      ])
       .optional()
       .catch(undefined),
   }),

@@ -1,11 +1,14 @@
 /** Object storage access (Garage, S3-compatible). Streaming objects, authorized ranges and physical capacity for M3. */
 import { S3Client } from 'bun'
 import type { Config } from '../config/index.ts'
-import type { BlobStore } from './port.ts'
+import { type BlobStore, PhysicalDeletionDeferred } from './port.ts'
 
 export type { BlobStore } from './port.ts'
 
-export function createBlobStore(config: Config['s3']): BlobStore {
+export function createBlobStore(
+  config: Config['s3'],
+  options?: { physicalDeletion: (remove: () => Promise<void>) => Promise<boolean> },
+): BlobStore {
   const client = new S3Client({
     endpoint: config.endpoint,
     region: config.region,
@@ -90,9 +93,11 @@ export function createBlobStore(config: Config['s3']): BlobStore {
         // if storage is unavailable, the ledger intent retains capacity for the cleanup job.
         await close(new Error('storage_write_cancelled')).catch(() => undefined)
         await reader.cancel().catch(() => undefined)
-        await client
-          .file(key)
-          .delete()
+        // A lost/failed PUT can leave partial bytes. Delete them only under the same barrier as every other deleter.
+        await options
+          ?.physicalDeletion(async () => {
+            await client.file(key).delete()
+          })
           .catch(() => undefined)
         throw error
       } finally {
@@ -109,7 +114,13 @@ export function createBlobStore(config: Config['s3']): BlobStore {
       return start === undefined ? file.stream() : file.slice(start, end).stream()
     },
     async delete(key) {
-      await client.file(key).delete()
+      if (!options) throw new Error('physical deletion guard required')
+      if (
+        !(await options.physicalDeletion(async () => {
+          await client.file(key).delete()
+        }))
+      )
+        throw new PhysicalDeletionDeferred()
     },
   }
 }

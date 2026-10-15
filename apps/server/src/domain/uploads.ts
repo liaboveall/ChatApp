@@ -2,27 +2,40 @@
 import { createHash } from 'node:crypto'
 import {
   AppError,
+  type DeletionOperation,
   LIMITS,
   type ReserveUpload,
   UPLOAD_LIMITS,
   type Upload,
 } from '@chatapp/contracts'
-import { attachmentObjects, attachments, siteStorage, uploadReservations, users } from '@chatapp/db'
+import {
+  attachmentObjects,
+  attachments,
+  conversations,
+  deletionOperations,
+  siteStorage,
+  uploadReservations,
+  users,
+} from '@chatapp/db'
 import { and, eq, inArray, sql } from 'drizzle-orm'
 import { fingerprint } from '../lib/crypto.ts'
 import {
   attachmentDto,
   attachmentMissing,
   blobStore,
+  expiredAttachmentWhere,
   lockStorage,
   safeFilename,
 } from './attachment-common.ts'
 import { enforce, loadAccess } from './authorize.ts'
 import { enqueueHint, recordUserChange } from './changes.ts'
+import { applyDeletion } from './deletion-apply.ts'
+import { prepareDeletion, settleDeletion } from './deletion-operations.ts'
 import type { Deps } from './deps.ts'
 import { assertIdempotencyKey } from './idempotency.ts'
 import type { SessionPrincipal } from './principal.ts'
 import { lockAndRevalidate } from './sessions.ts'
+import { readSiteLimits } from './site-policy.ts'
 import { inTransaction } from './tx.ts'
 import { enqueueWork } from './work.ts'
 
@@ -40,13 +53,6 @@ export async function reserveUpload(
     capacity = undefined
   }
   const hash = fingerprint(input)
-  const maxBytes =
-    input.declaredSize ??
-    (input.purpose === 'message' ? UPLOAD_LIMITS.fileBytes : UPLOAD_LIMITS.imageBytes)
-  if (input.purpose !== 'message' && maxBytes > UPLOAD_LIMITS.imageBytes)
-    throw new AppError('PAYLOAD_TOO_LARGE', 'Avatar exceeds image limit')
-  const reservedBytes = Math.max(maxBytes, UPLOAD_LIMITS.imageBytes)
-  const peakBytes = reservedBytes * 2 + UPLOAD_LIMITS.variantBytes
   const id = await inTransaction(deps.db, async (tx) => {
     const user = await lockAndRevalidate(tx, deps, principal)
     if (input.conversationId) {
@@ -72,6 +78,12 @@ export async function reserveUpload(
         )
       return existing.id
     }
+    const limits = await readSiteLimits(deps, tx)
+    const ceiling = input.purpose === 'message' ? limits.fileBytes : limits.imageBytes
+    const maxBytes = input.declaredSize ?? ceiling
+    if (maxBytes > ceiling) throw new AppError('PAYLOAD_TOO_LARGE', 'Upload exceeds site limit')
+    const reservedBytes = Math.max(maxBytes, limits.imageBytes)
+    const peakBytes = reservedBytes * 2 + UPLOAD_LIMITS.variantBytes
     if (!capacity) throw new AppError('CAPACITY_UNAVAILABLE', 'Storage capacity probe unavailable')
     const site = await lockStorage(tx)
     if (
@@ -105,6 +117,7 @@ export async function reserveUpload(
       reservedBytes,
       siteReservedBytes: peakBytes,
       maxBytes,
+      imageMaxBytes: limits.imageBytes,
       expiresAt: new Date(deps.clock.now().getTime() + UPLOAD_LIMITS.reservationMs),
       createdAt: deps.clock.now(),
     })
@@ -218,7 +231,7 @@ function receiveStream(
   }
 }
 async function requireUploadAccess(
-  tx: import('@chatapp/db').DbOrTx,
+  tx: import('@chatapp/db').Tx,
   deps: Deps,
   user: Pick<typeof users.$inferSelect, 'id' | 'role'>,
   attachment: Pick<typeof attachments.$inferSelect, 'conversationId' | 'purpose'>,
@@ -402,8 +415,8 @@ export async function cancelUpload(
   deps: Deps,
   principal: SessionPrincipal,
   id: string,
-): Promise<void> {
-  await inTransaction(deps.db, async (tx) => {
+): Promise<DeletionOperation | undefined> {
+  const pendingId = await inTransaction(deps.db, async (tx) => {
     await lockAndRevalidate(tx, deps, principal)
     await lockStorage(tx)
     const [r] = await tx
@@ -424,17 +437,83 @@ export async function cancelUpload(
       sql`select 1 from users where avatar_attachment_id = ${a.id} union all select 1 from conversations where avatar_attachment_id = ${a.id}`,
     )
     if (pointers.length) throw new AppError('CONFLICT', 'A selected avatar cannot be cancelled')
-    await retireAttachment(tx, deps, a.id)
+    return await retireAttachment(tx, deps, a.id, { actorId: principal.userId })
   })
+  if (pendingId) {
+    const operation = await settleDeletion(deps, pendingId, applyDeletion)
+    if (operation.status !== 'completed') return operation
+  }
 }
 /** Caller holds user/conversation locks followed by site storage; quota refund is a one-way state transition. */
 export async function retireAttachment(
-  tx: import('@chatapp/db').DbOrTx,
+  tx: import('@chatapp/db').Tx,
   deps: Deps,
   id: string,
-): Promise<void> {
+  options: { actorId?: string; finalStatus?: 'deleting' | 'failed' } = {},
+): Promise<string | null> {
   const [a] = await tx.select().from(attachments).where(eq(attachments.id, id)).for('update')
-  if (!a || a.status === 'deleting') return
+  if (!a || a.status === 'deleting' || (a.status === 'failed' && a.deletedAt)) return null
+  if (deps.deletionJournal) {
+    const [operation] = await tx
+      .select()
+      .from(deletionOperations)
+      .where(
+        and(
+          eq(
+            deletionOperations.id,
+            sql`nullif(current_setting('chatapp.deletion_operation', true), '')::uuid`,
+          ),
+          eq(deletionOperations.status, 'journaled'),
+        ),
+      )
+    const intent = operation?.intent
+    let covered =
+      intent &&
+      ((intent.action === 'attachment_delete' &&
+        intent.target.id === a.id &&
+        intent.target.userId === a.uploaderId) ||
+        ((intent.action === 'message_recall' || intent.action === 'message_delete') &&
+          intent.target.id === a.messageId) ||
+        (intent.action === 'agent_conversation_delete' && intent.target.id === a.conversationId) ||
+        (intent.action === 'account_delete' && intent.target.id === a.uploaderId))
+    if (intent?.action === 'retention') {
+      const [expired] = await tx
+        .select({ id: attachments.id })
+        .from(attachments)
+        .innerJoin(uploadReservations, eq(uploadReservations.attachmentId, attachments.id))
+        .where(
+          and(eq(attachments.id, a.id), expiredAttachmentWhere(tx, new Date(intent.target.cutoff))),
+        )
+      covered = !!expired
+      if (!covered) throw new Error('retention cannot retire a non-expired or bound attachment')
+    }
+    if (!covered && intent?.action === 'account_delete' && a.conversationId) {
+      const [privateChat] = await tx
+        .select({ id: conversations.id })
+        .from(conversations)
+        .where(
+          and(
+            eq(conversations.id, a.conversationId),
+            eq(conversations.kind, 'agent'),
+            eq(conversations.ownerId, intent.target.id),
+          ),
+        )
+      covered = !!privateChat
+    }
+    if (!covered) {
+      const pending = await prepareDeletion(tx, deps, options.actorId ?? null, {
+        action: 'attachment_delete',
+        target: {
+          id: a.id,
+          userId: a.uploaderId,
+          generation: a.generation,
+          contentVersion: a.version,
+          finalStatus: options.finalStatus ?? 'deleting',
+        },
+      })
+      return pending.id
+    }
+  }
   const [r] = await tx
     .select()
     .from(uploadReservations)
@@ -492,4 +571,5 @@ export async function retireAttachment(
         inArray(attachmentObjects.status, ['staging', 'live']),
       ),
     )
+  return null
 }

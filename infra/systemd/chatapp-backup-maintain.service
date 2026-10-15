@@ -1,0 +1,10 @@
+[Unit]
+Description=ChatApp verified offsite retention and deletion checkpoint
+Requires=docker.service
+After=docker.service network-online.target
+[Service]
+Type=oneshot
+WorkingDirectory=/opt/chatapp/source
+ExecStart=/usr/bin/docker compose --env-file /opt/chatapp/private/compose.env -f infra/compose.prod.yml run --rm --no-deps tools backup:maintain
+TimeoutStartSec=4h
+UMask=0077

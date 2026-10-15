@@ -1,0 +1,48 @@
+# Reuses the verified Bun/Debian indexes of the local worker, without watch mode or source mounts.
+FROM oven/bun:1.4.2-slim@sha256:cb3bbbb08e13a4a2ff400f24c7a2a1d5efa83f6ef8544d52d95a519631e2fc61 AS bun
+FROM debian:trixie-slim@sha256:a29215f6a35e51e22adffa17f89e9d2ef06214e64a2bad10d765c46aea49f11f AS base
+COPY --from=bun /usr/local/bin/bun /usr/local/bin/bun
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends ca-certificates libstdc++6 \
+    && rm -rf /var/lib/apt/lists/* \
+    && groupadd --gid 10001 chatapp \
+    && useradd --uid 10001 --gid 10001 --no-create-home --no-log-init --shell /usr/sbin/nologin chatapp \
+    && install -d -m 0700 -o 10001 -g 10001 /run/chatapp-media /run/chatapp-embedding /var/lib/chatapp/models
+ENV PATH=/usr/local/bin:/usr/bin:/bin LANG=C.UTF-8 TMPDIR=/tmp
+WORKDIR /app
+
+FROM base AS dependencies
+COPY package.json bun.lock ./
+COPY apps/server/package.json apps/server/package.json
+COPY packages/contracts/package.json packages/contracts/package.json
+COPY packages/db/package.json packages/db/package.json
+RUN bun install --frozen-lockfile --production --ignore-scripts --filter @chatapp/server
+COPY scripts/production-prune.ts /app/production-prune.ts
+RUN bun --no-env-file /app/production-prune.ts
+
+FROM gcr.io/distroless/cc-debian13:nonroot@sha256:e792ab3d241a468a4fd7519ddbbebe66b49b5f365771716ea688ad40b6c6f1c2 AS runtime
+COPY --from=base /usr/local/bin/bun /usr/local/bin/bun
+COPY --from=base /etc/passwd /etc/passwd
+COPY --from=base /etc/group /etc/group
+COPY --from=base --chown=10001:10001 --chmod=0700 /run/chatapp-media /run/chatapp-media
+COPY --from=base --chown=10001:10001 --chmod=0700 /run/chatapp-embedding /run/chatapp-embedding
+COPY --from=base --chown=10001:10001 --chmod=0700 /var/lib/chatapp/models /var/lib/chatapp/models
+ENV PATH=/usr/local/bin:/usr/bin:/bin LANG=C.UTF-8 TMPDIR=/tmp
+WORKDIR /app
+COPY --from=dependencies /app/package.json ./package.json
+COPY --from=dependencies /app/node_modules ./node_modules
+COPY --from=dependencies /app/apps/server ./apps/server
+COPY --from=dependencies /app/packages/contracts ./packages/contracts
+COPY --from=dependencies /app/packages/db ./packages/db
+COPY apps/server/src ./apps/server/src
+COPY packages/contracts/src ./packages/contracts/src
+COPY packages/db/src ./packages/db/src
+# The production migrator resolves this directory relative to packages/db/src/migrate.ts.
+COPY packages/db/drizzle ./packages/db/drizzle
+ARG APPLICATION_SHA
+ARG APPLICATION_SOURCE_HASH
+USER 0:0
+RUN ["/usr/local/bin/bun", "--no-env-file", "-e", "const applicationSha=process.env.APPLICATION_SHA,applicationSourceHash=process.env.APPLICATION_SOURCE_HASH;if(!/^[a-f0-9]{40}$/.test(applicationSha||'')||!/^[a-f0-9]{64}$/.test(applicationSourceHash||''))throw Error('release binding required');await Bun.write('/app/release.json',JSON.stringify({format:1,applicationSha,applicationSourceHash})+'\\n')"]
+LABEL org.opencontainers.image.revision=$APPLICATION_SHA chatapp.source-hash=$APPLICATION_SOURCE_HASH
+USER 10001:10001
+CMD ["bun", "--no-env-file", "/app/apps/server/src/api.ts"]

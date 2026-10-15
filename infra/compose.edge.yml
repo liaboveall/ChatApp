@@ -21,6 +21,7 @@ services:
       - ./nginx/proxy-api.conf:/etc/nginx/chatapp/proxy-api.conf:ro
       - ./nginx/env/local-http.conf:/etc/nginx/chatapp/env-http.conf:ro
       - ./nginx/env/local-server.conf:/etc/nginx/chatapp/env-server.conf:ro
+      - ./nginx/env/local-access.conf:/etc/nginx/chatapp/access.conf:ro
       - ../.test-runs/edge/certs/chat.localhost.crt:/etc/nginx/chatapp/certs/chat.localhost.crt:ro
       - ../.test-runs/edge/certs/chat.localhost.key:/etc/nginx/chatapp/certs/chat.localhost.key:ro
       - ../.test-runs/edge/webroot/current:/opt/chatapp/web/current:ro

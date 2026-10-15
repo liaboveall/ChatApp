@@ -1,17 +1,19 @@
 import {
   type Conversation,
   conversationSchema,
+  deletionOperationSchema,
   type Me,
   meSchema,
-  UPLOAD_LIMITS,
 } from '@chatapp/contracts'
 import { useEffect, useRef, useState } from 'react'
 import { engine, forScreen } from '@/app/sync.ts'
 import { Button } from '@/components/ui/button.tsx'
 import { Dialog } from '@/components/ui/dialog.tsx'
+import { useSiteLimits } from '@/features/settings/site-limits.ts'
 import { api } from '@/lib/api.ts'
 import { describeError } from '@/lib/error-messages.ts'
 import { m } from '@/paraglide/messages.js'
+import { waitForDeletion } from '../deletions/wait.ts'
 import { uploadFile } from './upload.ts'
 
 function Crop({
@@ -206,6 +208,7 @@ function Crop({
   )
 }
 export function AvatarEditor({ me, conversation }: { me: Me; conversation?: Conversation }) {
+  const limits = useSiteLimits()
   const input = useRef<HTMLInputElement>(null),
     controller = useRef<AbortController | null>(null)
   const [file, setFile] = useState<File | null>(null),
@@ -223,14 +226,23 @@ export function AvatarEditor({ me, conversation }: { me: Me; conversation?: Conv
         (answer, ticket) => engine.ingestConversation(answer, ticket),
       )
       if (!current || !engine.isCurrent(started.current)) return null
-      return forScreen(
+      const result = await forScreen(
         scope,
         () =>
           api(`/api/conversations/${scope}/avatar`, {
             method: 'POST',
             json: { attachmentId, expectedVersion: current.metadataVersion },
-            schema: conversationSchema,
+            schema: conversationSchema.or(deletionOperationSchema),
           }),
+        (answer, ticket) => {
+          if (!('operationId' in answer)) engine.ingestConversation(answer, ticket)
+        },
+      )
+      if (!result || !('operationId' in result)) return result
+      if (!(await waitForDeletion(result, started.current))) return null
+      return forScreen(
+        scope,
+        () => api(`/api/conversations/${scope}`, { schema: conversationSchema }),
         (answer, ticket) => engine.ingestConversation(answer, ticket),
       )
     }
@@ -240,14 +252,23 @@ export function AvatarEditor({ me, conversation }: { me: Me; conversation?: Conv
       (answer, ticket) => engine.ingestMe(answer, ticket),
     )
     if (!current || !engine.isCurrent(started.current)) return null
-    return forScreen(
+    const result = await forScreen(
       null,
       () =>
         api('/api/me/avatar', {
           method: 'POST',
           json: { attachmentId, expectedVersion: current.meVersion },
-          schema: meSchema,
+          schema: meSchema.or(deletionOperationSchema),
         }),
+      (answer, ticket) => {
+        if (!('operationId' in answer)) engine.ingestMe(answer, ticket)
+      },
+    )
+    if (!result || !('operationId' in result)) return result
+    if (!(await waitForDeletion(result, started.current))) return null
+    return forScreen(
+      null,
+      () => api('/api/me', { schema: meSchema }),
       (answer, ticket) => engine.ingestMe(answer, ticket),
     )
   }
@@ -291,7 +312,7 @@ export function AvatarEditor({ me, conversation }: { me: Me; conversation?: Conv
         onChange={(event) => {
           const selected = event.target.files?.[0]
           if (selected) {
-            if (selected.size > UPLOAD_LIMITS.imageBytes) setError(m.media_too_large())
+            if (selected.size > limits.imageBytes) setError(m.media_too_large())
             else setFile(selected)
           }
           event.target.value = ''

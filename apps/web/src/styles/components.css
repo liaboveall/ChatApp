@@ -805,6 +805,13 @@
     opacity var(--dur-snappy) ease,
     transform var(--dur-bouncy) var(--spring-bouncy);
 }
+
+/* Destructive account confirmation must stay readable over the settings sheet, including nested WebKit layers. */
+.dialog.account-deletion-dialog {
+  background: var(--bg-elevated);
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+}
 .dialog[data-starting-style],
 .dialog[data-ending-style] {
   opacity: 0;
@@ -986,4 +993,100 @@
 }
 .base-ui-disable-scrollbar::-webkit-scrollbar {
   display: none;
+}
+/* Administration and the public privacy document share the existing form and glass tokens. */
+.admin-page {
+  min-width: 0;
+  height: 100%;
+  padding: 20px;
+}
+.admin-head,
+.admin-row,
+.admin-search,
+.admin-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+.admin-head {
+  flex-wrap: wrap;
+}
+.admin-row > div {
+  min-width: 0;
+  max-width: 100%;
+  overflow-wrap: anywhere;
+}
+.admin-tabs,
+.admin-actions,
+.settings-site-links {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.admin-tabs {
+  margin-block: 16px;
+}
+.admin-search {
+  align-items: end;
+  margin-block: 16px;
+}
+.admin-search .field {
+  flex: 1;
+  min-width: 0;
+}
+.admin-list,
+.admin-form {
+  display: grid;
+  gap: 12px;
+}
+.admin-row {
+  padding: 16px;
+  flex-wrap: wrap;
+}
+.admin-row p {
+  margin-block: 4px;
+  overflow-wrap: anywhere;
+}
+.admin-row__main {
+  min-width: 0;
+  flex: 1 1 180px;
+}
+.admin-policy {
+  max-width: 600px;
+}
+.admin-context {
+  max-height: 55dvh;
+  display: grid;
+  gap: 12px;
+}
+.admin-context p,
+.admin-context pre {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.admin-context time {
+  display: block;
+  font-size: var(--fs-callout);
+}
+.admin-context__reported {
+  border-inline-start: 3px solid var(--accent-solid);
+  padding-inline-start: 12px;
+}
+.privacy-page {
+  width: min(100%, 800px);
+  max-height: calc(100dvh - 100px);
+  padding: 20px;
+  line-height: 1.65;
+}
+.privacy-page section {
+  margin-block: 20px;
+}
+.privacy-page nav,
+.settings-site-links {
+  display: flex;
+  gap: 12px;
+}
+.settings-site-links {
+  margin-block-end: 16px;
 }

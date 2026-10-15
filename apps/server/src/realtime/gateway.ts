@@ -134,6 +134,7 @@ export class Gateway {
   readonly #streams = new Map<string, Promise<void>>()
   #timers: ReturnType<typeof setInterval>[] = []
   #checking: Promise<void> | undefined
+  readonly #inFlight = new Set<Promise<unknown>>()
 
   constructor(
     deps: Pick<Deps, 'db' | 'clock' | 'config' | 'newId'>,
@@ -158,15 +159,26 @@ export class Gateway {
     return this.#hub.count(topic)
   }
 
-  /** For tests: resolves once nobody's conversations are being read (every reading has been applied or has failed). */
+  /** Drain queries even when the socket/following map that started them has already been removed. */
   async settled(): Promise<void> {
     for (;;) {
-      const running = [...this.#following.values()]
-        .map((following) => following.reading)
-        .filter((reading): reading is Promise<void> => reading !== undefined)
+      const running = [...this.#inFlight]
       if (running.length === 0) return
       await Promise.allSettled(running)
     }
+  }
+
+  #track<T>(job: Promise<T>): Promise<T> {
+    this.#inFlight.add(job)
+    void job.then(
+      () => {
+        this.#inFlight.delete(job)
+      },
+      () => {
+        this.#inFlight.delete(job)
+      },
+    )
+    return job
   }
 
   start(): void {
@@ -238,7 +250,7 @@ export class Gateway {
       this.#close(victim, WS_CLOSE.TOO_MANY_CONNECTIONS, 'too many connections')
     }
     this.#log.info('ws.connected', { connectionId: connection.id, userId: identity.userId })
-    if (this.#services) void this.#start(connection, this.#services)
+    if (this.#services) void this.#track(this.#start(connection, this.#services))
     else this.#greet(connection)
     return connection
   }
@@ -272,7 +284,7 @@ export class Gateway {
       )
       connection.inPresence = true
       if (connection.closed) {
-        void this.#leavePresence(connection)
+        void this.#track(this.#leavePresence(connection))
         return
       }
       this.#announce(userId, change)
@@ -333,13 +345,13 @@ export class Gateway {
         this.#typing(connection, message.data)
         return
       case 'presence.watch':
-        void this.#watch(connection, message.data.userIds)
+        void this.#track(this.#watch(connection, message.data.userIds))
         return
       case 'presence.activity':
-        void this.#activity(connection, message.data.state)
+        void this.#track(this.#activity(connection, message.data.state))
         return
       case 'focus':
-        void this.#focus(connection, message.data)
+        void this.#track(this.#focus(connection, message.data))
         return
     }
   }
@@ -607,7 +619,7 @@ export class Gateway {
       }
     })()
     following.reading = reading
-    return reading
+    return this.#track(reading)
   }
 
   /** The belief and the number it is true at change together, and reach every connection of the person. */
@@ -748,7 +760,7 @@ export class Gateway {
   /** Announces a change of status on the bus (every process delivers it to its watchers); an unchanged status says nothing. */
   #announce(userId: string, change: PresenceChange): void {
     if (change.previous === change.current || !this.#services) return
-    void this.#publishPresence(userId, change.current)
+    void this.#track(this.#publishPresence(userId, change.current))
   }
 
   async #publishPresence(userId: string, status: PresenceStatus): Promise<void> {
@@ -804,8 +816,10 @@ export class Gateway {
   async revalidateUser(userId: string): Promise<void> {
     const ids = this.#byUser.get(userId)
     if (!ids) return
-    await this.#revalidate(
-      [...ids].map((id) => this.#byId.get(id)).filter((c): c is Connection => c !== undefined),
+    await this.#track(
+      this.#revalidate(
+        [...ids].map((id) => this.#byId.get(id)).filter((c): c is Connection => c !== undefined),
+      ),
     )
   }
 
@@ -823,17 +837,19 @@ export class Gateway {
   /** Periodic backstop (5 s): also catches revocations whose hint was lost. Overlapping runs are skipped. */
   async revalidateAll(): Promise<void> {
     if (this.#checking) return
-    this.#checking = (async () => {
-      await this.#revalidate([...this.#byId.values()])
-      if (!this.#services) return
-      try {
-        await this.#syncMemberships()
-      } catch (error) {
-        this.#log.warn('ws.membership_sync_failed', describeError(error))
-      }
-    })().finally(() => {
-      this.#checking = undefined
-    })
+    this.#checking = this.#track(
+      (async () => {
+        await this.#revalidate([...this.#byId.values()])
+        if (!this.#services) return
+        try {
+          await this.#syncMemberships()
+        } catch (error) {
+          this.#log.warn('ws.membership_sync_failed', describeError(error))
+        }
+      })().finally(() => {
+        this.#checking = undefined
+      }),
+    )
     await this.#checking
   }
 
@@ -877,7 +893,7 @@ export class Gateway {
         }
       }
     }
-    void this.#renewPresence()
+    void this.#track(this.#renewPresence())
   }
 
   // ───────── sending and closing ─────────
@@ -930,7 +946,7 @@ export class Gateway {
     connection.watching.clear()
     if (connection.inPresence) {
       connection.inPresence = false
-      void this.#leavePresence(connection)
+      void this.#track(this.#leavePresence(connection))
     }
   }
 }

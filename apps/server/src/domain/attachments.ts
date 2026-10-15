@@ -20,6 +20,8 @@ import { attachmentDto, attachmentMissing, blobStore, lockStorage } from './atta
 import { enforce, loadAccess } from './authorize.ts'
 import { bumpConversation, recordUserChange } from './changes.ts'
 import { loadConversation } from './conversation-views.ts'
+import { applyDeletion } from './deletion-apply.ts'
+import { settleDeletion } from './deletion-operations.ts'
 import type { Deps } from './deps.ts'
 import { getMe } from './me.ts'
 import type { SessionPrincipal } from './principal.ts'
@@ -234,7 +236,7 @@ export async function setAvatar(
         .from(attachments)
         .where(eq(attachments.id, head.avatarAttachmentId))
     : []
-  await inTransaction(deps.db, async (tx) => {
+  const pendingId = await inTransaction(deps.db, async (tx) => {
     const user = await lockAndRevalidate(tx, deps, principal, {
       alsoLock: old ? [old.uploaderId] : [],
     })
@@ -286,8 +288,12 @@ export async function setAvatar(
       await recordUserChange(tx, deps, { userId: user.id, entityType: 'me', entityId: user.id })
     }
     // Both uploader rows were locked in UUID order before the conversation and site counter.
-    if (previous) await retireAttachment(tx, deps, previous)
+    if (previous) return await retireAttachment(tx, deps, previous, { actorId: principal.userId })
   })
+  if (pendingId) {
+    const operation = await settleDeletion(deps, pendingId, applyDeletion)
+    if (operation.status !== 'completed') return operation
+  }
   return conversationId
     ? loadConversation(deps.db, principal.userId, conversationId, deps.clock.now())
     : getMe(deps, principal)

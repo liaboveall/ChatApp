@@ -82,6 +82,7 @@ export async function startTestServer(
       gateway.shutdown()
       await disconnectBus().catch(() => undefined)
       await server.stop()
+      await gateway.settled()
       const keys = await publisher.keys(`${presencePrefix}:*`).catch(() => [])
       if (keys.length > 0) await publisher.del(...keys).catch(() => undefined)
       publisher.disconnect()

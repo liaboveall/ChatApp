@@ -34,7 +34,7 @@ services:
     healthcheck:
       # One native PID; a second Bun runtime can exhaust pids.max during decoding.
       # Socket ownership is enforced at server startup; busy tasks must not be probed over IPC.
-      test: ["CMD", "/usr/bin/test", "-S", "/run/chatapp-media/media.sock"]
+      test: ["CMD", "/usr/local/bin/media-health"]
       interval: 5s
       timeout: 2s
       retries: 12

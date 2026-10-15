@@ -42,6 +42,17 @@ describe('actionsFor my own message', () => {
     expect(actionsFor(input({ ageMs: LIMITS.messageEditWindowMs })).edit).toBe(false)
   })
 
+  test('the menu and up-arrow editing use the current site windows without extending the recall grace', () => {
+    const limits = { messageRecallWindowMs: 1000, messageEditWindowMs: 2000 }
+    expect(actionsFor(input({ ageMs: 999, limits }))).toMatchObject({ recall: true, edit: true })
+    expect(actionsFor(input({ ageMs: 1000, limits }))).toMatchObject({ recall: false, edit: true })
+    const old = input({ ageMs: 2000, limits }),
+      fresh = input({ ageMs: 1999, limits })
+    expect(actionsFor(old).edit).toBe(false)
+    expect(lastEditable([fresh.message, old.message], old)).toBe(fresh.message)
+    expect(lastEditable([old.message], old)).toBeUndefined()
+  })
+
   test('a message that is gone offers only "delete for me"', () => {
     const base = input()
     const actions = actionsFor({ ...base, message: recalled(base.message, 9) })

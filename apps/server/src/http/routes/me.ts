@@ -1,6 +1,8 @@
 import {
   AppError,
   aiKeyResponseSchema,
+  deleteAccountRequestSchema,
+  deletionOperationSchema,
   deviceSchema,
   devicesResponseSchema,
   errorBodySchema,
@@ -12,6 +14,7 @@ import {
 import { createRoute, type OpenAPIHono, z } from '@hono/zod-openapi'
 import { cookieNames } from '../../auth/better-auth.ts'
 import { sessionCookieDeletions } from '../../auth/cookies.ts'
+import { accountDeletionReceipt, requestAccountDeletion } from '../../domain/account-deletion.ts'
 import { deleteAiKey, getAiKey, saveAiKey } from '../../domain/ai-keys.ts'
 import { getMe, updateMe } from '../../domain/me.ts'
 import {
@@ -23,6 +26,8 @@ import {
 import type { HttpEnv, Services } from '../context.ts'
 import { principalOf, requireSession } from '../middleware/session.ts'
 import { POLICIES } from '../policies.ts'
+import { ACCOUNT_DELETION_COOKIE } from './deletions.ts'
+import { err, json } from './helpers.ts'
 
 const errors = {
   401: {
@@ -58,6 +63,31 @@ const patchMeRoute = createRoute({
       description: 'The settings changed elsewhere (VERSION_CONFLICT)',
       content: { 'application/json': { schema: errorBodySchema } },
     },
+    ...errors,
+  },
+})
+
+const deleteMeRoute = createRoute({
+  method: 'delete',
+  path: '/api/me',
+  tags: ['me'],
+  summary: 'Confirm the password, then anonymize my account after offsite acceptance',
+  security: [{ cookieAuth: [] }],
+  request: {
+    body: {
+      required: true,
+      content: { 'application/json': { schema: deleteAccountRequestSchema } },
+    },
+  },
+  responses: {
+    200: json(okResponseSchema, 'Account deleted'),
+    202: json(
+      deletionOperationSchema,
+      'Pending deletion; personal data is retained until acceptance',
+    ),
+    403: err('Password confirmation failed'),
+    409: err('An earlier deletion is pending'),
+    503: err('Offsite deletion service unavailable'),
     ...errors,
   },
 })
@@ -181,9 +211,15 @@ const deleteAiKeyRoute = createRoute({
 
 export function meRoutes(app: OpenAPIHono<HttpEnv>, services: Services): void {
   const guard = requireSession(services)
+  const readOnlyGuard = requireSession(services, { cookieEffects: false })
   const names = cookieNames(services.config.origin)
   const secure = services.config.origin.startsWith('https://')
-  for (const path of ['/api/me', '/api/me/*']) app.use(path, guard)
+  for (const path of ['/api/me', '/api/me/*'])
+    app.use(path, async (c, next) =>
+      c.req.method === 'DELETE' && c.req.path === '/api/me'
+        ? readOnlyGuard(c, next)
+        : guard(c, next),
+    )
 
   app.openapi(getMeRoute, async (c) => {
     const me = await getMe(services.deps, principalOf(c))
@@ -197,6 +233,35 @@ export function meRoutes(app: OpenAPIHono<HttpEnv>, services: Services): void {
       { policy: POLICIES.profileUpdateUser, subject: principal.userId },
     ])
     return c.json(await updateMe(services.deps, principal, c.req.valid('json')), 200)
+  })
+
+  app.openapi(deleteMeRoute, async (c) => {
+    const principal = principalOf(c)
+    await services.limiter.enforce([
+      { policy: POLICIES.deleteAccountUser, subject: principal.userId },
+    ])
+    const operation = await requestAccountDeletion(
+      services.deps,
+      principal,
+      c.req.valid('json').password,
+    )
+    if (operation.status !== 'completed') {
+      // This capability can read only this operation, after the account's sessions are gone.
+      const receipt = accountDeletionReceipt(services.deps, principal.userId, operation.operationId)
+      c.get('pendingCookies').push(
+        [
+          `${ACCOUNT_DELETION_COOKIE}=${receipt}`,
+          `Path=${operation.statusUrl}`,
+          'Max-Age=600',
+          'HttpOnly',
+          'SameSite=Strict',
+          ...(secure ? ['Secure'] : []),
+        ].join('; '),
+      )
+      return c.json(operation, 202)
+    }
+    c.get('pendingCookies').push(...sessionCookieDeletions(names, secure))
+    return c.json({ status: 'ok' as const }, 200)
   })
 
   app.openapi(listDevicesRoute, async (c) => {

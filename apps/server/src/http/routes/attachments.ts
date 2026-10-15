@@ -3,6 +3,7 @@ import {
   attachmentPageSchema,
   attachmentQuerySchema,
   conversationSchema,
+  deletionOperationSchema,
   mentionQuerySchema,
   meSchema,
   okResponseSchema,
@@ -19,6 +20,7 @@ import {
   mentionCandidates,
   setAvatar,
 } from '../../domain/attachments.ts'
+import { readSiteLimits } from '../../domain/site-policy.ts'
 import { cancelUpload, getUpload, receiveUpload, reserveUpload } from '../../domain/uploads.ts'
 import type { HttpEnv, Services } from '../context.ts'
 import { principalOf, requireSession } from '../middleware/session.ts'
@@ -56,7 +58,11 @@ const cancelRoute = createRoute({
   method: 'delete',
   path: '/api/uploads/{id}',
   request: { params: idParam },
-  responses: { ...base.responses, 200: json(okResponseSchema, 'Cancelled') },
+  responses: {
+    ...base.responses,
+    200: json(okResponseSchema, 'Cancelled'),
+    202: json(deletionOperationSchema, 'Deletion pending'),
+  },
 })
 const contentRoute = createRoute({
   ...base,
@@ -107,7 +113,11 @@ const avatarRoute = createRoute({
   request: {
     body: { required: true, content: { 'application/json': { schema: setAvatarSchema } } },
   },
-  responses: { ...base.responses, 200: json(meSchema, 'Profile') },
+  responses: {
+    ...base.responses,
+    200: json(meSchema, 'Profile'),
+    202: json(deletionOperationSchema, 'Previous avatar deletion pending'),
+  },
 })
 const conversationAvatarRoute = createRoute({
   ...base,
@@ -117,7 +127,11 @@ const conversationAvatarRoute = createRoute({
     params: idParam,
     body: { required: true, content: { 'application/json': { schema: setAvatarSchema } } },
   },
-  responses: { ...base.responses, 200: json(conversationSchema, 'Conversation') },
+  responses: {
+    ...base.responses,
+    200: json(conversationSchema, 'Conversation'),
+    202: json(deletionOperationSchema, 'Previous avatar deletion pending'),
+  },
 })
 
 export function parseRange(value: string, size: number): { start: number; end: number } | null {
@@ -142,11 +156,27 @@ export function attachmentRoutes(app: OpenAPIHono<HttpEnv>, services: Services):
   // Native image/player/download requests cannot participate in api()'s account cancellation.
   app.use('/api/attachments/*', requireSession(services, { cookieEffects: false }))
   // Conversation and me guards are installed by their respective route modules.
-  const limited = async (principal: ReturnType<typeof principalOf>) =>
-    services.limiter.enforce([{ policy: POLICIES.uploadUser, subject: principal.userId }])
+  const limited = async (principal: ReturnType<typeof principalOf>, reservation = false) => {
+    const limits = await readSiteLimits(services.deps, services.deps.db)
+    await services.limiter.enforce([
+      { policy: POLICIES.uploadUser, subject: principal.userId },
+      ...(reservation
+        ? [
+            {
+              policy: {
+                name: 'upload.hour.user',
+                limit: limits.uploadsPerHour,
+                windowMs: 3_600_000,
+              },
+              subject: principal.userId,
+            },
+          ]
+        : []),
+    ])
+  }
   app.openapi(reservationRoute, async (c) => {
     const p = principalOf(c)
-    await limited(p)
+    await limited(p, true)
     return c.json(
       await reserveUpload(
         services.deps,
@@ -161,7 +191,8 @@ export function attachmentRoutes(app: OpenAPIHono<HttpEnv>, services: Services):
     c.json(await getUpload(services.deps, principalOf(c), c.req.valid('param').id), 200),
   )
   app.openapi(cancelRoute, async (c) => {
-    await cancelUpload(services.deps, principalOf(c), c.req.valid('param').id)
+    const pending = await cancelUpload(services.deps, principalOf(c), c.req.valid('param').id)
+    if (pending) return c.json(pending, 202)
     return c.json({ status: 'ok' as const }, 200)
   })
   app.openapi(contentRoute, async (c) => {
@@ -192,6 +223,7 @@ export function attachmentRoutes(app: OpenAPIHono<HttpEnv>, services: Services):
   )
   app.openapi(avatarRoute, async (c) => {
     const result = await setAvatar(services.deps, principalOf(c), c.req.valid('json'))
+    if (result && 'operationId' in result) return c.json(result, 202)
     return c.json(meSchema.parse(result), 200)
   })
   app.openapi(conversationAvatarRoute, async (c) => {
@@ -201,6 +233,7 @@ export function attachmentRoutes(app: OpenAPIHono<HttpEnv>, services: Services):
       c.req.valid('json'),
       c.req.valid('param').id,
     )
+    if (result && 'operationId' in result) return c.json(result, 202)
     return c.json(conversationSchema.parse(result), 200)
   })
   app.openapi(mentionsRoute, async (c) =>

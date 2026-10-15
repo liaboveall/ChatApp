@@ -936,6 +936,10 @@ export const uploadReservations = pgTable(
     reservedBytes: counter(),
     siteReservedBytes: counter(),
     maxBytes: bigint({ mode: 'number' }).notNull(),
+    /** Policy at admission, so lowering the site's image limit does not invalidate accepted reservations. */
+    imageMaxBytes: bigint({ mode: 'number' })
+      .notNull()
+      .default(20 * 1024 * 1024),
     status: text()
       .$type<'reserved' | 'uploaded' | 'processing' | 'settled' | 'released'>()
       .notNull()
@@ -950,6 +954,10 @@ export const uploadReservations = pgTable(
     check(
       'upload_reservations_nonneg',
       sql`${t.reservedBytes} >= 0 and ${t.siteReservedBytes} >= 0 and ${t.maxBytes} > 0 and ${t.leaseEpoch} >= 0`,
+    ),
+    check(
+      'upload_reservations_image_limit',
+      sql`${t.imageMaxBytes} > 0 and ${t.imageMaxBytes} <= 20971520`,
     ),
     check(
       'upload_reservations_status',

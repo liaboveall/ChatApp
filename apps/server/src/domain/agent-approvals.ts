@@ -26,6 +26,7 @@ import {
   agentRuns,
   agentSteps,
   type DbOrTx,
+  deletionOperations,
   executionDelegations,
   messages,
 } from '@chatapp/db'
@@ -260,6 +261,27 @@ export async function runDecisions(
     .orderBy(asc(agentEffects.stepIndex))
   const approvals: AgentApproval[] = []
   for (const row of rows) approvals.push(await approvalDto(db, deps, row, run))
+  const operationIds = effects.flatMap((effect) =>
+    effect.result.status === 'pending' && typeof effect.result.operationId === 'string'
+      ? [effect.result.operationId]
+      : [],
+  )
+  const completed = new Set(
+    operationIds.length
+      ? (
+          await db
+            .select({ id: deletionOperations.id })
+            .from(deletionOperations)
+            .where(
+              and(
+                inArray(deletionOperations.id, operationIds),
+                eq(deletionOperations.actorId, run.userId),
+                eq(deletionOperations.status, 'applied'),
+              ),
+            )
+        ).map((row) => row.id)
+      : [],
+  )
   return {
     approvals,
     effects: effects.map((e) => ({
@@ -267,7 +289,12 @@ export async function runDecisions(
       toolName: e.toolName,
       entityType: e.entityType,
       entityId: e.entityId,
-      result: e.result,
+      result:
+        e.result.status === 'pending' &&
+        typeof e.result.operationId === 'string' &&
+        completed.has(e.result.operationId)
+          ? { ...e.result, status: 'forgotten' }
+          : e.result,
       createdAt: e.createdAt.toISOString(),
     })),
   }

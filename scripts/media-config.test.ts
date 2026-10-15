@@ -3,7 +3,10 @@ import { describe, expect, test } from 'bun:test'
 import { readFileSync } from 'node:fs'
 import { join, resolve } from 'node:path'
 import { YAML } from 'bun'
-import { mediaEnvironment } from '../apps/media/src/runtime/environment.ts'
+import {
+  MEDIA_CONTAINER_ENVIRONMENT,
+  mediaEnvironment,
+} from '../apps/media/src/runtime/environment.ts'
 import {
   composeEnvironment,
   configCheckWorker,
@@ -107,13 +110,11 @@ function container(service: 'media' | 'worker'): Record<string, unknown> {
       User: '10001:10001',
       WorkingDir: '/app',
       Image: media ? 'chatapp-media:dev' : 'chatapp-worker:dev',
-      ...(media
-        ? { Healthcheck: { Test: ['CMD', '/usr/bin/test', '-S', '/run/chatapp-media/media.sock'] } }
-        : {}),
+      ...(media ? { Healthcheck: { Test: ['CMD', '/usr/local/bin/media-health'] } } : {}),
       Cmd: media
         ? ['bun', '--no-env-file', '/app/apps/media/src/server.ts']
         : ['bun', '--no-env-file', '--watch', '/app/apps/server/src/worker.ts'],
-      Env: Object.entries(media ? mediaEnvironment('/tmp') : { ...imageEnv, ...worker }).map(
+      Env: Object.entries(media ? MEDIA_CONTAINER_ENVIRONMENT : { ...imageEnv, ...worker }).map(
         ([key, value]) => `${key}=${value}`,
       ),
     },
@@ -221,12 +222,7 @@ describe('fixed media topology', () => {
     expect(media.pids_limit).toBe(64)
     expect(media.mem_limit).toBe('512m')
     expect(media.memswap_limit).toBe(media.mem_limit)
-    expect(dict(media.healthcheck).test).toEqual([
-      'CMD',
-      '/usr/bin/test',
-      '-S',
-      '/run/chatapp-media/media.sock',
-    ])
+    expect(dict(media.healthcheck).test).toEqual(['CMD', '/usr/local/bin/media-health'])
   })
 
   test('worker stays inside the 1536 MiB budget, watches only mounted source and cannot write socket files', () => {
@@ -322,10 +318,14 @@ describe('images and development entry points', () => {
 
   test('media copies only runtime workspaces; fault fixture is not an ancestor of the default runtime target', () => {
     const file = read('infra/Dockerfile.media')
-    expect(file).toContain('ffmpeg=7:7.1.5-0+deb13u1')
+    expect(file).toContain('ffmpeg-9.0.2.tar.xz')
+    expect(file).toContain(
+      'ADD --checksum=sha256:8c3850283eb25fa026482078a04051e0be17347b09ef81a0849bec15a96e002e',
+    )
+    expect(file).toContain('--disable-network')
     expect(file).not.toMatch(/^COPY\s+(?:apps\/(?:server|web)|packages\/db)/m)
     const application =
-      file.split('FROM base AS application')[1]?.split('FROM application AS fault')[0] ?? ''
+      file.split(' AS application')[1]?.split('FROM application AS fault')[0] ?? ''
     expect(application).toContain('COPY apps/media/src ./apps/media/src')
     expect(application).toContain('COPY packages/contracts/src ./packages/contracts/src')
     expect(application).not.toContain('apps/media/test')

@@ -39,6 +39,7 @@ import { directPeerOf, writeMessage } from './messages.ts'
 import type { DelegatedPrincipal, SessionPrincipal } from './principal.ts'
 import { notifyReminderDue } from './push.ts'
 import { accountAllowsSession, lockAndRevalidate, lockUsers } from './sessions.ts'
+import { readSiteLimits, readSitePolicy } from './site-policy.ts'
 import { inTransaction } from './tx.ts'
 import { enqueueWork } from './work.ts'
 
@@ -84,10 +85,15 @@ export async function futureTaskCount(db: DbOrTx, userId: string): Promise<numbe
 }
 
 /** Caller holds the person's lock, so two effects cannot both take the hundredth place. */
-export async function assertTaskCapacity(tx: DbOrTx, userId: string): Promise<void> {
-  if ((await futureTaskCount(tx, userId)) >= TASK_LIMITS.maxFuturePerUser)
+export async function assertTaskCapacity(
+  tx: DbOrTx,
+  deps: Pick<Deps, 'config'>,
+  userId: string,
+): Promise<void> {
+  const limits = await readSiteLimits(deps, tx)
+  if ((await futureTaskCount(tx, userId)) >= limits.maxFutureTasksPerUser)
     throw new AppError('QUOTA_EXCEEDED', 'There are as many future tasks as allowed', {
-      details: { resource: 'tasks', limit: TASK_LIMITS.maxFuturePerUser },
+      details: { resource: 'tasks', limit: limits.maxFutureTasksPerUser },
     })
 }
 
@@ -181,7 +187,7 @@ export async function createReminderTask(
     throw new AppError('VALIDATION_FAILED', 'The time cannot be scheduled', {
       details: { reason: problem },
     })
-  await assertTaskCapacity(tx, principal.userId)
+  await assertTaskCapacity(tx, deps, principal.userId)
   const id = deps.newId()
   const delegationId = await issueTaskDelegation(
     tx,
@@ -237,7 +243,7 @@ export async function createScheduledMessageTask(
   )
   if (access.conversation.kind === 'agent')
     throw new AppError('FORBIDDEN', 'Messages cannot be scheduled into an assistant conversation')
-  await assertTaskCapacity(tx, principal.userId)
+  await assertTaskCapacity(tx, deps, principal.userId)
   const id = deps.newId()
   const delegationId = await issueTaskDelegation(
     tx,
@@ -812,8 +818,10 @@ export async function reconcileTasks(deps: Deps): Promise<number> {
 
 /** Content of tasks that ended stays 30 days for the person's list, then only ids, state and codes remain (docs/04). */
 export async function purgeTaskContent(deps: Deps): Promise<number> {
+  if (deps.deletionJournal) throw new Error('task retention must use the journaled batch')
   const now = deps.clock.now()
-  const cutoff = new Date(now.getTime() - TASK_LIMITS.contentRetentionMs)
+  const { policy } = await readSitePolicy(deps, deps.db)
+  const cutoff = new Date(now.getTime() - policy.runContentDays * 86_400_000)
   const a = await deps.db
     .update(reminders)
     .set({ text: null, contentPurgedAt: now })

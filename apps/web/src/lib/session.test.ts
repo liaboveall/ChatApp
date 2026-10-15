@@ -1,5 +1,10 @@
 import { QueryClient } from '@tanstack/react-query'
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest'
+import {
+  forgetAccountDeletion,
+  pendingAccountDeletion,
+  rememberAccountDeletion,
+} from './account-deletion.ts'
 import { api } from './api.ts'
 import { forgetDevice } from './pwa/device.ts'
 import { queryKeys } from './queries.ts'
@@ -32,9 +37,45 @@ beforeEach(() => {
   }
   stop = startSession(deps)
 })
-afterEach(() => stop())
+afterEach(() => {
+  forgetAccountDeletion()
+  stop()
+})
 
 describe('ending a session', () => {
+  test('ordinary sign-out after requesting account deletion keeps confirmation on the anonymous page', () => {
+    markSignedIn()
+    queryClient.setQueryData(queryKeys.me, { id: 'alice' })
+    rememberAccountDeletion('alice', {
+      operationId: '68e7a9cc-35a9-4bdb-b49d-5682c4b18986',
+      statusUrl: '/api/deletion-operations/68e7a9cc-35a9-4bdb-b49d-5682c4b18986',
+      status: 'pending',
+      version: 1,
+      errorCode: null,
+    })
+    endSession('signed-out')
+    expect(deps.toSignIn).toHaveBeenCalledWith('account-deletion-pending')
+    expect(pendingAccountDeletion('alice')).not.toBeNull()
+    sessionStarted()
+    expect(pendingAccountDeletion()).toBeNull()
+    expect(sessionStorage.getItem('chatapp.account-deletion-status')).toBeNull()
+  })
+  test('session revocation while the same account deletion is pending preserves an honest pending reason and a new login forgets its locator', () => {
+    markSignedIn()
+    queryClient.setQueryData(queryKeys.me, { id: 'alice' })
+    rememberAccountDeletion('alice', {
+      operationId: '68e7a9cc-35a9-4bdb-b49d-5682c4b18986',
+      statusUrl: '/api/deletion-operations/68e7a9cc-35a9-4bdb-b49d-5682c4b18986',
+      status: 'pending',
+      version: 1,
+      errorCode: null,
+    })
+    endSession('expired')
+    expect(deps.toSignIn).toHaveBeenCalledWith('account-deletion-pending')
+    expect(pendingAccountDeletion('alice')).not.toBeNull()
+    sessionStarted()
+    expect(pendingAccountDeletion()).toBeNull()
+  })
   test('clears everything that belonged to the account, closes the connection and goes to sign-in', () => {
     markSignedIn()
     queryClient.setQueryData(queryKeys.me, { id: 'u1' })

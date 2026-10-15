@@ -22,11 +22,12 @@ import {
   conversations,
   executionDelegations,
   messages,
+  reports,
   type Tx,
   users,
 } from '@chatapp/db'
 import { and, asc, desc, eq, inArray, isNull, lt, sql } from 'drizzle-orm'
-import { AI_LIMITS, loadAiConfig } from '../config/ai.ts'
+import { loadAiConfig } from '../config/ai.ts'
 import { fingerprint } from '../lib/crypto.ts'
 import {
   type AgentLease,
@@ -51,11 +52,14 @@ import {
   recordMessageChange,
   recordViewerChange,
 } from './changes.ts'
+import { applyDeletion } from './deletion-apply.ts'
+import { findDeletion, prepareDeletion, settleDeletion } from './deletion-operations.ts'
 import type { Deps } from './deps.ts'
 import { assertIdempotencyKey, claimIdempotency, completeIdempotency } from './idempotency.ts'
 import { addMembers, countLiveMemberships } from './membership.ts'
 import type { SessionPrincipal } from './principal.ts'
 import { lockAndRevalidate, lockUsers } from './sessions.ts'
+import { readAgentLimits, readSitePolicy } from './site-policy.ts'
 import { inTransaction } from './tx.ts'
 import { retireAttachment } from './uploads.ts'
 import { enqueueWork } from './work.ts'
@@ -857,7 +861,7 @@ export async function heartbeatAgentRun(deps: Deps, lease: AgentLease): Promise<
     const elapsed =
       run.elapsedActiveMs +
       Math.max(0, now.getTime() - (run.heartbeatAt?.getTime() ?? now.getTime()))
-    if (elapsed >= AI_LIMITS[run.mode].durationMs)
+    if (elapsed >= (await readAgentLimits(deps, tx, run.mode)).durationMs)
       throw new AppError('QUOTA_EXCEEDED', 'The request time limit was reached')
     await tx
       .update(agentRuns)
@@ -1134,6 +1138,8 @@ export async function deleteAgentConversation(
   principal: SessionPrincipal,
   id: string,
 ): Promise<void> {
+  if (deps.deletionJournal)
+    throw new Error('journaled conversation removal requires requestAgentConversationDeletion')
   await inTransaction(deps.db, async (tx) => {
     await lockAndRevalidate(tx, deps, principal)
     const access = await requireAccess(
@@ -1145,78 +1151,138 @@ export async function deleteAgentConversation(
     )
     if (access.conversation.kind !== 'agent' || access.conversation.ownerId !== principal.userId)
       throw new AppError('FORBIDDEN', 'Only your assistant conversations can be deleted')
-    await invalidateConversationRuns(tx, deps, id)
-    const runs = await tx
-      .select({ id: agentRuns.id })
-      .from(agentRuns)
-      .where(eq(agentRuns.conversationId, id))
-    const ids = runs.map((r) => r.id)
-    if (ids.length) {
-      await tx
-        .update(agentRunStates)
-        .set({ messages: [], updatedAt: deps.clock.now() })
-        .where(inArray(agentRunStates.runId, ids))
-      await tx.update(agentSteps).set({ payload: null }).where(inArray(agentSteps.runId, ids))
-      await tx
-        .update(agentApprovals)
-        .set({ args: null, editedArgs: null, finalArgs: null })
-        .where(inArray(agentApprovals.runId, ids))
-      await tx
-        .update(agentRuns)
-        .set({
-          contextManifest: [],
-          contentPurgedAt: deps.clock.now(),
-          sourceMessageId: null,
-          outputMessageId: null,
-        })
-        .where(inArray(agentRuns.id, ids))
-    }
-    const doomed = await tx
-      .select({ id: messages.id })
-      .from(messages)
-      .where(eq(messages.conversationId, id))
-    if (doomed.length)
-      await tx
-        .update(agentRunOutputs)
-        .set({ messageId: null })
-        .where(
-          inArray(
-            agentRunOutputs.messageId,
-            doomed.map((m) => m.id),
-          ),
-        )
-    const files = await tx
-      .select({ id: attachments.id })
-      .from(attachments)
-      .where(eq(attachments.conversationId, id))
-    if (files.length) {
-      await lockStorage(tx)
-      for (const file of files) await retireAttachment(tx, deps, file.id)
-      await tx
-        .update(attachments)
-        .set({ conversationId: null })
-        .where(eq(attachments.conversationId, id))
-    }
-    if (!access.member) throw new AppError('NOT_FOUND', 'Conversation not found')
-    await recordViewerChange(tx, deps, {
-      userId: principal.userId,
-      conversationId: id,
-      membershipId: access.member.membershipId,
-      state: 'removed',
-      membershipChanged: true,
-    })
-    await tx.delete(conversations).where(eq(conversations.id, id))
+    await applyAgentConversationDeletion(tx, deps, id, principal.userId)
   })
 }
 
+export async function requestAgentConversationDeletion(
+  deps: Deps,
+  principal: SessionPrincipal,
+  id: string,
+): Promise<import('@chatapp/contracts').DeletionOperation | void> {
+  if (!deps.deletionJournal) return await deleteAgentConversation(deps, principal, id)
+  const operation = await inTransaction(deps.db, async (tx) => {
+    await lockAndRevalidate(tx, deps, principal)
+    const existing = await findDeletion(tx, principal.userId, 'agent_conversation_delete', id)
+    if (existing) return existing
+    const access = await requireAccess(
+      tx,
+      { userId: principal.userId, siteRole: principal.role },
+      id,
+      'read_messages',
+      { lock: true, now: deps.clock.now() },
+    )
+    if (access.conversation.kind !== 'agent' || access.conversation.ownerId !== principal.userId)
+      throw new AppError('FORBIDDEN', 'Only your assistant conversations can be deleted')
+    return await prepareDeletion(tx, deps, principal.userId, {
+      action: 'agent_conversation_delete',
+      target: { id, userId: principal.userId },
+    })
+  })
+  const status = await settleDeletion(deps, operation.id, applyDeletion)
+  if (status.status !== 'completed') return status
+}
+
+export async function applyAgentConversationDeletion(
+  tx: Tx,
+  deps: Deps,
+  id: string,
+  userId: string,
+): Promise<void> {
+  await tx
+    .update(reports)
+    .set({ details: null, resolutionNote: null })
+    .where(eq(reports.conversationId, id))
+  const [conversation] = await tx
+    .select()
+    .from(conversations)
+    .where(eq(conversations.id, id))
+    .for('update')
+  if (!conversation) return
+  if (conversation.kind !== 'agent' || conversation.ownerId !== userId)
+    throw new Error('frozen conversation owner mismatch')
+  const [member] = await tx
+    .select()
+    .from(conversationMembers)
+    .where(and(eq(conversationMembers.conversationId, id), eq(conversationMembers.userId, userId)))
+  await invalidateConversationRuns(tx, deps, id)
+  const runs = await tx
+    .select({ id: agentRuns.id })
+    .from(agentRuns)
+    .where(eq(agentRuns.conversationId, id))
+  const ids = runs.map((r) => r.id)
+  if (ids.length) {
+    await tx
+      .update(agentRunStates)
+      .set({ messages: [], updatedAt: deps.clock.now() })
+      .where(inArray(agentRunStates.runId, ids))
+    await tx.update(agentSteps).set({ payload: null }).where(inArray(agentSteps.runId, ids))
+    await tx
+      .update(agentApprovals)
+      .set({ args: null, editedArgs: null, finalArgs: null })
+      .where(inArray(agentApprovals.runId, ids))
+    await tx
+      .update(agentRuns)
+      .set({
+        contextManifest: [],
+        contentPurgedAt: deps.clock.now(),
+        sourceMessageId: null,
+        outputMessageId: null,
+      })
+      .where(inArray(agentRuns.id, ids))
+  }
+  const doomed = await tx
+    .select({ id: messages.id })
+    .from(messages)
+    .where(eq(messages.conversationId, id))
+  if (doomed.length)
+    await tx
+      .update(agentRunOutputs)
+      .set({ messageId: null })
+      .where(
+        inArray(
+          agentRunOutputs.messageId,
+          doomed.map((m) => m.id),
+        ),
+      )
+  const files = await tx
+    .select({ id: attachments.id })
+    .from(attachments)
+    .where(eq(attachments.conversationId, id))
+  if (files.length) {
+    await lockStorage(tx)
+    for (const file of files)
+      if (await retireAttachment(tx, deps, file.id))
+        throw new Error('accepted private conversation attachment unexpectedly prepared again')
+    await tx
+      .update(attachments)
+      .set({ conversationId: null })
+      .where(eq(attachments.conversationId, id))
+  }
+  if (member)
+    await recordViewerChange(tx, deps, {
+      userId,
+      conversationId: id,
+      membershipId: member.membershipId,
+      state: 'removed',
+      membershipChanged: true,
+    })
+  await tx.delete(conversations).where(eq(conversations.id, id))
+}
+
 export async function purgeAgentContent(deps: Deps): Promise<number> {
+  if (deps.deletionJournal) throw new Error('content retention must use the journaled batch')
+  const { policy } = await readSitePolicy(deps, deps.db)
   const expired = await deps.db
     .select({ id: agentRuns.id })
     .from(agentRuns)
     .where(
       and(
         isNull(agentRuns.contentPurgedAt),
-        lt(agentRuns.createdAt, new Date(deps.clock.now().getTime() - 30 * 86_400_000)),
+        lt(
+          agentRuns.createdAt,
+          new Date(deps.clock.now().getTime() - policy.runContentDays * 86_400_000),
+        ),
       ),
     )
     .limit(500)
@@ -1280,10 +1346,10 @@ export async function recoverAgentRuns(deps: Deps): Promise<number> {
         payload?.finishReason === 'stop' &&
         typeof payload.text === 'string' &&
         Boolean(payload.text.trim())
+      const limits = await readAgentLimits(deps, tx, run.mode)
       const exhausted =
         run.resumeSeq >= 15 ||
-        (!savedFinal &&
-          (elapsed >= AI_LIMITS[run.mode].durationMs || run.stepCount >= AI_LIMITS[run.mode].steps))
+        (!savedFinal && (elapsed >= limits.durationMs || run.stepCount >= limits.steps))
       await finishOutput(tx, deps, run, 'failed')
       const [updated] = await tx
         .update(agentRuns)

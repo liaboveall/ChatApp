@@ -18,6 +18,7 @@ import { cursorExpiry, decodeCursor, encodeCursor } from './cursor.ts'
 import type { Deps } from './deps.ts'
 import type { SessionPrincipal } from './principal.ts'
 import { lockAndRevalidate } from './sessions.ts'
+import { readSitePolicy } from './site-policy.ts'
 import { inTransaction } from './tx.ts'
 
 async function requireSiteAdmin(
@@ -92,8 +93,11 @@ export async function adminRunDetail(
     await requireSiteAdmin(tx, deps, principal)
     const [run] = await tx.select().from(agentRuns).where(eq(agentRuns.id, id))
     if (!run) throw new AppError('NOT_FOUND', 'Run not found')
+    const { policy } = await readSitePolicy(deps, tx)
+    const expired =
+      run.createdAt.getTime() + policy.runContentDays * 86_400_000 <= deps.clock.now().getTime()
     const available =
-      run.keySource !== 'site' ? 'own_key' : run.contentPurgedAt ? 'purged' : 'site_key'
+      run.keySource !== 'site' ? 'own_key' : run.contentPurgedAt || expired ? 'purged' : 'site_key'
     await writeAudit(tx, {
       actorId: principal.userId,
       action: 'admin.agent_run_viewed',
