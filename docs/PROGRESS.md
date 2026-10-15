@@ -5,6 +5,10 @@
 
 ## 当前状态
 
+以下新增记录是最近一次 CI 修复提交前的已验证快照。后续版本/CI 以[本仓库工作流](https://github.com/liaboveall/ChatApp/actions?query=branch%3Av2)及本机忽略的 `.test-runs/launch-2026-10-15/attempt1/next-state.json` 执行回执为准；其中不保存凭据值。
+
+- **2026-10-15 第二轮 CI 与双架构候选验证（Codex）**：`v2/b8c3f9143551de057bcb42fc4ffcffaa38797cf0` 已推送、工作区曾核对干净，892 文件指纹 **54c82dea18544da8d76f7791d7335766578b3bad19dc2d0e3de5d2b35f47b282**。当前提交的远端 `check`、`security`、`integration`、media 双架构和 embeddings 全部通过；images 的原生彩排调用因 `sudo: bun: command not found` 未启动，不能写作远端原生恢复已通过。已将 CI 改为先解析 Bun 绝对路径，再经 `sudo env` 传入受控 PATH；原生主机的绝对路径/root/Bun 1.4.2/Docker ARM 调用实测通过，修复后的工作流仍按后续回执验收。该提交本机 x64 六归档 hash/大小、镜像冒烟、七镜像扫描、37 阶段隔离生产彩排通过并清理；云端 ARM 第四候选的镜像冒烟、37 阶段彩排与扫描也通过，公开归档正另行回传。旧候选和失败证据全部保留。生产 API/worker 未启动，生产新桶与独立配置仍按 [34](34-r2-production-setup.md)由本人准备，真实 R2/全量容量/独立恢复仍待验。
+
 - **2026-10-15 首次远端 CI 修复已验证，待提交重跑（Codex）**：media 冷源码编译准备预算单独设为 20 分钟，`check` **702+750** 通过。官方 Playwright 镜像复现十四张注册/设置页面差异，逐张查看后更新 M7 隐私入口对应基线，完整视觉 **140/140、零重试**；visual 失败证据路径已修正。images 运维彩排按生产手册改为 root，公开 metadata 独立收集，实际测试在不可访问私有 runtime 旁只收集四类允许 JSON；没有放宽私有权限。首次当前源码 `check`、`security`、`integration` 和 Trivy 子任务通过，media/embeddings/原生彩排及视觉失败保留，远端修复仍待重新提交运行。十四张绑定 PNG 使新候选源码指纹为 **54c82dea18544da8d76f7791d7335766578b3bad19dc2d0e3de5d2b35f47b282**，需重新生成双架构当前提交发布包。另一本机 x64 小样本生产彩排 **37 阶段**通过并清理，仍为旧 b603 指纹；不能代替生产 R2/独立恢复。本人生产桶及配置输入继续按 [34](34-r2-production-setup.md)准备，API/worker 未启动。
 
 - **2026-10-15 M7 已提交推送，正在修复首次当前源码 CI（Codex）**：已按本人授权将全部 M7 与上线准备提交/推送到 `v2/dabb9ea03303862eb8e07e58d8f0d011fbc6bdd3`，核对本地/远端一致、工作区干净，892 文件源码指纹仍为 `b603a699…`；1227 个可提交文件 Gitleaks 零发现。当前提交 `check`、`security` 通过。media 双架构及 embeddings 在冷 Docker build 的 180 秒准备上限处失败；固定源码 FFmpeg 的云端首次编译实测 674.6 秒，正在将媒体构建单独改为有限 20 分钟预算，运行期/性能门槛保持既定约束。失败日志另存，其他 CI 仍按实际结果接续。原生 ARM 第三次绑定该 SHA 的镜像冒烟、37 阶段彩排及七镜像扫描通过；后续修复提交重新绑定。生产 R2 新桶/凭据仍待本人按 [34](34-r2-production-setup.md)准备；API/worker 未启动，当前进度详见 [33](33-closed-launch-2026-10-15.md)。

@@ -1,5 +1,7 @@
 # 2026-10-15 封闭部署执行记录
 
+本文为最近一次 CI 命令修复提交时的检查快照；后续版本和结果以[分支工作流](https://github.com/liaboveall/ChatApp/actions?query=branch%3Av2)、实际 Git 及下述私有执行回执为准。
+
 本人指示「开始上线」，按 D-211 进入云端封闭部署。真实用户开放须等待完整 M7、V-19/AT-33 及发布门槛；本文只记录实际操作。开工交接见 [32](32-launch-handoff-2026-10-15.md)，运维入口见 [31](31-prelaunch-operations-2026-10-13.md)。
 
 **当前接续**：同源码原生 ARM 候选第二次构建/镜像冒烟、37 阶段隔离生产彩排及七镜像 HIGH/CRITICAL 扫描通过。六份公开 ARM 归档已传回本机并逐项核验。生产 PostgreSQL、Valkey、Garage、media 已健康、静态前端就绪；API/worker 尚未启动、生产库未迁移、真实 journal/restic 未初始化。本人已明确接受证书条款及自动续期，并授权提交、推送 v2 和处理 CI。域名证书已签发至 2027-01-13；公网 TLS/主机名、HTTP→HTTPS、HSTS 和所有应用路径封闭检查通过，自动续期 dry-run 及 Nginx reload hook 通过。当前待本人按 [34](34-r2-production-setup.md)新建生产 R2 桶及独立凭据、运行修正版配置助手；旧本地目标实际都是测试桶。私有离源恢复材料、当前提交 CI、正式启动和完整 M7/恢复仍待完成。
@@ -51,6 +53,8 @@
 同一次当前源码 CI 的 integration 和 Trivy 子任务通过。原生隔离彩排失败在 `storage-initialize`；GitHub 非 root runner 运行后，artifact 的递归匹配还进入 UID 10001/700 的私有 runtime 并被 EACCES 拒绝。CI 运维入口改为按生产手册使用 root 执行，仅将 release、image-smoke、receipt、load-summary 四类公开 JSON 复制给 runner，再上传独立 metadata 目录，私有权限保持原值。收集器在不可遍历私有目录的合成夹具上实际收集四个允许文件、未触及私有材料，YAML/Python 解析通过；远端修复效果仍以重跑为准。
 
 视觉首跑 126/140 通过，十四张差异对应 M7 新增隐私入口及注册/设置页面排布。已在官方 Playwright 镜像重现并逐张查看全部浅深主题差异，保留首次截图/context；更新这十四张基线后完整比较 **140/140、零重试**。同步修正 visual artifact 路径为实际的 `.test-runs/visual/results`。本次十四张绑定 PNG 更新使 892 文件候选指纹变为 `54c82dea18544da8d76f7791d7335766578b3bad19dc2d0e3de5d2b35f47b282`，此前 `b603a699…` 候选保留，不把它重新命名成新源码。预算修复后 `check` 退出 0；另一次本机 x64 小样本彩排 37 阶段通过并清理，仍绑定前一指纹。
+
+第二次提交 `b8c3f9143551de057bcb42fc4ffcffaa38797cf0` 已推送；同提交 `check`、`security`、`integration`、media 双架构及 embeddings 工作流通过。images 原生彩排未启动：`sudo --preserve-env=PATH bun` 仍被 sudo 的命令搜索路径限制，返回 `sudo: bun: command not found`。已修正为先解析 Bun 绝对路径，再以 `sudo env` 传入 PATH；原生主机确认 root UID、Bun 1.4.2 和 Docker ARM 可用。工作流的最终修复结果仍以新一轮回执为准，不能拿生产机成功替代 CI。该提交的 x64 发布包六归档 hash/大小、镜像冒烟/扫描及 37 阶段隔离彩排通过并清理；ARM 第四候选同项通过，六归档回传另验。后续 CI 命令/文档修复不改变 892 文件指纹，但发布镜像元数据仍须绑定实际发布提交。
 
 ## 证据和接续
 
