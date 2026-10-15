@@ -5,6 +5,10 @@
 
 ## 当前状态
 
+- **2026-10-15 首次远端 CI 修复已验证，待提交重跑（Codex）**：media 冷源码编译准备预算单独设为 20 分钟，`check` **702+750** 通过。官方 Playwright 镜像复现十四张注册/设置页面差异，逐张查看后更新 M7 隐私入口对应基线，完整视觉 **140/140、零重试**；visual 失败证据路径已修正。images 运维彩排按生产手册改为 root，公开 metadata 独立收集，实际测试在不可访问私有 runtime 旁只收集四类允许 JSON；没有放宽私有权限。首次当前源码 `check`、`security`、`integration` 和 Trivy 子任务通过，media/embeddings/原生彩排及视觉失败保留，远端修复仍待重新提交运行。十四张绑定 PNG 使新候选源码指纹为 **54c82dea18544da8d76f7791d7335766578b3bad19dc2d0e3de5d2b35f47b282**，需重新生成双架构当前提交发布包。另一本机 x64 小样本生产彩排 **37 阶段**通过并清理，仍为旧 b603 指纹；不能代替生产 R2/独立恢复。本人生产桶及配置输入继续按 [34](34-r2-production-setup.md)准备，API/worker 未启动。
+
+- **2026-10-15 M7 已提交推送，正在修复首次当前源码 CI（Codex）**：已按本人授权将全部 M7 与上线准备提交/推送到 `v2/dabb9ea03303862eb8e07e58d8f0d011fbc6bdd3`，核对本地/远端一致、工作区干净，892 文件源码指纹仍为 `b603a699…`；1227 个可提交文件 Gitleaks 零发现。当前提交 `check`、`security` 通过。media 双架构及 embeddings 在冷 Docker build 的 180 秒准备上限处失败；固定源码 FFmpeg 的云端首次编译实测 674.6 秒，正在将媒体构建单独改为有限 20 分钟预算，运行期/性能门槛保持既定约束。失败日志另存，其他 CI 仍按实际结果接续。原生 ARM 第三次绑定该 SHA 的镜像冒烟、37 阶段彩排及七镜像扫描通过；后续修复提交重新绑定。生产 R2 新桶/凭据仍待本人按 [34](34-r2-production-setup.md)准备；API/worker 未启动，当前进度详见 [33](33-closed-launch-2026-10-15.md)。
+
 - **2026-10-15 证书及发布授权已落实，生产 R2 尚待本人准备（Codex）**：本人已明确接受 Let’s Encrypt v1.8、申请/自动续期，并授权提交/推送 `v2` 及处理 CI。域名证书签发至 **2027-01-13**，公网 TLSv1.3/链/主机名、HTTP 301、四类路径 403/单份 HSTS、续期 timer、真实 dry-run 与 Nginx reload hook 通过。API/worker 未启动，入口继续封闭。原生 ARM 六份公开归档已在本机逐份 hash/大小核验，下载回执 `downloaded-and-verified`；私有恢复材料另存仍待完成。
 
   **生产配置纠正**：本人运行前段助手时收到 `DELETION_JOURNAL_S3_BUCKET: test bucket is not a production target`，实际本地两只桶都为测试用途。已修正助手为独立生产私有配置、普通 WSL 用户运行，隐藏输入两组新生产桶/独立凭据和 Resend Key；已有 AI/同账户 endpoint 复用，私有输入 600/忽略并支持重试。保留原生产校验及测试配置。本人最新确认尚未创建生产桶，要求详细指导，步骤见 [34](34-r2-production-setup.md)；在此期间继续按已获授权提交/推送和 CI，不重复询问授权。完整当前接续见 [33](33-closed-launch-2026-10-15.md)。
