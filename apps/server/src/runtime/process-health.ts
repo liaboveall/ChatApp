@@ -1,6 +1,6 @@
 import { rename, rm, writeFile } from 'node:fs/promises'
 import { monitorEventLoopDelay } from 'node:perf_hooks'
-import { processHealthSchema } from '@chatapp/contracts'
+import { processHealthSchema } from '@chatapp/contracts/operations'
 
 /** A recent event-loop heartbeat. Dependency outages are monitored separately; they must not restart every service. */
 export function healthyWorker(value: unknown, now: number): boolean {
