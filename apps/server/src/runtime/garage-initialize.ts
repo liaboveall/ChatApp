@@ -13,6 +13,24 @@ type GarageOperation =
   | 'CreateBucket'
   | 'AllowBucketKey'
 
+type PreparationStage =
+  | GarageOperation
+  | 'configuration'
+  | 'staging-directory'
+  | 'staging-lock'
+  | 'existing-credentials'
+  | 'key-phase'
+  | 'bucket-phase'
+  | 'save-credentials'
+export class GaragePreparationError extends Error {
+  constructor(
+    readonly stage: PreparationStage,
+    readonly reason: 'invalid_structure' | 'filesystem_access' | 'precondition_failed',
+  ) {
+    super('private Garage preparation failed')
+  }
+}
+
 /** Only fixed operation names and HTTP status are safe for operator diagnostics. */
 export class GarageInitializationError extends Error {
   constructor(
@@ -35,6 +53,32 @@ export const storageCredentialsSchema = z
   })
   .strict()
 export async function initializeGarage(source: Record<string, string | undefined>) {
+  let stage: PreparationStage = 'configuration'
+  try {
+    return await prepareGarage(source, (next) => {
+      stage = next
+    })
+  } catch (error) {
+    if (error instanceof GarageInitializationError) throw error
+    const filesystemError =
+      error &&
+      typeof error === 'object' &&
+      'code' in error &&
+      ['EACCES', 'EPERM', 'ENOENT', 'EEXIST', 'EROFS'].includes(String(error.code))
+    throw new GaragePreparationError(
+      stage,
+      error instanceof z.ZodError
+        ? 'invalid_structure'
+        : filesystemError
+          ? 'filesystem_access'
+          : 'precondition_failed',
+    )
+  }
+}
+async function prepareGarage(
+  source: Record<string, string | undefined>,
+  mark: (stage: PreparationStage) => void,
+) {
   const token = source.GARAGE_ADMIN_TOKEN
   const prefix = /^chatapp\/([a-f0-9-]{36})$/.exec(source.BACKUP_REPOSITORY_PREFIX ?? '')
   const owner = z.uuid().parse(source.CHATAPP_OWNER ?? prefix?.[1]),
@@ -42,14 +86,17 @@ export async function initializeGarage(source: Record<string, string | undefined
   if (!token || !bucket || !/^[a-z0-9][a-z0-9-]{1,60}$/.test(bucket))
     throw new Error('dedicated Garage operator configuration required')
   const directory = source.BACKUP_STAGE_DIR ?? '/var/lib/chatapp/backup'
+  mark('staging-directory')
   const info = await lstat(directory)
   if (!info.isDirectory() || (info.mode & 0o077) !== 0)
     throw new Error('private staging directory required')
   const file = join(directory, 'storage-initialized.json')
   const lock = join(directory, 'storage-initialization-lock')
+  mark('staging-lock')
   await mkdir(lock, { mode: 0o700 })
   try {
     const request = async (operation: GarageOperation, input?: unknown): Promise<unknown> => {
+      mark(operation)
       let response: Response
       try {
         response = await fetch(`http://garage:3903/v2/${operation}`, {
@@ -72,6 +119,7 @@ export async function initializeGarage(source: Record<string, string | undefined
         throw new GarageInitializationError(operation, 'invalid_json', response.status)
       }
     }
+    mark('existing-credentials')
     try {
       const existing = await privateJson(file, storageCredentialsSchema)
       if (existing.owner !== owner || existing.bucket !== bucket)
@@ -120,6 +168,7 @@ export async function initializeGarage(source: Record<string, string | undefined
     const keyFile = join(directory, 'storage-key-phase.json'),
       bucketFile = join(directory, 'storage-bucket-phase.json')
     let credentials: z.infer<typeof keySchema>
+    mark('key-phase')
     try {
       credentials = await privateJson(keyFile, keySchema)
     } catch (error) {
@@ -141,6 +190,7 @@ export async function initializeGarage(source: Record<string, string | undefined
       throw new Error('Garage key phase belongs to a different deployment')
     const bucketSchema = z.object({ owner: z.uuid(), alias: z.string(), id: z.string() }).strict()
     let created: z.infer<typeof bucketSchema>
+    mark('bucket-phase')
     try {
       created = await privateJson(bucketFile, bucketSchema)
     } catch (error) {
@@ -160,6 +210,7 @@ export async function initializeGarage(source: Record<string, string | undefined
       accessKeyId: credentials.accessKeyId,
       permissions: { read: true, write: true, owner: false },
     })
+    mark('save-credentials')
     await privateWrite(
       file,
       storageCredentialsSchema.parse({

@@ -5,6 +5,8 @@
 
 ## 当前状态
 
+- **2026-10-16 封闭站点已运行，远端镜像彩排继续修复（Codex）**：<https://chatapp.software> 的 API/worker 与四项依赖共六服务健康，允许清单内页面/隐私/readyz/manifest 为 200、清单外四类路径 403且伪造转发头无效。真实生产 R2 的条件写入/跨桶拒绝/清理、迁移/journal/restic/bootstrap、本人隐藏密码创建管理员、包含管理员的第二份一致备份与异地读回均通过；22 文件加密恢复材料已在本机解密/hash 核验。运行版本为 `b00deb8`、源码 `54c82dea…`。九只数据卷的创建标识已固定，实际新模板升级渲染验证和只读数据库验证通过，未重建卷。`383e3ea` 的主要远端检查已通过，images 在 storage-initialize 失败、E2E仍执行；补充安全准备阶段诊断后继续当前提交验收。`check` **702+750**、生产准备5项通过。实际状态、失败边界和接续见 [35](35-closed-deployment-2026-10-16.md)；本人已确认浏览器登录/管理页可用；同源码新候选、生产调度/全量容量/完整 M7/最终整机独立恢复仍待完成，未正式开放。
+
 以下新增记录是最近一次 CI 修复提交前的已验证快照。后续版本/CI 以[本仓库工作流](https://github.com/liaboveall/ChatApp/actions?query=branch%3Av2)及本机忽略的 `.test-runs/launch-2026-10-15/attempt1/next-state.json` 执行回执为准；其中不保存凭据值。
 
 - **2026-10-15 第二轮 CI 与双架构候选验证（Codex）**：`v2/b8c3f9143551de057bcb42fc4ffcffaa38797cf0` 已推送、工作区曾核对干净，892 文件指纹 **54c82dea18544da8d76f7791d7335766578b3bad19dc2d0e3de5d2b35f47b282**。当前提交的远端 `check`、`security`、`integration`、media 双架构和 embeddings 全部通过；images 的原生彩排调用因 `sudo: bun: command not found` 未启动，不能写作远端原生恢复已通过。已将 CI 改为先解析 Bun 绝对路径，再经 `sudo env` 传入受控 PATH；原生主机的绝对路径/root/Bun 1.4.2/Docker ARM 调用实测通过，修复后的工作流仍按后续回执验收。该提交本机 x64 六归档 hash/大小、镜像冒烟、七镜像扫描、37 阶段隔离生产彩排通过并清理；云端 ARM 第四候选的镜像冒烟、37 阶段彩排与扫描也通过，公开归档正另行回传。旧候选和失败证据全部保留。生产 API/worker 未启动，生产新桶与独立配置仍按 [34](34-r2-production-setup.md)由本人准备，真实 R2/全量容量/独立恢复仍待验。

@@ -446,6 +446,12 @@ export async function bindProductionRelease(directory: string, file: string, rec
     if (!image) throw new Error('complete native runtime image archive required')
     compose[`${name.toUpperCase()}_IMAGE`] = image
   }
+  const dataSource =
+    compose.CHATAPP_DATA_SOURCE_HASH ||
+    compose.APPLICATION_SOURCE_HASH ||
+    release.APPLICATION_SOURCE_HASH
+  if (!/^[a-f0-9]{64}$/.test(dataSource)) throw new Error('data volume identity invalid')
+  compose.CHATAPP_DATA_SOURCE_HASH = dataSource
   compose.APPLICATION_SOURCE_HASH = release.APPLICATION_SOURCE_HASH
   await writeFile(
     join(target, 'compose.env'),

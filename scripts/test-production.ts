@@ -237,6 +237,23 @@ volumes:
         try {
           const diagnostic = JSON.parse(line) as Record<string, unknown>
           if (
+            diagnostic.stage === 'garage-preparation' &&
+            typeof diagnostic.phase === 'string' &&
+            /^(configuration|staging-directory|staging-lock|existing-credentials|key-phase|bucket-phase|save-credentials|GetClusterLayout|GetClusterStatus|UpdateClusterLayout|ApplyClusterLayout|CreateKey|CreateBucket|AllowBucketKey)$/.test(
+              diagnostic.phase,
+            ) &&
+            ['invalid_structure', 'filesystem_access', 'precondition_failed'].includes(
+              String(diagnostic.reason),
+            )
+          ) {
+            receipt.operatorFailure = {
+              stage: diagnostic.stage,
+              phase: diagnostic.phase,
+              reason: diagnostic.reason,
+            }
+            console.error(JSON.stringify(receipt.operatorFailure))
+          }
+          if (
             diagnostic.stage === 'garage-initialization' &&
             typeof diagnostic.operation === 'string' &&
             /^(GetClusterLayout|GetClusterStatus|UpdateClusterLayout|ApplyClusterLayout|CreateKey|CreateBucket|AllowBucketKey)$/.test(

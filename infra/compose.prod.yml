@@ -42,7 +42,8 @@ x-application: &application
 x-data: &data
   labels:
     chatapp.production.owner: ${CHATAPP_OWNER}
-    chatapp.production.release: ${APPLICATION_SOURCE_HASH}
+    # Persist the creation identity across application updates; Compose may otherwise offer to replace data.
+    chatapp.production.release: ${CHATAPP_DATA_SOURCE_HASH:-${APPLICATION_SOURCE_HASH}}
 
 services:
   api:
