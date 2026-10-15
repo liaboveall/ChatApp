@@ -43,7 +43,11 @@ import { silentLogger } from '../lib/logger.ts'
 import { createConditionalStore } from '../storage/conditional.ts'
 import { createBlobStore } from '../storage/s3.ts'
 import { openOperatorJournal, readJournalKeys } from './deletion-journal.ts'
-import { GarageInitializationError, initializeGarage } from './garage-initialize.ts'
+import {
+  GarageInitializationError,
+  GaragePreparationError,
+  initializeGarage,
+} from './garage-initialize.ts'
 import { uuidv7 } from './ids.ts'
 import { createMonitoring } from './monitoring.ts'
 import { notifyOperations } from './operations-alert.ts'
@@ -601,6 +605,15 @@ async function createHashStream(stream: ReadableStream<Uint8Array> | undefined) 
 }
 if (import.meta.main)
   main().catch((error: unknown) => {
+    if (error instanceof GaragePreparationError)
+      console.error(
+        JSON.stringify({
+          status: 'failed',
+          stage: 'garage-preparation',
+          phase: error.stage,
+          reason: error.reason,
+        }),
+      )
     if (error instanceof GarageInitializationError)
       console.error(
         JSON.stringify({

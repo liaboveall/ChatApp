@@ -47,6 +47,16 @@ describe('private production preparation', () => {
     })
     await writeFile(file, JSON.stringify(release))
     await bindProductionRelease(directory, file)
+    const created = readRawEnvironment(await readFile(join(directory, 'compose.env'), 'utf8'))
+    expect(created.CHATAPP_DATA_SOURCE_HASH).toBe('b'.repeat(64))
+    const upgraded = { ...release, APPLICATION_SOURCE_HASH: 'c'.repeat(64) }
+    await writeFile(file, JSON.stringify(upgraded))
+    await bindProductionRelease(directory, file)
+    const updated = readRawEnvironment(await readFile(join(directory, 'compose.env'), 'utf8'))
+    expect(updated.APPLICATION_SOURCE_HASH).toBe('c'.repeat(64))
+    expect(updated.CHATAPP_DATA_SOURCE_HASH).toBe(created.CHATAPP_DATA_SOURCE_HASH)
+    await writeFile(file, JSON.stringify(release))
+    await bindProductionRelease(directory, file)
     const material = join(root, 'materials'),
       restored = join(root, 'restored')
     await exportRecoveryMaterials(directory, material)

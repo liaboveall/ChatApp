@@ -50,6 +50,8 @@ chmod 600 /opt/chatapp/private/storage.json
 
 `storage:init` 的回执同时绑定部署 owner 和桶，重复运行保留已有 key；工具只把 key 写入私有暂存文件。核对容器归属后再移除这个一次性 setup 容器。后续 `tools migrate` 建表和最小应用角色；`tools journal:init` 仅用于空库、空远端前缀的第一次初始化，恢复时禁止使用；`tools backup:init` 初始化独立加密仓库。初次助手初始化使用运维容器的应用 CLI：`run --rm --no-deps --entrypoint bun tools --no-env-file /app/apps/server/src/cli.ts db:bootstrap`；管理员使用同一 CLI 的 `admin:create` 和隐藏终端密码输入。先完成 `production.js configtest`，再启动 API/worker，核对 `/api/readyz`、容器 cgroup、挂载、环境隔离和最小角色。
 
+数据卷的 `CHATAPP_DATA_SOURCE_HASH` 是首次绑定时保存的创建标识，更新/回退应用不得改变。采用此修复前已经更新过旧模板的现场，先只读核对每只现有卷的 owner、项目、角色及创建版本，在私有配置保存实际一致的创建版本；不可仅以当前应用源码推断，遇到混合身份即停止核对。Compose 提示重建卷时不得接受或删除卷。2026-10-16 已部署现场采用额外的私有 `volume-identity.compose.json` 覆盖保证旧候选使用原标签，所有命令须同时传入该文件；换到支持固定标识的新模板后，须先渲染并核对全部实际卷定义。该覆盖不更改卷名或现有数据，细节见 [35](35-closed-deployment-2026-10-16.md)。
+
 向量模型通过运维容器显式运行 `/app/apps/server/src/runtime/embedding-command.ts prepare bge`，模型目录是独立 `embedding-models` 卷；运行时挂只读模型、禁止自行下载。准备、核验和索引世代证据齐备后启用 `EMBEDDING_ENABLED` 并重建 worker/API。初始配置的禁用状态不算 M5/云端容量验收通过；模型与混合资源门槛仍要在 ARM 目标上补证。
 
 前端解压到按源码 hash 命名的版本目录，哈希 assets 追加到共享目录，保留至少 7 天和 3 版，原子切换 `current`。发布前核验 CSP/HSTS、媒体流式下载和默认封闭策略。普通回退只使用兼容迁移的已验证版本；不可逆 schema 变更先取一致备份，不能用回滚应用掩盖数据库不兼容。
