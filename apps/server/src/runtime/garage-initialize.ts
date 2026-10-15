@@ -4,6 +4,26 @@ import { join } from 'node:path'
 import { z } from 'zod'
 import { privateJson, privateWrite } from './operations-files.ts'
 
+type GarageOperation =
+  | 'GetClusterLayout'
+  | 'GetClusterStatus'
+  | 'UpdateClusterLayout'
+  | 'ApplyClusterLayout'
+  | 'CreateKey'
+  | 'CreateBucket'
+  | 'AllowBucketKey'
+
+/** Only fixed operation names and HTTP status are safe for operator diagnostics. */
+export class GarageInitializationError extends Error {
+  constructor(
+    readonly operation: GarageOperation,
+    readonly reason: 'network_or_timeout' | 'http_status' | 'invalid_json',
+    readonly statusCode?: number,
+  ) {
+    super('private Garage initialization failed')
+  }
+}
+
 export const storageCredentialsSchema = z
   .object({
     format: z.literal(1),
@@ -29,16 +49,28 @@ export async function initializeGarage(source: Record<string, string | undefined
   const lock = join(directory, 'storage-initialization-lock')
   await mkdir(lock, { mode: 0o700 })
   try {
-    const request = async (operation: string, input?: unknown): Promise<unknown> => {
-      const response = await fetch(`http://garage:3903/v2/${operation}`, {
-        method: input ? 'POST' : 'GET',
-        headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json' },
-        body: input ? JSON.stringify(input) : undefined,
-        redirect: 'error',
-        signal: AbortSignal.timeout(10_000),
-      })
-      if (!response.ok) throw new Error('private Garage initialization failed')
-      return await response.json()
+    const request = async (operation: GarageOperation, input?: unknown): Promise<unknown> => {
+      let response: Response
+      try {
+        response = await fetch(`http://garage:3903/v2/${operation}`, {
+          method: input ? 'POST' : 'GET',
+          headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json' },
+          body: input ? JSON.stringify(input) : undefined,
+          redirect: 'error',
+          signal: AbortSignal.timeout(10_000),
+        })
+      } catch {
+        throw new GarageInitializationError(operation, 'network_or_timeout')
+      }
+      if (!response.ok) {
+        await response.body?.cancel()
+        throw new GarageInitializationError(operation, 'http_status', response.status)
+      }
+      try {
+        return await response.json()
+      } catch {
+        throw new GarageInitializationError(operation, 'invalid_json', response.status)
+      }
     }
     try {
       const existing = await privateJson(file, storageCredentialsSchema)
