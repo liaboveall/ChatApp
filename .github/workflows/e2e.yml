@@ -98,5 +98,5 @@ jobs:
         uses: actions/upload-artifact@v7
         with:
           name: visual-diff
-          path: apps/web/test-results
+          path: .test-runs/visual/results
           retention-days: 7

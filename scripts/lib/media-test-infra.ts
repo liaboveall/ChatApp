@@ -471,7 +471,9 @@ export class MediaTestInstance {
         const tag = `chatapp-media-test:${manifest.runId}-${kind}`
         await docker(
           ['build', '--target', kind, '--file', 'infra/Dockerfile.media', '--tag', tag, '.'],
-          { timeoutMs: 180_000 },
+          // Cold CI builds compile the pinned FFmpeg source.
+          // Keep this setup budget separate from decoder, startup and workload deadlines.
+          { timeoutMs: 20 * 60_000 },
         )
         const image = first<{ Id: string; Config: { Labels: Record<string, string> } }>(
           await docker(['image', 'inspect', tag]),

@@ -39,17 +39,41 @@ jobs:
       - name: Operator binaries and non-root runtime smoke
         run: bun scripts/production-image-smoke.ts .test-runs/image-candidate/release.json
       - name: Native production boot, TLS chat smoke and fresh-target backup recovery
-        run: bun --no-env-file scripts/test-production.ts .test-runs/image-candidate/release.json
+        # Production operations manage private UID-10001 files as root (docs/31).
+        run: sudo --preserve-env=PATH bun --no-env-file scripts/test-production.ts .test-runs/image-candidate/release.json
+      - name: Collect public metadata without traversing private runtime directories
+        if: always()
+        run: |
+          mkdir -p .test-runs/image-evidence
+          sudo python3 - "$(id -u)" "$(id -g)" <<'PY'
+          import os
+          from pathlib import Path
+          import shutil
+          import sys
+
+          uid, gid = map(int, sys.argv[1:])
+          destination = Path('.test-runs/image-evidence')
+          sources = [
+              Path('.test-runs/image-candidate/release.json'),
+              Path('.test-runs/image-candidate/image-smoke.json'),
+              *Path('.test-runs/production').glob('*/receipt.json'),
+              *Path('.test-runs/production').glob('*/load-summary.json'),
+          ]
+          for source in sources:
+              if source.is_symlink() or not source.is_file():
+                  continue
+              target = destination / source.parent.name / source.name
+              target.parent.mkdir(mode=0o755, exist_ok=True)
+              shutil.copyfile(source, target)
+              os.chown(target, uid, gid)
+              target.chmod(0o600)
+          PY
       - name: Preserve release metadata only
         if: always()
         uses: actions/upload-artifact@v7
         with:
           name: image-evidence-${{ matrix.architecture }}
-          path: |
-            .test-runs/image-candidate/release.json
-            .test-runs/image-candidate/image-smoke.json
-            .test-runs/production/**/receipt.json
-            .test-runs/production/**/load-summary.json
+          path: .test-runs/image-evidence
           if-no-files-found: error
           retention-days: 14
   trivy:
