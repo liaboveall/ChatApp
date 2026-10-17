@@ -10,8 +10,9 @@ import {
   scheduledMessageListSchema,
   scheduledMessageResponseSchema,
 } from '@chatapp/contracts'
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { type FormEvent, useState } from 'react'
+import type { z } from 'zod'
 import { forScreen } from '@/app/sync.ts'
 import { Button } from '@/components/ui/button.tsx'
 import { SegmentedControl, Switch } from '@/components/ui/controls.tsx'
@@ -117,7 +118,7 @@ function OwnKeyGroup({ me }: { me: Me }) {
   })
   const submit = (event: FormEvent) => {
     event.preventDefault()
-    if (draft.trim()) save.mutate(draft.trim())
+    if (!save.isPending && draft.trim()) save.mutate(draft.trim())
   }
   const key = current.data?.aiKey ?? null
   return (
@@ -134,7 +135,17 @@ function OwnKeyGroup({ me }: { me: Me }) {
           </div>
         ) : current.isError ? (
           <div className="row">
-            <Banner tone="danger">{describeError(current.error)}</Banner>
+            <Banner tone="danger">
+              {describeError(current.error)}
+              <Button
+                kind="plain"
+                size="sm"
+                busy={current.isFetching}
+                onClick={() => void current.refetch()}
+              >
+                {m.common_retry()}
+              </Button>
+            </Banner>
           </div>
         ) : key ? (
           <Row title={m.settings_ai_key_current({ last4: key.last4 })} help={keyState(key)}>
@@ -157,6 +168,7 @@ function OwnKeyGroup({ me }: { me: Me }) {
               autoComplete="off"
               spellCheck={false}
               value={draft}
+              disabled={save.isPending}
               maxLength={256}
               error={problem ?? undefined}
               onChange={(event) => {
@@ -278,43 +290,123 @@ function TaskRow({ task }: { task: Task }) {
 function TasksGroup() {
   const scope = useSyncScope()
   const enabled = scope !== null
-  const reminders = useQuery({
-    queryKey: ['tasks', 'reminders', scope?.userId, scope?.generation],
+  const [status, setStatus] = useState<Reminder['status']>('scheduled')
+  const reminders = useInfiniteQuery({
+    queryKey: ['tasks', 'reminders', scope?.userId, scope?.generation, status],
     enabled,
-    queryFn: () => forScreen(null, () => api('/api/reminders', { schema: reminderListSchema })),
+    initialPageParam: null as string | null,
+    getNextPageParam: (page: z.infer<typeof reminderListSchema> | null) =>
+      page?.nextCursor ?? undefined,
+    queryFn: ({ pageParam, signal }) =>
+      forScreen(null, () =>
+        api(
+          `/api/reminders?${new URLSearchParams({ status, ...(pageParam ? { cursor: pageParam } : {}) })}`,
+          { schema: reminderListSchema, signal },
+        ),
+      ),
   })
-  const scheduled = useQuery({
-    queryKey: ['tasks', 'scheduled', scope?.userId, scope?.generation],
+  const scheduled = useInfiniteQuery({
+    queryKey: ['tasks', 'scheduled', scope?.userId, scope?.generation, status],
     enabled,
-    queryFn: () =>
-      forScreen(null, () => api('/api/scheduled-messages', { schema: scheduledMessageListSchema })),
+    initialPageParam: null as string | null,
+    getNextPageParam: (page: z.infer<typeof scheduledMessageListSchema> | null) =>
+      page?.nextCursor ?? undefined,
+    queryFn: ({ pageParam, signal }) =>
+      forScreen(null, () =>
+        api(
+          `/api/scheduled-messages?${new URLSearchParams({ status, ...(pageParam ? { cursor: pageParam } : {}) })}`,
+          { schema: scheduledMessageListSchema, signal },
+        ),
+      ),
   })
   const error = reminders.error ?? scheduled.error
   const tasks: Task[] = [
-    ...(reminders.data?.reminders ?? []).map((item) => ({ kind: 'reminder' as const, item })),
-    ...(scheduled.data?.scheduledMessages ?? []).map((item) => ({
-      kind: 'scheduled' as const,
+    ...(reminders.data?.pages.flatMap((page) => page?.reminders ?? []) ?? []).map((item) => ({
+      kind: 'reminder' as const,
       item,
     })),
-  ].sort((a, b) => b.item.createdAt.localeCompare(a.item.createdAt))
+    ...(scheduled.data?.pages.flatMap((page) => page?.scheduledMessages ?? []) ?? []).map(
+      (item) => ({
+        kind: 'scheduled' as const,
+        item,
+      }),
+    ),
+  ].sort(
+    (a, b) =>
+      (status === 'scheduled'
+        ? a.item.at.localeCompare(b.item.at)
+        : b.item.createdAt.localeCompare(a.item.createdAt)) || a.item.id.localeCompare(b.item.id),
+  )
   return (
     <Group title={m.settings_tasks()}>
       <Box>
+        <div className="row task-filters">
+          <SegmentedControl<Reminder['status']>
+            label={m.settings_tasks()}
+            value={status}
+            onValueChange={setStatus}
+            items={[
+              { value: 'scheduled', label: m.settings_tasks_status_scheduled() },
+              { value: 'sent', label: m.settings_tasks_status_sent() },
+              { value: 'cancelled', label: m.settings_tasks_status_cancelled() },
+              { value: 'failed', label: m.settings_tasks_failed() },
+            ]}
+          />
+        </div>
         {reminders.isPending || scheduled.isPending ? (
           <div className="row">
             <Skeleton width="60%" height={16} />
           </div>
-        ) : error ? (
-          <div className="row">
-            <Banner tone="danger">{describeError(error)}</Banner>
-          </div>
-        ) : tasks.length === 0 ? (
+        ) : tasks.length === 0 && !error ? (
           <div className="row">
             <p className="text-subheadline text-label-secondary">{m.settings_tasks_empty()}</p>
           </div>
         ) : (
-          tasks.map((task) => <TaskRow key={task.item.id} task={task} />)
+          tasks.map((task) => <TaskRow key={`${task.kind}-${task.item.id}`} task={task} />)
         )}
+        {error ? (
+          <div className="row">
+            <Banner tone="danger">{describeError(error)}</Banner>
+          </div>
+        ) : null}
+        <div className="row task-actions">
+          {reminders.hasNextPage || reminders.isError ? (
+            <Button
+              size="sm"
+              kind="plain"
+              busy={reminders.isFetching}
+              onClick={() =>
+                void (reminders.error instanceof ApiError &&
+                reminders.error.code === 'VALIDATION_FAILED'
+                  ? reminders.refetch()
+                  : reminders.isFetchNextPageError || !reminders.isError
+                    ? reminders.fetchNextPage()
+                    : reminders.refetch())
+              }
+            >
+              {reminders.isError ? m.common_retry() : m.common_load_more()} ·{' '}
+              {m.settings_tasks_reminder()}
+            </Button>
+          ) : null}
+          {scheduled.hasNextPage || scheduled.isError ? (
+            <Button
+              size="sm"
+              kind="plain"
+              busy={scheduled.isFetching}
+              onClick={() =>
+                void (scheduled.error instanceof ApiError &&
+                scheduled.error.code === 'VALIDATION_FAILED'
+                  ? scheduled.refetch()
+                  : scheduled.isFetchNextPageError || !scheduled.isError
+                    ? scheduled.fetchNextPage()
+                    : scheduled.refetch())
+              }
+            >
+              {scheduled.isError ? m.common_retry() : m.common_load_more()} ·{' '}
+              {m.settings_tasks_scheduled()}
+            </Button>
+          ) : null}
+        </div>
       </Box>
     </Group>
   )

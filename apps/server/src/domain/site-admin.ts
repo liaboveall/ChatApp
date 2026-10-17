@@ -19,9 +19,10 @@ import {
   type Tx,
   users,
 } from '@chatapp/db'
-import { and, desc, eq, ilike, inArray, isNull, lt, ne, or, sql } from 'drizzle-orm'
+import { and, desc, eq, gte, ilike, inArray, isNull, lt, lte, or, sql } from 'drizzle-orm'
 import type { AnyPgColumn } from 'drizzle-orm/pg-core'
 import { fingerprint } from '../lib/crypto.ts'
+import { lockAdminRoles, requireAdminSuccessor } from './admin-continuity.ts'
 import { budgetPeriod } from './agent-budget.ts'
 import { lockStorage } from './attachment-common.ts'
 import { writeAudit } from './audit.ts'
@@ -86,11 +87,20 @@ export async function adminCatalog(
     await requireSiteAdmin(tx, deps, principal)
     const filter = query.query ?? '',
       token = query.cursor ? decodeCursor(deps, query.cursor, 'admin-catalog', principal) : null
+    const filterKey = fingerprint({
+      query: filter,
+      action: query.action ?? null,
+      actorId: query.actorId ?? null,
+      after: query.after ?? null,
+      before: query.before ?? null,
+    })
+    if (query.after && query.before && Date.parse(query.after) > Date.parse(query.before))
+      throw new AppError('VALIDATION_FAILED', 'The time range is reversed')
     if (
       query.cursor &&
       (!token ||
         token.section !== section ||
-        token.f !== filter ||
+        token.f !== filterKey ||
         token.ae !== principal.authEpoch ||
         token.re !== principal.restoreEpoch)
     )
@@ -111,7 +121,7 @@ export async function adminCatalog(
             ae: principal.authEpoch,
             re: principal.restoreEpoch,
             section,
-            f: filter,
+            f: filterKey,
             o: [last.createdAt.toISOString(), last.id],
             x: cursorExpiry(deps),
           })
@@ -132,6 +142,7 @@ export async function adminCatalog(
                   ilike(users.username, pattern),
                   ilike(users.name, pattern),
                   ilike(users.email, pattern),
+                  ilike(sql`${users.id}::text`, pattern),
                 )
               : undefined,
           ),
@@ -171,7 +182,12 @@ export async function adminCatalog(
           and(
             inArray(conversations.kind, ['channel', 'group']),
             position(conversations),
-            filter ? ilike(conversations.name, pattern) : undefined,
+            filter
+              ? or(
+                  ilike(conversations.name, pattern),
+                  ilike(sql`${conversations.id}::text`, pattern),
+                )
+              : undefined,
           ),
         )
         .orderBy(desc(conversations.createdAt), desc(conversations.id))
@@ -201,7 +217,9 @@ export async function adminCatalog(
         .select({ row: reports, name: users.name })
         .from(reports)
         .leftJoin(users, eq(users.id, reports.reporterId))
-        .where(position(reports))
+        .where(
+          and(position(reports), filter ? ilike(sql`${reports.id}::text`, pattern) : undefined),
+        )
         .orderBy(desc(reports.createdAt), desc(reports.id))
         .limit(query.limit + 1)
       return {
@@ -222,7 +240,15 @@ export async function adminCatalog(
       .select({ row: auditLogs, name: users.name })
       .from(auditLogs)
       .leftJoin(users, eq(users.id, auditLogs.actorId))
-      .where(position(auditLogs))
+      .where(
+        and(
+          position(auditLogs),
+          query.action ? eq(auditLogs.action, query.action) : undefined,
+          query.actorId ? eq(auditLogs.actorId, query.actorId) : undefined,
+          query.after ? gte(auditLogs.createdAt, new Date(query.after)) : undefined,
+          query.before ? lte(auditLogs.createdAt, new Date(query.before)) : undefined,
+        ),
+      )
       .orderBy(desc(auditLogs.createdAt), desc(auditLogs.id))
       .limit(query.limit + 1)
     return {
@@ -231,11 +257,33 @@ export async function adminCatalog(
         action: row.action,
         actorName: name,
         targetType: row.targetType,
+        targetId: row.targetId,
+        summary: auditSummary(row.metadata),
         createdAt: row.createdAt.toISOString(),
       })),
       nextCursor: next(rows.map((item) => item.row)),
     }
   })
+}
+
+/** Never expose arbitrary audit metadata, which can contain internal recovery or private fields. */
+function auditSummary(metadata: Record<string, unknown>) {
+  return {
+    ...(typeof metadata.roleChanged === 'boolean' ? { roleChanged: metadata.roleChanged } : {}),
+    ...(metadata.status === 'resolved' || metadata.status === 'dismissed'
+      ? { status: metadata.status }
+      : {}),
+    ...(typeof metadata.version === 'number' &&
+    Number.isSafeInteger(metadata.version) &&
+    metadata.version >= 0
+      ? { version: metadata.version }
+      : {}),
+    ...(typeof metadata.runContentDays === 'number' &&
+    Number.isSafeInteger(metadata.runContentDays) &&
+    metadata.runContentDays >= 0
+      ? { runContentDays: metadata.runContentDays }
+      : {}),
+  }
 }
 
 export async function adminUserChange(
@@ -255,7 +303,7 @@ export async function adminUserChange(
 ) {
   assertIdempotencyKey(key)
   return await inTransaction(deps.db, async (tx) => {
-    await tx.execute(sql`select pg_advisory_xact_lock(hashtext('chatapp.admin.roles'))`)
+    await lockAdminRoles(tx)
     await requireSiteAdmin(tx, deps, principal, [id])
     const [row] = await tx
       .select()
@@ -283,23 +331,8 @@ export async function adminUserChange(
       throw new AppError('FORBIDDEN', 'Recovery permissions require separate operator confirmation')
     if (input.ban && id === principal.userId)
       throw new AppError('FORBIDDEN', 'An administrator cannot ban their current account')
-    if ((input.ban || input.role === 'user') && row.role === 'admin' && !row.banned) {
-      const other = await tx
-        .select({ id: users.id })
-        .from(users)
-        .where(
-          and(
-            eq(users.role, 'admin'),
-            eq(users.banned, false),
-            isNull(users.deletedAt),
-            eq(users.activationStatus, 'active'),
-            eq(users.emailVerified, true),
-            ne(users.id, id),
-          ),
-        )
-        .limit(1)
-      if (!other.length)
-        throw new AppError('CONFLICT', 'At least one active verified administrator is required')
+    if ((input.ban || input.role === 'user') && row.role === 'admin') {
+      await requireAdminSuccessor(tx, id, deps.clock.now())
     }
     if (
       input.ban &&

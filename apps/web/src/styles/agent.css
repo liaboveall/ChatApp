@@ -227,6 +227,17 @@
   gap: 12px;
   padding: 16px;
 }
+.task-filters .seg {
+  flex-wrap: wrap;
+  gap: 2px;
+  max-width: 100%;
+}
+.task-filters .seg__item {
+  flex: 1 1 110px;
+}
+.task-actions {
+  flex-wrap: wrap;
+}
 .settings-memory-form label {
   display: grid;
   gap: 8px;

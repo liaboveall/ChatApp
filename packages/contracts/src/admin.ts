@@ -8,6 +8,10 @@ export const adminPageQuerySchema = z
   .object({
     cursor: z.string().max(4096).optional(),
     query: z.string().trim().max(100).optional(),
+    action: z.string().trim().min(1).max(100).optional(),
+    actorId: z.uuid().optional(),
+    after: z.iso.datetime().optional(),
+    before: z.iso.datetime().optional(),
     limit: z.coerce.number().int().min(1).max(100).default(30),
   })
   .strict()
@@ -141,6 +145,15 @@ export const adminAuditSchema = z
     action: z.string(),
     actorName: z.string().nullable(),
     targetType: z.string().nullable(),
+    targetId: z.string().nullable(),
+    summary: z
+      .object({
+        roleChanged: z.boolean().optional(),
+        status: z.enum(['resolved', 'dismissed']).optional(),
+        version: count.optional(),
+        runContentDays: count.optional(),
+      })
+      .strict(),
     createdAt: z.iso.datetime(),
   })
   .strict()

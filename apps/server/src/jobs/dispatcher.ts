@@ -8,7 +8,8 @@
 import type { WorkKind } from '@chatapp/contracts'
 import type { Queue } from 'bullmq'
 import type { Deps } from '../domain/deps.ts'
-import { claimReadyWork, completeWork } from '../domain/work-queue.ts'
+import { deliverAdminNotification } from '../domain/notifications.ts'
+import { claimReadyWork, completeWork, failWork } from '../domain/work-queue.ts'
 import type { Logger } from '../lib/logger.ts'
 import { describeError } from '../lib/logger.ts'
 import type { EventBus } from '../realtime/bus.ts'
@@ -53,7 +54,9 @@ export function createDispatcher(parts: {
     })
     for (const work of claimed) {
       try {
-        if (work.kind === 'realtime') {
+        if (work.kind === 'notification') {
+          await deliverAdminNotification(deps, { id: work.id, leaseEpoch: work.leaseEpoch })
+        } else if (work.kind === 'realtime') {
           const event = busEventFromWork(work)
           if (event) await bus.publish(event)
           await completeWork(deps, { id: work.id, leaseEpoch: work.leaseEpoch })
@@ -108,6 +111,12 @@ export function createDispatcher(parts: {
           )
         }
       } catch (error) {
+        if (work.kind === 'notification')
+          await failWork(
+            deps,
+            { id: work.id, leaseEpoch: work.leaseEpoch },
+            { kind: work.kind, errorCode: 'notification_delivery_failed' },
+          )
         // The item stays leased and comes back when the lease expires.
         log.warn('dispatcher.dispatch_failed', {
           workId: work.id,

@@ -58,7 +58,8 @@ export type DelegationStatus = z.infer<typeof delegationStatusSchema>
 
 /**
  * Durable work intents; later milestones append kinds. `scheduled` delivers M5a tasks; `push` (M6) derives notifications
- * from a message and delivers one browser push to one subscription.
+ * from a message and delivers one browser push to one subscription. `notification` durably delivers a report alert
+ * to one administrator without expanding the report transaction's user locks.
  */
 export const WORK_KINDS = [
   'realtime',
@@ -68,6 +69,7 @@ export const WORK_KINDS = [
   'scheduled',
   'embedding',
   'push',
+  'notification',
 ] as const
 export const workKindSchema = z.enum(WORK_KINDS)
 export type WorkKind = z.infer<typeof workKindSchema>
@@ -168,8 +170,8 @@ export const presenceStatusSchema = z.enum(PRESENCE_STATUSES)
 export type PresenceStatus = z.infer<typeof presenceStatusSchema>
 
 /**
- * What the in-site notification centre records (docs/01 section 4.8, docs/04 section 6). `report_opened` has no producer
- * before M7; the value exists from the start so the column never needs rewriting.
+ * What the in-site notification centre records (docs/01 section 4.8, docs/04 section 6). M7 reports use per-administrator
+ * durable work with notification deduplication, so a committed report is recoverable after a worker crash.
  */
 export const NOTIFICATION_TYPES = [
   'mention',

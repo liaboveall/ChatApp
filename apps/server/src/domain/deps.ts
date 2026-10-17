@@ -65,5 +65,7 @@ export type Deps = {
    * Crash injection (docs/08 section 4, INV-10): the isolated fault suite pauses a real worker at these points and kills
    * it there. Only the worker of APP_ENV=test installs it, and only when asked to; production never has it.
    */
-  faultPoint?: (name: 'effect.before' | 'effect.after') => Promise<void>
+  faultPoint?: (
+    name: 'effect.before' | 'effect.after' | 'notification.before' | 'notification.after',
+  ) => Promise<void>
 }

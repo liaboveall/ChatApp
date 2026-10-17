@@ -1,0 +1,1 @@
+ALTER TYPE "public"."work_kind" ADD VALUE 'notification';

@@ -497,31 +497,30 @@
     grid-template-columns: 68px minmax(0, 1fr);
   }
   .splitter,
-  .sidebar .search kbd,
-  .sidebar li > .btn,
-  .sidebar .search__text,
-  .sidebar .s-item__body,
-  .sidebar .s-item__meta,
-  .sidebar .s-section__toggle > span,
-  .sidebar__user-main > div,
-  .sidebar .sidebar__top .icon-btn,
-  .sidebar .s-section__head .icon-btn,
-  .sidebar .s-section__toggle .icon,
-  .sidebar .sidebar__empty-text {
+  .app:not([data-drawer="open"]) .sidebar .search kbd,
+  .app:not([data-drawer="open"]) .sidebar li > .btn,
+  .app:not([data-drawer="open"]) .sidebar .search__text,
+  .app:not([data-drawer="open"]) .sidebar .s-item__body,
+  .app:not([data-drawer="open"]) .sidebar .s-item__meta,
+  .app:not([data-drawer="open"]) .sidebar .s-section__toggle > span,
+  .app:not([data-drawer="open"]) .sidebar__user-main > div,
+  .app:not([data-drawer="open"]) .sidebar .sidebar__top .icon-btn,
+  .app:not([data-drawer="open"]) .sidebar .s-section__head .icon-btn,
+  .app:not([data-drawer="open"]) .sidebar .sidebar__empty-text {
     display: none;
   }
-  .sidebar .search {
+  .app:not([data-drawer="open"]) .sidebar .search {
     justify-content: center;
     padding: 0;
     min-height: 36px;
   }
-  .sidebar .s-item {
+  .app:not([data-drawer="open"]) .sidebar .s-item {
     grid-template-columns: 1fr;
     justify-items: center;
     padding: 6px 0;
     min-height: 48px;
   }
-  .sidebar .s-item[data-unread="true"]::after {
+  .app:not([data-drawer="open"]) .sidebar .s-item[data-unread="true"]::after {
     content: "";
     position: absolute;
     top: 6px;
@@ -532,15 +531,15 @@
     background: var(--accent-solid);
     box-shadow: 0 0 0 2px var(--glass-base);
   }
-  .sidebar .s-section__head {
+  .app:not([data-drawer="open"]) .sidebar .s-section__head {
     justify-content: center;
     padding: 0;
   }
-  .sidebar .s-section__toggle {
+  .app:not([data-drawer="open"]) .sidebar .s-section__toggle {
     justify-content: center;
-    min-height: 8px;
+    min-height: 36px;
   }
-  .sidebar .sidebar__user {
+  .app:not([data-drawer="open"]) .sidebar .sidebar__user {
     flex-direction: column;
     justify-content: center;
     gap: 4px;
@@ -600,11 +599,11 @@
   }
 }
 
-/* The drawer scrim only exists in the narrow tier. */
+/* Tablet and phone navigation share the same drawer. */
 .drawer-scrim {
   display: none;
 }
-@container win (max-width: 767px) {
+@container win (max-width: 1023px) {
   .app[data-drawer="open"] > .drawer-scrim {
     display: block;
     position: absolute;
@@ -837,4 +836,28 @@
       top: calc(8px + var(--titlebar-h));
     }
   }
+}
+
+@container win (max-width: 1023px) {
+  .toolbar__menu-btn {
+    display: inline-grid;
+  }
+  .app[data-drawer="open"] .sidebar {
+    position: absolute;
+    left: 8px;
+    top: 8px;
+    bottom: 8px;
+    z-index: 70;
+    width: min(320px, calc(100% - 16px));
+    transform: none;
+    visibility: visible;
+  }
+}
+.palette__search-status {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 8px 16px;
+  border-top: 1px solid var(--separator);
 }

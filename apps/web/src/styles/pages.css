@@ -91,6 +91,16 @@
   width: min(420px, 100%);
   text-align: left;
 }
+.welcome__actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 10px;
+}
+.welcome__keys summary {
+  cursor: pointer;
+  margin-bottom: 8px;
+}
 .welcome__keys .keys-row {
   border-bottom: 0;
   padding: 4px 0;

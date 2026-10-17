@@ -20,6 +20,7 @@ import {
   sql,
 } from 'drizzle-orm'
 import { requireAccess } from './authorize.ts'
+import { conversationRefFor } from './conversation-refs.ts'
 import { cursorExpiry, decodeCursor, encodeCursor } from './cursor.ts'
 import type { Deps } from './deps.ts'
 import { type MessageRow, projectMessages } from './messages.ts'
@@ -133,14 +134,29 @@ export async function searchMessages(
       limit: query.limit + 1,
     })
     const page = rows.slice(0, query.limit)
-    const memberships = await tx
-      .select()
-      .from(conversationMembers)
-      .where(eq(conversationMembers.userId, principal.userId))
+    const conversationIds = [...new Set(page.map((message) => message.conversationId))]
+    const memberships = conversationIds.length
+      ? await tx
+          .select()
+          .from(conversationMembers)
+          .where(
+            and(
+              eq(conversationMembers.userId, principal.userId),
+              inArray(conversationMembers.conversationId, conversationIds),
+            ),
+          )
+      : []
+    const refs: MessageSearchResponse['conversations'] = {}
     const projected: Pick<MessageSearchResponse, 'messages' | 'users'> = { messages: [], users: {} }
     for (const membership of memberships) {
       const group = page.filter((r) => r.conversationId === membership.conversationId)
       if (!group.length) continue
+      refs[membership.conversationId] = await conversationRefFor(
+        tx,
+        principal.userId,
+        membership.conversationId,
+        deps.clock.now(),
+      )
       const result = await projectMessages(
         tx,
         { userId: principal.userId, visibleFromSeq: membership.visibleFromSeq },
@@ -154,6 +170,7 @@ export async function searchMessages(
     const last = page.at(-1)
     return {
       ...projected,
+      conversations: refs,
       nextCursor:
         rows.length > query.limit && last
           ? encodeCursor(deps, {

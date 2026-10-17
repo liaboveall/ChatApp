@@ -176,6 +176,20 @@
       "when": 1791848020407,
       "tag": "0024_upload_image_policy",
       "breakpoints": true
+    },
+    {
+      "idx": 25,
+      "version": "7",
+      "when": 1792159291735,
+      "tag": "0025_review_notification_work",
+      "breakpoints": true
+    },
+    {
+      "idx": 26,
+      "version": "7",
+      "when": 1792159615954,
+      "tag": "0026_review_report_notification_recovery",
+      "breakpoints": true
     }
   ]
 }

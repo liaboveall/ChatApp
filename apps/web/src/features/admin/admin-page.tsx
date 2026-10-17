@@ -33,6 +33,7 @@ import { useSyncScope } from '@/lib/sync/hooks.ts'
 import { registerStoreReset } from '@/lib/sync/stores.ts'
 import { showToast } from '@/lib/toast.ts'
 import { m } from '@/paraglide/messages.js'
+import { AuditEntry, AuditFilterForm, type AuditFilters } from './audit-log.tsx'
 
 type Section =
   | 'users'
@@ -78,12 +79,14 @@ const money = (value: number) =>
 export function AdminPage() {
   const [section, setSection] = useState<Section>('users'),
     [cursor, setCursor] = useState<string | undefined>(),
-    [search, setSearch] = useState('')
+    [search, setSearch] = useState(''),
+    [searchDraft, setSearchDraft] = useState('')
   const [dialog, setDialog] = useState<ReactNode>(null),
     [confirm, setConfirm] = useState<{ title: string; text: string; action: () => void } | null>(
       null,
     )
   const [busy, setBusy] = useState(false)
+  const [auditFilters, setAuditFilters] = useState<AuditFilters>({})
   useEffect(
     () =>
       registerStoreReset(() => {
@@ -91,7 +94,9 @@ export function AdminPage() {
         setConfirm(null)
         setBusy(false)
         setSearch('')
+        setSearchDraft('')
         setCursor(undefined)
+        setAuditFilters({})
       }),
     [],
   )
@@ -102,9 +107,10 @@ export function AdminPage() {
   const suffix = new URLSearchParams({
     ...(cursor ? { cursor } : {}),
     ...(search ? { query: search } : {}),
+    ...(section === 'audit' ? auditFilters : {}),
   }).toString()
   const query = useQuery({
-    queryKey: [...prefix, section, cursor, search],
+    queryKey: [...prefix, section, cursor, search, auditFilters],
     enabled: !!scope && me.data?.role === 'admin',
     queryFn: async () => {
       switch (section) {
@@ -311,6 +317,8 @@ export function AdminPage() {
               setSection(tab.id)
               setCursor(undefined)
               setSearch('')
+              setSearchDraft('')
+              setAuditFilters({})
               setDialog(null)
             }}
           >
@@ -318,19 +326,32 @@ export function AdminPage() {
           </Button>
         ))}
       </nav>
-      {section === 'users' || section === 'conversations' ? (
+      {section === 'users' || section === 'conversations' || section === 'reports' ? (
         <form
           className="admin-search"
           onSubmit={(event) => {
             event.preventDefault()
-            const value = new FormData(event.currentTarget).get('search')
-            setSearch(String(value ?? ''))
+            setSearch(searchDraft.trim())
             setCursor(undefined)
           }}
         >
-          <TextField label={m.admin_search()} name="search" maxLength={100} />
+          <TextField
+            label={section === 'reports' ? m.admin_report_filter() : m.admin_search()}
+            name="search"
+            maxLength={100}
+            value={searchDraft}
+            onChange={(event) => setSearchDraft(event.currentTarget.value)}
+          />
           <Button type="submit">{m.admin_search()}</Button>
         </form>
+      ) : null}
+      {section === 'audit' ? (
+        <AuditFilterForm
+          onApply={(filters) => {
+            setAuditFilters(filters)
+            setCursor(undefined)
+          }}
+        />
       ) : null}
       <PageStatus error={query.error} pending={query.isPending}>
         {data?.section === 'users' ? (
@@ -571,14 +592,24 @@ export function AdminPage() {
           <div className="admin-list">
             {data.entries.length ? (
               data.entries.map((entry) => (
-                <article className="admin-row glass-text squircle" key={entry.id}>
-                  <div>
-                    <strong>{auditLabel(entry.action)}</strong>
-                    <p>
-                      {entry.actorName ?? m.admin_role_admin()} · {at(entry.createdAt)}
-                    </p>
-                  </div>
-                </article>
+                <AuditEntry
+                  key={entry.id}
+                  entry={entry}
+                  actionLabel={auditLabel(entry.action)}
+                  onOpenTarget={(type, id) => {
+                    setSection(
+                      type === 'user'
+                        ? 'users'
+                        : type === 'conversation'
+                          ? 'conversations'
+                          : 'reports',
+                    )
+                    setSearch(id)
+                    setSearchDraft(id)
+                    setCursor(undefined)
+                    setAuditFilters({})
+                  }}
+                />
               ))
             ) : (
               <p>{m.admin_empty()}</p>

@@ -13,7 +13,7 @@ import {
   runMaintenanceTask,
 } from '../domain/maintenance.ts'
 import { purgeExpiredSummaries } from '../domain/memories.ts'
-import { purgeExpiredNotifications } from '../domain/notifications.ts'
+import { purgeExpiredNotifications, reconcileReportNotifications } from '../domain/notifications.ts'
 import { pruneStaleSubscriptions } from '../domain/push.ts'
 import { reconcileRegistrations } from '../domain/registration.ts'
 import { prepareRetention } from '../domain/retention.ts'
@@ -65,6 +65,7 @@ export function createMaintenance(parts: {
     await recoverAgentRuns(deps)
     const expired = await expireApprovals(deps)
     const tasks = await reconcileTasks(deps)
+    await reconcileReportNotifications(deps)
     if (expired + tasks > 0) log.info('agent.reconciled', { count: expired + tasks })
     const work = await recoverExpiredWork(deps)
     const registrations = await reconcileRegistrations(deps)

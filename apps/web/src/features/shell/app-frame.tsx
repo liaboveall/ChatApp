@@ -26,7 +26,11 @@ import { Inspector } from '@/components/layout/inspector.tsx'
 import { Sidebar } from '@/components/layout/sidebar.tsx'
 import { Toolbar } from '@/components/layout/toolbar.tsx'
 import { Avatar } from '@/components/ui/avatar.tsx'
-import { CommandPalette, type PaletteCommand } from '@/features/command-palette/command-palette.tsx'
+import {
+  CommandPalette,
+  type PaletteCommand,
+  type PaletteSearchPage,
+} from '@/features/command-palette/command-palette.tsx'
 import { neighbourOf } from '@/features/conversations/navigation.ts'
 import {
   NewConversationDialog,
@@ -43,7 +47,9 @@ import { useGlobalShortcuts } from '@/lib/shortcuts.ts'
 import { useSidebarGroups } from '@/lib/sync/hooks.ts'
 import { displayName, sidebarOrder } from '@/lib/sync/selectors.ts'
 import { showToast } from '@/lib/toast.ts'
+import { useTime } from '@/lib/use-time.ts'
 import { m } from '@/paraglide/messages.js'
+import { conversationLabel } from '../agent/approval-card.tsx'
 import { NewAgentChat } from '../agent/new-chat.tsx'
 import { useAgent } from '../agent/store.ts'
 import { ShortcutsDialog } from './shortcuts-dialog.tsx'
@@ -63,6 +69,7 @@ type AppFrameProps = {
  * palette, settings, shortcut help). Conversations arrive with M2; until then the main panel is the welcome page.
  */
 export function AppFrame({ me, settings, onSettingsChange, onSignOut, children }: AppFrameProps) {
+  const { locale, timeZone } = useTime()
   const [paletteOpen, setPaletteOpen] = useState(false)
   const [helpOpen, setHelpOpen] = useState(false)
   const [creating, setCreating] = useState<NewKind | null>(null)
@@ -73,6 +80,14 @@ export function AppFrame({ me, settings, onSettingsChange, onSignOut, children }
   const navigate = useNavigate()
   const router = useRouter()
   const conversations = useSidebarGroups()
+  const conversationNames = useRef(new Map<string, string>())
+  useEffect(() => {
+    conversationNames.current = new Map(
+      conversations.flatMap((group) =>
+        group.items.map((item) => [item.conversation.id, displayName(item.conversation)] as const),
+      ),
+    )
+  }, [conversations])
   const inspector = useShell((state) => state.inspector)
   const toggleAssistant = useShell((state) => state.toggleAssistant)
   const setDrawer = useShell((state) => state.setDrawer)
@@ -295,37 +310,54 @@ export function AppFrame({ me, settings, onSettingsChange, onSignOut, children }
   }, [openSettings, toggleAssistant, setTheme, onSignOut, conversations, navigate])
 
   const searchMessages = useCallback(
-    async (query: string, signal: AbortSignal): Promise<PaletteCommand[] | null> => {
+    async (
+      query: string,
+      signal: AbortSignal,
+      cursor?: string,
+    ): Promise<PaletteSearchPage | null> => {
+      const requestTicket = engine.ticket(null)
       const result = await forScreen(null, () =>
-        api(`/api/search/messages?${new URLSearchParams({ query, limit: '20' })}`, {
-          schema: messageSearchResponseSchema,
-          signal,
-        }),
+        api(
+          `/api/search/messages?${new URLSearchParams({ query, limit: '20', ...(cursor ? { cursor } : {}) })}`,
+          {
+            schema: messageSearchResponseSchema,
+            signal,
+          },
+        ),
       )
       if (!result) return null
-      return result.messages.map((message) => ({
-        id: `message-${message.id}`,
-        group: m.agent_search_messages(),
-        icon: MessageCircle,
-        label: plainMessageText(message.body ?? '', (id) => result.users[id]?.displayName).slice(
-          0,
-          180,
-        ),
-        sub: new Date(message.createdAt).toLocaleString(),
-        run: () => {
-          const ticket = engine.ticket(null)
-          useAgent.setState((s) => ({
-            jumps: { ...s.jumps, [message.conversationId]: message.seq },
-          }))
-          if (engine.isCurrent(ticket))
+      return {
+        nextCursor: result.nextCursor,
+        commands: result.messages.map((message) => ({
+          id: `message-${message.id}`,
+          group: m.agent_search_messages(),
+          icon: MessageCircle,
+          label: plainMessageText(message.body ?? '', (id) => result.users[id]?.displayName).slice(
+            0,
+            180,
+          ),
+          sub: [
+            Object.hasOwn(result.conversations, message.conversationId)
+              ? conversationLabel(result.conversations[message.conversationId] ?? null)
+              : (conversationNames.current.get(message.conversationId) ??
+                m.agent_approval_target_gone()),
+            result.users[message.senderId ?? '']?.displayName ?? m.palette_search_unknown_sender(),
+            new Date(message.createdAt).toLocaleString(locale, { timeZone }),
+          ].join(' · '),
+          run: () => {
+            if (!engine.isCurrent(requestTicket)) return
+            useAgent.setState((s) => ({
+              jumps: { ...s.jumps, [message.conversationId]: message.seq },
+            }))
             void navigate({
               to: '/c/$conversationId',
               params: { conversationId: message.conversationId },
             })
-        },
-      }))
+          },
+        })),
+      }
     },
-    [navigate],
+    [navigate, locale, timeZone],
   )
   const searchError = useCallback(() => showToast(m.agent_search_error()), [])
 

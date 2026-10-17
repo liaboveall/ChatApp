@@ -26,6 +26,8 @@ export function passwordProblemMessage(problem: PasswordProblem | string | undef
 /** A general message for any failure that the page did not handle itself. */
 export function describeError(error: unknown): string {
   if (!(error instanceof ApiError)) return m.error_unknown()
+  if (error.code === 'CONFLICT' && error.reason === 'admin_successor_required')
+    return m.error_admin_successor()
   if (error.code === 'VERSION_CONFLICT' && error.reason === 'deletion_busy')
     return m.deletion_busy()
   switch (error.code) {

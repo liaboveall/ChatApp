@@ -5,7 +5,7 @@ import {
   memoryResponseSchema,
 } from '@chatapp/contracts'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { type FormEvent, useState } from 'react'
+import { type FormEvent, useRef, useState } from 'react'
 import { engine, forScreen } from '@/app/sync.ts'
 import { Button } from '@/components/ui/button.tsx'
 import { Switch } from '@/components/ui/controls.tsx'
@@ -23,6 +23,7 @@ export function MemoriesGroup() {
     client = useQueryClient()
   const [draft, setDraft] = useState(''),
     [allowSite, setAllowSite] = useState(false)
+  const revision = useRef(0)
   const current = useQuery({
     queryKey: ['memories', scope?.userId, scope?.generation],
     enabled: scope !== null,
@@ -30,18 +31,21 @@ export function MemoriesGroup() {
   })
   const refresh = () => client.invalidateQueries({ queryKey: ['memories'] })
   const add = useMutation({
-    mutationFn: (content: string) =>
+    mutationFn: (input: { content: string; allowSite: boolean; revision: number }) =>
       forScreen(null, () =>
         api('/api/me/memories', {
           method: 'POST',
-          json: { content, allowSite },
+          json: { content: input.content, allowSite: input.allowSite },
           schema: memoryResponseSchema,
         }),
       ),
-    onSuccess: async (answer) => {
+    onSuccess: async (answer, input) => {
       if (answer === null) return
-      setDraft('')
-      setAllowSite(false)
+      if (revision.current === input.revision) {
+        setDraft('')
+        setAllowSite(false)
+        revision.current += 1
+      }
       await refresh()
       showToast(m.settings_memory_saved())
     },
@@ -76,7 +80,8 @@ export function MemoriesGroup() {
   })
   const submit = (event: FormEvent) => {
     event.preventDefault()
-    if (draft.trim()) add.mutate(draft.trim())
+    if (!add.isPending && draft.trim())
+      add.mutate({ content: draft.trim(), allowSite, revision: revision.current })
   }
   return (
     <Group title={m.settings_memories()}>
@@ -134,7 +139,10 @@ export function MemoriesGroup() {
               value={draft}
               maxLength={1000}
               rows={3}
-              onChange={(event) => setDraft(event.target.value)}
+              onChange={(event) => {
+                revision.current += 1
+                setDraft(event.target.value)
+              }}
               aria-describedby="memory-content-help"
             />
           </label>
@@ -143,7 +151,10 @@ export function MemoriesGroup() {
             <Switch
               label={m.settings_memory_allow_site()}
               checked={allowSite}
-              onCheckedChange={setAllowSite}
+              onCheckedChange={(value) => {
+                revision.current += 1
+                setAllowSite(value)
+              }}
             />
           </Row>
           <Button
