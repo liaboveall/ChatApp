@@ -14,7 +14,7 @@ import { writeAudit } from './audit.ts'
 import { enforce, loadAccess } from './authorize.ts'
 import type { Deps } from './deps.ts'
 import { assertIdempotencyKey, claimIdempotency, completeIdempotency } from './idempotency.ts'
-import { notifyAdmins } from './notifications.ts'
+import { enqueueAdminNotifications } from './notifications.ts'
 import type { SessionPrincipal } from './principal.ts'
 import { lockAndRevalidate } from './sessions.ts'
 import { requireSiteAdmin } from './site-admin.ts'
@@ -86,15 +86,10 @@ export async function submitReport(
           .returning({ id: reports.id })
     const id = existing?.id ?? created?.id
     if (!id) throw new Error('report was not created')
+    if (!existing) await enqueueAdminNotifications(tx, deps, { reportId: id })
     await completeIdempotency(tx, claim.id, { type: 'report', id })
     return { reportId: id, new: !existing }
   })
-  if (result.new)
-    await notifyAdmins(deps, {
-      type: 'report_opened',
-      dedupeKey: `report:${result.reportId}`,
-      data: { reportId: result.reportId },
-    })
   return { reportId: result.reportId }
 }
 

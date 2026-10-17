@@ -28,21 +28,121 @@ import {
   conversationMembers,
   conversations,
   type DbOrTx,
+  deletionLocks,
   messageHidden,
   messages,
   notifications,
+  reports,
   users,
+  workItems,
 } from '@chatapp/db'
-import { and, desc, eq, inArray, isNull, lt, ne, or, sql } from 'drizzle-orm'
+import { and, desc, eq, inArray, isNull, lt, lte, ne, or, sql } from 'drizzle-orm'
 import { recordNotificationChange } from './changes.ts'
 import { cursorExpiry, decodeCursor, encodeCursor } from './cursor.ts'
 import type { Deps } from './deps.ts'
 import type { SessionPrincipal } from './principal.ts'
-import { lockAndRevalidate } from './sessions.ts'
+import { accountAllowsSession, lockAndRevalidate } from './sessions.ts'
 import { inTransaction } from './tx.ts'
 import { usersDictionary } from './users.ts'
+import { enqueueWork } from './work.ts'
+import type { WorkLease } from './work-queue.ts'
 
 type Row = typeof notifications.$inferSelect
+
+/** Freeze the recipients with the report, without acquiring other users' sequence locks. */
+export async function enqueueAdminNotifications(
+  tx: DbOrTx,
+  deps: Deps,
+  data: { reportId: string },
+) {
+  const admins = await tx
+    .select({ id: users.id })
+    .from(users)
+    .where(
+      and(
+        eq(users.role, 'admin'),
+        eq(users.activationStatus, 'active'),
+        eq(users.isBot, false),
+        or(eq(users.banned, false), lte(users.banExpires, deps.clock.now())),
+        eq(users.emailVerified, true),
+        isNull(users.deletedAt),
+      ),
+    )
+  for (const admin of admins)
+    await enqueueWork(tx, deps, {
+      kind: 'notification',
+      dedupeKey: `report:${data.reportId}:admin:${admin.id}`,
+      entityId: data.reportId,
+      payload: { reportId: data.reportId, userId: admin.id },
+    })
+  await tx
+    .update(reports)
+    .set({ notificationsQueuedAt: deps.clock.now() })
+    .where(eq(reports.id, data.reportId))
+}
+
+/** Upgrade compensation for open reports created before durable notification intents existed. */
+export async function reconcileReportNotifications(deps: Deps, limit = 100): Promise<number> {
+  return await inTransaction(deps.db, async (tx) => {
+    const rows = await tx
+      .select({ id: reports.id })
+      .from(reports)
+      .where(and(eq(reports.status, 'open'), isNull(reports.notificationsQueuedAt)))
+      .orderBy(reports.createdAt, reports.id)
+      .limit(limit)
+      .for('update', { skipLocked: true })
+    for (const row of rows) await enqueueAdminNotifications(tx, deps, { reportId: row.id })
+    return rows.length
+  })
+}
+
+/** Notification and completion commit together. A crash or failed recipient leaves durable retryable work. */
+export async function deliverAdminNotification(deps: Deps, lease: WorkLease): Promise<void> {
+  await deps.faultPoint?.('notification.before')
+  const [candidate] = await deps.db
+    .select({ payload: workItems.payload })
+    .from(workItems)
+    .where(eq(workItems.id, lease.id))
+  const recipient = candidate?.payload.userId
+  if (typeof recipient !== 'string') throw new Error('invalid administrator notification recipient')
+  await inTransaction(deps.db, async (tx) => {
+    // Users precede work and notification rows throughout the domain lock order.
+    const [admin] = await tx.select().from(users).where(eq(users.id, recipient)).for('update')
+    const [work] = await tx
+      .select()
+      .from(workItems)
+      .where(
+        and(
+          eq(workItems.id, lease.id),
+          eq(workItems.kind, 'notification'),
+          eq(workItems.leaseEpoch, lease.leaseEpoch),
+          eq(workItems.status, 'leased'),
+        ),
+      )
+      .for('update')
+    if (!work) return
+    const { userId, reportId } = work.payload
+    if (typeof userId !== 'string' || typeof reportId !== 'string')
+      throw new Error('invalid administrator notification work')
+    if (userId !== recipient) throw new Error('administrator notification recipient changed')
+    const [frozen] = await tx
+      .select({ id: deletionLocks.operationId })
+      .from(deletionLocks)
+      .where(and(eq(deletionLocks.targetType, 'user'), eq(deletionLocks.targetId, userId)))
+    if (!frozen && admin?.role === 'admin' && accountAllowsSession(admin, deps.clock.now()))
+      await createNotification(tx, deps, {
+        userId,
+        type: 'report_opened',
+        dedupeKey: `report:${reportId}`,
+        data: { reportId },
+      })
+    await tx
+      .update(workItems)
+      .set({ status: 'done', finishedAt: deps.clock.now(), leaseUntil: null, lastErrorCode: null })
+      .where(eq(workItems.id, work.id))
+  })
+  await deps.faultPoint?.('notification.after')
+}
 
 export type NotificationSeed = {
   userId: string

@@ -1,0 +1,115 @@
+import type { AgentApproval, AgentRun, AgentUsage, ScheduledMessage } from '@chatapp/contracts'
+import { makeAccount, makeConversation, uuid } from '../src/lib/sync/fixtures.ts'
+
+export const me = makeAccount({
+  locale: 'zh-CN',
+  role: 'admin',
+  authEpoch: 0,
+  restoreEpoch: 'review',
+})
+export const conversation = makeConversation(500, { name: '产品讨论' })
+export const run: AgentRun = {
+  id: uuid(8),
+  userId: me.id,
+  trigger: 'panel',
+  conversationId: conversation.id,
+  contextConversationId: conversation.id,
+  sourceMessageId: null,
+  outputMessageId: null,
+  status: 'awaiting_approval',
+  mode: 'fast',
+  provider: 'mock',
+  model: 'mock',
+  actualModel: null,
+  keySource: 'site',
+  readScope: 'current_conversation',
+  privacyClass: 'standard',
+  contextEpoch: uuid(10),
+  stateVersion: 1,
+  resumeSeq: 0,
+  stepCount: 1,
+  regeneratedFromRunId: null,
+  hasEffects: false,
+  pendingApproval: true,
+  usage: { inputTokens: 0, outputTokens: 0, cachedTokens: 0, costUsd: '0' },
+  createdAt: '2026-10-16T00:00:00.000Z',
+  finishedAt: null,
+  error: null,
+}
+export const approval: AgentApproval = {
+  id: uuid(7),
+  runId: run.id,
+  toolName: 'schedule_message',
+  status: 'pending',
+  reason: null,
+  required: true,
+  edited: false,
+  stateVersion: 1,
+  resumeSeq: 0,
+  stepIndex: 1,
+  createdAt: run.createdAt,
+  decidedAt: null,
+  expiresAt: '2026-11-01T00:00:00.000Z',
+  preview: {
+    tool: 'schedule_message',
+    body: '原定时消息',
+    conversation: { id: conversation.id, kind: 'group', name: conversation.name, peer: null },
+    time: {
+      localDateTime: '2026-11-01T01:30',
+      timezone: 'America/New_York',
+      chosen: null,
+      candidates: [
+        { at: '2026-11-01T05:30:00.000Z', offsetMinutes: -240 },
+        { at: '2026-11-01T06:30:00.000Z', offsetMinutes: -300 },
+      ],
+    },
+  },
+}
+export function task(
+  index: number,
+  status: ScheduledMessage['status'] = 'scheduled',
+): ScheduledMessage {
+  return {
+    id: uuid(2000 + index),
+    version: 1,
+    status,
+    at: '2026-11-01T05:30:00.000Z',
+    timezone: 'Asia/Singapore',
+    localDateTime: '2026-11-01T13:30',
+    offsetMinutes: 480,
+    createdAt: new Date(Date.parse(run.createdAt) - index * 1000).toISOString(),
+    finishedAt: status === 'scheduled' ? null : run.createdAt,
+    errorCode: null,
+    createdByRunId: null,
+    origin: null,
+    delegation: null,
+    body: `待办消息 ${index}`,
+    conversation: { id: conversation.id, kind: 'group', name: conversation.name, peer: null },
+    sentMessageId: null,
+  }
+}
+export const usage: AgentUsage = {
+  provider: 'mock',
+  day: '2026-10-16',
+  month: '2026-10',
+  keySource: 'site',
+  warning: false,
+  paused: false,
+  daily: {
+    limit: 1000,
+    settled: 123,
+    reserved: 5,
+    unknown: 0,
+    available: 872,
+    resetAt: '2026-10-17T00:00:00.000Z',
+  },
+  monthly: {
+    limitMicroUsd: 1000000,
+    settledMicroUsd: 123,
+    reservedMicroUsd: 0,
+    unknownMicroUsd: 0,
+    availableMicroUsd: 999877,
+    resetAt: '2026-11-01T00:00:00.000Z',
+  },
+  own: { inputTokens: 0, outputTokens: 0, runCount: 0 },
+}

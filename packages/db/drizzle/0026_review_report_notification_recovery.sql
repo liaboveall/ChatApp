@@ -1,0 +1,1 @@
+ALTER TABLE "reports" ADD COLUMN "notifications_queued_at" timestamp with time zone;

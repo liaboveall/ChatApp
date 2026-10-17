@@ -204,7 +204,7 @@ Page<T>      { items: T[], nextCursor|null }  // message lists instead return { 
 | `POST /api/messages/:id/hide` | 仅自己删除 | M2a ✅ |
 | `DELETE /api/messages/:id` | 管理员删除（群主、会话管理员、站点管理员），写审计日志（不含正文）；系统消息不能删，重复请求无副作用；私信里没有管理员，403 | M2a ✅ |
 | `POST /api/messages/:id/report` | `{reason, details?}`，举报 | M7 |
-| `GET /api/search/messages?query=&conversationId=&cursor=` | 关键词搜索我能看到的消息（pg_trgm）；与 Agent 的 `search_messages` 共用同一个 domain 函数 | M4 |
+| `GET /api/search/messages?query=&conversationId=&cursor=` | 关键词搜索我能看到的消息（pg_trgm）；返回消息、发送者字典、当前可访问会话摘要 `conversations` 及 `nextCursor`。省略会话时搜索全部可访问会话；游标绑定身份和查询，每页重查可见性 | M4 |
 
 ### 3.5 附件
 | 方法和路径 | 说明 | 里程碑 |
@@ -253,7 +253,7 @@ M4 接口已接入并有契约/鉴权回归（D-183），里程碑质量与用�
 | `GET /api/admin/agent-runs?userId=&keySource=&status=&cursor=`、`GET /api/admin/agent-runs/:id` | AI 运行记录。站点 key 的运行在保留期内返回完整内容；自带 key 的运行只返回元数据。查看详情会写审计日志（D-034） | M7 |
 
 `/api/push/*` 仍要求有效会话，但认证只读，不刷新或删除 Cookie；关闭页面后的 Worker 续订回答不能改变后来登录的 Cookie。页面的身份读取负责滚动刷新和失效 Cookie 清理（D-209）。
-| `GET /api/admin/audit-logs`、`GET /api/admin/ai-usage`、`GET/PATCH /api/admin/settings` | 审计日志、AI 用量、后台配置 | M7 |
+| `GET /api/admin/audit-logs?action=&actorId=&after=&before=&cursor=`、`GET /api/admin/ai-usage`、`GET/PATCH /api/admin/settings` | 审计日志、AI 用量、后台配置。审计支持完整动作名、操作者 UUID 和 UTC ISO 时间范围；游标绑定所有条件。返回目标 ID 和仅含角色是否变更、举报状态、配置版本/保留天数的白名单摘要，不返回任意 metadata | M7 |
 | `GET /api/healthz`、`GET /api/readyz` | 健康检查，不需要登录。`readyz` 检查数据库、Valkey 和 S3，对外只返回 200 或 503，不返回细节 | M1 |
 | `POST /api/monitoring` | 转发前端的 Sentry 上报（D-046）。不需要登录，因为登录页也要能上报；按 IP 限流，并限制请求大小 | M7 |
 | `/api/test/*` | 测试专用：可控时钟、断开连接等。只在 `APP_ENV=test` 时注册，生产环境启动时检查不存在（SEC-29） | M1 起 |

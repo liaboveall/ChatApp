@@ -302,8 +302,13 @@ export function ApprovalCard({
         <b className="approval__badge">{m.agent_approval_title()}</b>
       ) : null}
       <h4 className="approval__title">{preview ? titleOf(preview) : approval.toolName}</h4>
-      {preview && !editing ? (
-        <Preview preview={preview} choice={choice} onChoose={setChoice} pending={pending} />
+      {preview ? (
+        <Preview
+          preview={editing && editable ? { ...preview, [editable.field]: text } : preview}
+          choice={choice}
+          onChoose={setChoice}
+          pending={pending && !busy}
+        />
       ) : null}
       {editing && editable ? (
         <textarea
@@ -311,6 +316,7 @@ export function ApprovalCard({
           aria-label={m.agent_approval_edit_label()}
           value={text}
           rows={4}
+          disabled={busy}
           maxLength={5000}
           onChange={(event) => setText(event.target.value)}
         />
@@ -333,8 +339,27 @@ export function ApprovalCard({
               {editing ? m.agent_approval_save_approve() : m.agent_approval_approve()}
             </Button>
             {editable && !editing ? (
-              <Button kind="tinted" size="sm" icon={Pencil} onClick={() => setEditing(true)}>
+              <Button
+                kind="tinted"
+                size="sm"
+                icon={Pencil}
+                disabled={busy}
+                onClick={() => setEditing(true)}
+              >
                 {m.agent_approval_edit()}
+              </Button>
+            ) : null}
+            {editing ? (
+              <Button
+                kind="plain"
+                size="sm"
+                disabled={busy}
+                onClick={() => {
+                  setText(editable?.value ?? '')
+                  setEditing(false)
+                }}
+              >
+                {m.common_cancel()}
               </Button>
             ) : null}
             <Button

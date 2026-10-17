@@ -31,6 +31,7 @@ import {
 import { and, asc, eq, inArray, isNull, ne, or, sql } from 'drizzle-orm'
 import { z } from 'zod'
 import { signPayload, verifyPayload } from '../lib/crypto.ts'
+import { lockAdminRoles, requireAdminSuccessor } from './admin-continuity.ts'
 import { closePendingApprovals } from './agent-access.ts'
 import { applyAgentConversationDeletion } from './agent-runs.ts'
 import { lockStorage } from './attachment-common.ts'
@@ -107,6 +108,7 @@ export async function requestAccountDeletion(
     throw new AppError('CAPACITY_UNAVAILABLE', 'Offsite deletion service unavailable')
   const operation = await deps.db.transaction(async (tx) => {
     await tx.execute(sql`select pg_advisory_xact_lock(hashtext('chatapp.retention.prepare'))`)
+    await lockAdminRoles(tx)
     const user = await lockAndRevalidate(tx, deps, principal)
     const [credential] = await tx
       .select({ password: accounts.password })
@@ -118,6 +120,7 @@ export async function requestAccountDeletion(
       })
     const existing = await findDeletion(tx, user.id, 'account_delete', user.id)
     if (existing) return existing
+    if (user.role === 'admin') await requireAdminSuccessor(tx, user.id, deps.clock.now())
     return await prepareDeletion(tx, deps, user.id, {
       action: 'account_delete',
       target: { id: user.id, authEpoch: user.authEpoch },

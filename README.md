@@ -2,18 +2,18 @@
 
 一个**邀请制**的实时聊天应用，内置可以调用工具的 **Agent**，界面采用 Apple Liquid Glass 风格，桌面优先。
 
-> **状态：v2 重写中。** 旧版（Django + Channels）保存在标签 [`v1-legacy`](../../tree/v1-legacy)。当前进度见 [docs/PROGRESS.md](docs/PROGRESS.md)。
+> **状态：v2 主要功能已实现，处于封闭验收阶段。** 当前源码、部署记录、验证结果与待验收门槛统一见 [当前状态](docs/CURRENT-STATUS.md)。旧版（Django + Channels）保存在标签 [`v1-legacy`](../../tree/v1-legacy)。
 
-*An invite-only real-time chat app with a built-in tool-using Agent and an Apple Liquid Glass–style desktop UI. v2 is a ground-up rewrite in progress; the legacy Django version lives at the `v1-legacy` tag.*
+*An invite-only real-time chat app with a built-in tool-using Agent and an Apple Liquid Glass–style desktop UI. Core v2 features are implemented and undergoing closed acceptance; the legacy Django version lives at the `v1-legacy` tag.*
 
-## 计划中的功能
+## 已实现的主要功能
 
 - 频道、私有群组、一对一私信；消息的回复、编辑、撤回、@提及；支持图片、视频和文件
 - 即时送达，显示"正在输入"、在线状态和未读数，断线后自动补发，多端同步
 - Agent：总结未读、搜索和翻译消息、起草回复、看图；代发消息、建群等影响他人的操作需要批准；个人提醒显示结果并可撤销
 - 可以安装成桌面应用（PWA），支持浏览器推送、深色模式、中英双语
 
-M4 的只读助手已接入私有 Agent 会话、群/频道 `@Agent`、会话助手面板、⌘K 消息搜索和 `/总结`、`/翻译`、`/起草`。支持工具步骤、流式输出、停止、重新生成与用量查看；草稿由本人确认发送。审批操作、提醒、BYOK、记忆与语义搜索属于后续 M5。实现见 [M4 实施记录](docs/21-m4-implementation-2026-10-07.md)，修复后的本人复试与最新验证结果见 [M4 验收收尾](docs/23-m4-acceptance-2026-10-08.md)。
+助手已接入私有 Agent 会话、群/频道 `@Agent`、会话助手面板、⌘K 消息搜索和 `/总结`、`/翻译`、`/起草`，支持工具步骤、流式输出、停止、重新生成、审批、定时消息、提醒、个人密钥（BYOK）、记忆、语义搜索与用量管理。通知中心、举报、站点管理、注销、备份及删除 journal 也已有实现。已实现能力与生产实际启用范围分别记录在 [当前状态](docs/CURRENT-STATUS.md)；完整 M7 和正式开放仍待独立验收。
 
 ## 技术栈
 
@@ -33,6 +33,8 @@ bun run db:migrate       # 迁移，并创建无特权的应用数据库账号
 bun run db:seed          # 仅开发：Agent 账号、保留名和 3 个演示成员
 bun run dev              # api、worker 和前端一起启动；打开终端 [dev] Open 显示的 localhost 地址
 ```
+
+审查问题的独立组件浏览器回归使用 `bun run test:review`（Chromium / WebKit、合成 HTTP 数据）；真实数据库及故障验证分别使用 `bun run test:integration`、`bun run test:fault`。最新修复与证据见 [2026-10-16 修复记录](docs/37-review-fixes-2026-10-16.md)。
 
 也可以分开启动：`bun run dev:api`（http://127.0.0.1:3100/api/docs）、`bun run dev:worker`、`bun run dev:web`。管理员用 `bun run admin:create` 创建；邮件在 Mailpit（http://localhost:8025）里看。
 

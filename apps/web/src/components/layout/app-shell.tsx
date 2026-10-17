@@ -28,6 +28,16 @@ export function AppShell({ sidebar, toolbar, inspector, fill, children }: AppShe
   const compact = useAppearance((state) => state.compactSidebar)
   const sidebarRef = useRef<HTMLElement>(null)
   const restoreFocus = useRef<HTMLElement | null>(null)
+  const windowRef = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    if (!windowRef.current) return
+    const observer = new ResizeObserver(([entry]) => {
+      if (entry && entry.contentRect.width >= 1024) setDrawer(false)
+    })
+    observer.observe(windowRef.current)
+    return () => observer.disconnect()
+  }, [setDrawer])
 
   // The narrow-window drawer is a navigation layer: focus moves into it and comes back when it closes.
   useEffect(() => {
@@ -43,7 +53,11 @@ export function AppShell({ sidebar, toolbar, inspector, fill, children }: AppShe
   }, [drawerOpen])
 
   return (
-    <div className="window" style={{ '--sidebar-w': `${sidebarWidth}px` } as CSSProperties}>
+    <div
+      ref={windowRef}
+      className="window"
+      style={{ '--sidebar-w': `${sidebarWidth}px` } as CSSProperties}
+    >
       <a className="skip-link" href="#main">
         {m.shell_skip_to_content()}
       </a>

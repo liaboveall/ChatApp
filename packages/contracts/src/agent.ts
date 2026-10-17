@@ -314,6 +314,7 @@ export type MessageSearchQuery = z.infer<typeof messageSearchQuerySchema>
 export const messageSearchResponseSchema = z.object({
   messages: z.array(messageSchema),
   users: usersDictionarySchema,
+  conversations: z.record(z.string(), conversationRefSchema.nullable()).default({}),
   nextCursor: z.string().nullable(),
 })
 export type MessageSearchResponse = z.infer<typeof messageSearchResponseSchema>

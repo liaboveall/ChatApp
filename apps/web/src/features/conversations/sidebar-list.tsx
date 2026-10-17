@@ -116,6 +116,7 @@ export function SidebarList({ meId, currentId }: { meId: string; currentId: stri
               <button
                 type="button"
                 className="s-section__toggle focus-inset"
+                aria-label={groupTitle(group.key)}
                 aria-expanded={open}
                 onClick={() => toggleFolded(group.key)}
               >

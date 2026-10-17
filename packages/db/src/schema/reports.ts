@@ -29,6 +29,7 @@ export const reports = pgTable(
     resolutionNote: text(),
     version: integer().notNull().default(1),
     createdAt: timestamp({ withTimezone: true }).notNull().defaultNow(),
+    notificationsQueuedAt: timestamp({ withTimezone: true }),
   },
   (t) => [
     unique('reports_message_reporter').on(t.messageId, t.reporterId),

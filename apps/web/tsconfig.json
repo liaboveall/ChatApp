@@ -9,6 +9,6 @@
     },
     "allowJs": true
   },
-  "include": ["src", "e2e", "visual", "tools", ".storybook", "*.ts"],
+  "include": ["src", "e2e", "review", "visual", "tools", ".storybook", "*.ts"],
   "exclude": ["src/paraglide", "src/sw"]
 }

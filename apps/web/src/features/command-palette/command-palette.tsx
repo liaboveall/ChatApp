@@ -7,11 +7,15 @@ import {
   useDeferredValue,
   useEffect,
   useId,
+  useLayoutEffect,
   useMemo,
+  useRef,
   useState,
 } from 'react'
+import { Button } from '@/components/ui/button.tsx'
 import { useModalFlag } from '@/components/ui/dialog.tsx'
 import { Icon } from '@/components/ui/icon.tsx'
+import { ApiError } from '@/lib/api.ts'
 import { keyLabel } from '@/lib/platform.ts'
 import { m } from '@/paraglide/messages.js'
 
@@ -33,9 +37,15 @@ type CommandPaletteProps = {
   open: boolean
   onOpenChange: (open: boolean) => void
   commands: PaletteCommand[]
-  search?: (query: string, signal: AbortSignal) => Promise<PaletteCommand[] | null>
+  search?: (
+    query: string,
+    signal: AbortSignal,
+    cursor?: string,
+  ) => Promise<PaletteSearchPage | null>
   onSearchError?: () => void
 }
+
+export type PaletteSearchPage = { commands: PaletteCommand[]; nextCursor: string | null }
 
 /** Case-insensitive substring match; returns the matched range for highlighting, or null. */
 export function findMatch(text: string, query: string): [number, number] | null {
@@ -97,27 +107,56 @@ function PaletteBody({
   const deferred = useDeferredValue(query)
   const listId = useId()
   const [hits, setHits] = useState<PaletteCommand[]>([])
+  const [nextCursor, setNextCursor] = useState<string | null>(null)
+  const [searching, setSearching] = useState(false)
+  const [searchFailed, setSearchFailed] = useState(false)
+  const controllerRef = useRef<AbortController | null>(null)
+  const inputRef = useRef<HTMLInputElement>(null)
+  async function fetchHits(text: string, controller: AbortController, cursor?: string) {
+    if (!search || controller.signal.aborted) return
+    setSearching(true)
+    setSearchFailed(false)
+    try {
+      const page = await search(text, controller.signal, cursor)
+      if (controller.signal.aborted || !page) return
+      setHits((previous) =>
+        cursor
+          ? [
+              ...new Map(
+                [...previous, ...page.commands].map((command) => [command.id, command]),
+              ).values(),
+            ]
+          : page.commands,
+      )
+      setNextCursor(page.nextCursor)
+      if (cursor) inputRef.current?.focus({ preventScroll: true })
+    } catch (error) {
+      if (!controller.signal.aborted) {
+        if (error instanceof ApiError && error.code === 'VALIDATION_FAILED') setNextCursor(null)
+        setSearchFailed(true)
+        onSearchError?.()
+      }
+    } finally {
+      if (!controller.signal.aborted) setSearching(false)
+    }
+  }
+  const fetchHitsRef = useRef(fetchHits)
+  fetchHitsRef.current = fetchHits
   useEffect(() => {
     setHits([])
+    setNextCursor(null)
+    setSearchFailed(false)
+    setSearching(false)
     const text = deferred.trim()
     if (!text || text.length > 200 || !search) return
     const controller = new AbortController()
-    const timer = setTimeout(
-      () =>
-        void search(text, controller.signal)
-          .then((answer) => {
-            if (!controller.signal.aborted && answer) setHits(answer)
-          })
-          .catch(() => {
-            if (!controller.signal.aborted) onSearchError?.()
-          }),
-      250,
-    )
+    controllerRef.current = controller
+    const timer = setTimeout(() => void fetchHitsRef.current(text, controller), 250)
     return () => {
       clearTimeout(timer)
       controller.abort()
     }
-  }, [deferred, search, onSearchError])
+  }, [deferred, search])
 
   const results = useMemo(() => {
     const needle = deferred.trim()
@@ -134,6 +173,11 @@ function PaletteBody({
   }, [commands, deferred, hits])
 
   const current = results[Math.min(active, results.length - 1)]
+  const activeOptionId = current ? `${listId}-${results.indexOf(current)}` : null
+  useLayoutEffect(() => {
+    if (!results.length || !activeOptionId) return
+    document.getElementById(activeOptionId)?.scrollIntoView?.({ block: 'nearest' })
+  }, [activeOptionId, results.length])
   const optionId = (index: number): string => `${listId}-${index}`
 
   const run = (command: PaletteCommand | undefined): void => {
@@ -172,6 +216,7 @@ function PaletteBody({
         <input
           // biome-ignore lint/a11y/noAutofocus: the palette exists to be typed into the moment it opens.
           autoFocus
+          ref={inputRef}
           role="combobox"
           aria-expanded="true"
           aria-controls={listId}
@@ -218,7 +263,10 @@ function PaletteBody({
                 aria-selected={command === current}
                 className="palette__row"
                 data-active={command === current ? 'true' : 'false'}
-                onMouseMove={() => setActive(index)}
+                onMouseMove={(event) => {
+                  // Scrolling under a stationary pointer must not undo the keyboard's active option.
+                  if (event.movementX !== 0 || event.movementY !== 0) setActive(index)
+                }}
                 onClick={() => run(command)}
               >
                 <span className="palette__icon">
@@ -242,6 +290,31 @@ function PaletteBody({
           )
         })}
       </div>
+      {deferred.trim() && search ? (
+        <div className="palette__search-status">
+          <small role="status">
+            {searching
+              ? m.common_loading()
+              : searchFailed
+                ? m.agent_search_error()
+                : m.palette_search_scope({ count: hits.length })}
+          </small>
+          {nextCursor || searchFailed ? (
+            <Button
+              size="sm"
+              kind="plain"
+              busy={searching}
+              onClick={() => {
+                const controller = controllerRef.current
+                if (controller && query.trim() === deferred.trim())
+                  void fetchHits(deferred.trim(), controller, nextCursor ?? undefined)
+              }}
+            >
+              {searchFailed ? m.common_retry() : m.common_load_more()}
+            </Button>
+          ) : null}
+        </div>
+      ) : null}
       <div className="palette__foot">
         <span>
           <kbd>↑</kbd>

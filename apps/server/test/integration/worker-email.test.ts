@@ -25,7 +25,7 @@ import { openTestDatabases, type TestDatabases, truncateAll } from '../support/d
 import { createActiveUser, makeDeps, makePrincipal, readLiveToken } from '../support/deps.ts'
 import { testConfig } from '../support/env.ts'
 
-const MAILPIT = 'http://localhost:8025'
+const MAILPIT = process.env.MAILPIT_URL ?? 'http://localhost:8025'
 
 let dbs: TestDatabases
 let valkey: Valkey
