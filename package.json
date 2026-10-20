@@ -29,6 +29,7 @@
     "media:configtest": "bun --no-env-file scripts/media.ts configtest",
     "build": "bun run --cwd apps/web build",
     "storybook": "bun run --cwd apps/web storybook",
+    "demo:capture": "bun run --cwd apps/web tools/capture-readme.ts",
     "lint": "biome check .",
     "lint:fix": "biome check --write .",
     "format": "biome format --write .",

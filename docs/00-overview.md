@@ -17,6 +17,7 @@ ChatApp 已上线，`main` 为维护主线。首次了解项目从[README](../RE
 
 | 文档 | 内容 |
 | --- | --- |
+| [Product tour (English)](demo.md) | 英文产品演示、Agent 使用流程、应用截图及截图更新方法 |
 | [产品规格](01-product-spec.md) | 聊天、Agent、管理、隐私与默认行为 |
 | [设计规范](02-design-system.md) | 视觉令牌、布局、交互与组件 |
 | [架构](03-architecture.md) | 服务分层、数据流、实时同步与任务 |

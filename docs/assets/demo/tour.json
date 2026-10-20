@@ -1,0 +1,13 @@
+{
+  "description": "A looping slideshow of the real English client with synthetic demo responses.",
+  "output": "product-tour.gif",
+  "frames": [
+    { "file": "01-workspace.png", "durationMs": 3000 },
+    { "file": "02-agent-panel.png", "durationMs": 5500 },
+    { "file": "03-agent-approval.png", "durationMs": 5500 },
+    { "file": "04-agent-approved.png", "durationMs": 2500 },
+    { "file": "05-shared-files.png", "durationMs": 3000 },
+    { "file": "07-command-palette.png", "durationMs": 2500 },
+    { "file": "08-dark-mode.png", "durationMs": 3000 }
+  ]
+}
