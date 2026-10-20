@@ -1,37 +1,106 @@
-# ChatApp
+<p align="center">
+  <img src="apps/web/public/icons/icon-192.png" alt="ChatApp icon" width="80" height="80">
+</p>
 
-[在线使用](https://chatapp.software) · [开发指南](docs/09-local-dev.md) · [部署与运维](docs/10-deployment.md) · [文档索引](docs/00-overview.md)
+<h1 align="center">ChatApp</h1>
+<p align="center"><strong>Your conversations. Your context. Your Agent.</strong></p>
+<p align="center">An invite-only place to chat, share files, and turn conversations into action with a built-in AI Agent.</p>
+<p align="center">
+  <a href="https://chatapp.software">Open ChatApp</a> ·
+  <a href="#product-demo">Product demo</a> ·
+  <a href="#meet-your-agent">Meet the Agent</a> ·
+  <a href="#run-locally">Run locally</a> ·
+  <a href="docs/00-overview.md">Documentation</a>
+</p>
 
-邀请制实时聊天应用，内置可调用工具的 AI 助手。支持频道、群组、私信和文件分享，采用 Apple Liquid Glass 风格，提供中英双语、深浅主题和可安装的 PWA。
+![ChatApp: a team conversation alongside a private Agent summarizing decisions and next steps](docs/assets/demo/02-agent-panel.png)
 
-*An invite-only chat app with real-time messaging, a tool-using AI assistant, and an installable bilingual web client.*
+ChatApp brings channels, groups, direct messages, and a tool-using Agent into one workspace. Catch up on a discussion, find a decision, draft a reply, and review the Agent's proposed actions without leaving the conversation. A glass-inspired interface, light and dark themes, English and Chinese, and an installable PWA make it feel at home on your desktop.
 
-## 功能
+## Product demo
 
-- **聊天**：频道、私有群组、一对一私信；回复、编辑、撤回、提及、未读、在线状态和正在输入提示；断线补齐与多端同步。
-- **媒体**：图片、视频和文件上传，缩略图、预览、下载和头像；媒体在独立容器中处理。
-- **AI 助手**：私有对话、会话面板、群内 `@Agent`、消息搜索、总结、翻译、起草和图片理解；支持流式输出、停止、重新生成。
-- **工具与个人设置**：有副作用的助手操作需审批；支持提醒、定时消息、个人密钥（BYOK）、记忆、语义搜索和用量管理。
-- **桌面与通知**：PWA、浏览器推送、通知中心、键盘快捷键、中英双语及外观设置。
-- **管理与安全**：邀请注册、邮箱验证、Passkey、成员权限、举报、审计、账号注销，以及备份、删除 journal 和隔离恢复。
+A small team is preparing a product launch. Alice, Bob, and Maya discuss the plan, share a checklist, and use the Agent to turn the discussion into a clear update.
 
-新成员只能查看加入后的消息。助手与搜索、附件共用权限规则；站点密钥与个人密钥的内容范围分别管理。具体行为见[产品规格](docs/01-product-spec.md)和[安全规范](docs/07-security.md)。AI、邮件、推送和向量检索的可用性取决于实例配置。
+![Animated product tour: team chat, the Agent panel, an approval request, shared files, and dark mode](docs/assets/demo/product-tour.gif)
 
-## 技术栈
+1. **Talk it through.** Keep the launch discussion, owners, and checklist in a group conversation.
+2. **Ask the Agent.** Open the private side panel for a recap of decisions and next steps.
+3. **Turn context into a draft.** Use a dedicated assistant chat to find the launch discussion and prepare an update.
+4. **Review the action.** Inspect the destination and message, then approve, edit, or reject the proposed send.
+5. **Keep everything close.** Browse shared files, open the command palette, or switch to dark mode.
 
-| 层 | 技术 |
+[Explore the full screenshot tour and example prompts →](docs/demo.md)
+
+*All captures show the actual English web client with fictional people and browser-local demo responses. Agent answers and approval outcomes are scripted for presentation; this tour does not make live AI calls or send real messages. Access to the hosted app requires an invitation.*
+
+## Meet your Agent
+
+The Agent can work with the conversations you have access to, use tools to retrieve context, and propose actions for you to review.
+
+### Get help where the conversation happens
+
+- **Private side panel:** summarize unread messages, translate, and draft replies alongside the discussion. Answers stay private; insert a draft into the composer when you want to share it.
+- **Dedicated assistant chats:** keep separate conversations with the Agent and ask questions across your accessible chats.
+- **Shared `@Agent` replies:** mention the Agent in a group or channel so everyone there can see its answer.
+- **Quick commands:** reach the assistant through the command palette or `/summary`, `/translate`, and `/draft`.
+
+Choose **Fast** or **Deep** reasoning, watch answers stream in, and stop a running response. Eligible completed replies can be regenerated. The side panel defaults to **Current conversation**; expanding to **All accessible conversations** is an explicit choice.
+
+### From a discussion to an answer
+
+> “Summarize the launch decisions and next steps.”
+>
+> “Find the launch discussion and draft a short update with an owner for each task.”
+>
+> “What does this screenshot show?”
+
+The Agent can search messages, read relevant conversation history, summarize, translate, draft, and analyze selected images. Semantic retrieval can find related discussions beyond exact keyword matches when embeddings are configured. **View tool steps** lets you inspect the tools used for a reply.
+
+### You approve actions that affect other people
+
+> “Send that update to Product launch.”
+
+Before sending or scheduling a message, creating a group, or inviting members, the Agent shows an approval card. Review the target and content, make changes, or reject the request.
+
+![The Agent asks Alice to approve, edit, or reject an update to Product launch](docs/assets/demo/03-agent-approval.png)
+
+Personal reminders and explicitly requested memories can be created directly, with visible results and a way to undo them. Scheduling confirmations include the date and time zone. Manage reminders, scheduled messages, and memories in **Settings → Assistant**.
+
+### Personal, with clear boundaries
+
+Use the site's AI allowance or bring your own **DeepSeek API key**. See your usage, choose your preferred reasoning mode, and review or delete saved memories.
+
+The Agent follows conversation access rules, including the boundary on history from before you joined. Shared `@Agent` replies use the current conversation's shared visible history and do not load your personal memories. Site-key run content can be audited by administrators during its retention period; personal-key run content is restricted to its owner. Relevant content is sent to the configured AI provider, so review its answers before relying on them.
+
+AI availability, image understanding, and semantic retrieval depend on the instance's provider and embedding configuration. See the [Agent design](docs/06-agent.md) for the full behavior and privacy rules.
+
+## More than an assistant
+
+| Feature | What you can do |
 | --- | --- |
-| 前端 | React、Vite、TanStack Router / Query、Tailwind CSS、Base UI |
-| 服务端 | TypeScript、Bun、Hono、Zod、Better Auth、AI SDK |
-| 数据与任务 | PostgreSQL / pgvector、Drizzle、Valkey、BullMQ |
-| 文件与媒体 | Garage（S3）、独立媒体容器 |
-| 部署 | Docker Compose、Nginx、加密异地备份、systemd |
+| **Channels, groups, and DMs** | Discover channels, create private groups, and message community members directly. Pin conversations and control notifications. |
+| **Everyday messaging** | Write Markdown, reply with context, mention people, edit or recall messages within the allowed window, and retry failed sends. |
+| **Files and media** | Drag, paste, or upload images, videos, audio, and files. Preview media, download attachments, and browse shared files. |
+| **Stay in sync** | See presence, typing indicators, and unread counts, with reconnect catch-up and synchronization across tabs and devices. |
+| **Find your way quickly** | Search messages, jump between conversations, and run commands from the keyboard. Ordinary keyword search uses no AI allowance. |
+| **Make it yours** | Choose light or dark, accent colors, glass effects, text size, and English or Chinese. Install the desktop PWA. |
+| **Notifications** | Use the notification center and, when configured and permitted, browser push for DMs, mentions, replies, and Agent approvals. |
+| **Community controls** | Invite members, use passkeys, manage signed-in devices, report messages, and administer roles, moderation, audit logs, and AI budgets. |
 
-依赖版本以各工作区 `package.json`、`bun.lock` 和 `infra/` 中的镜像定义为准。
+<table>
+  <tr>
+    <td width="50%"><img src="docs/assets/demo/01-workspace.png" alt="English team conversation with a shared PDF checklist"><br><strong>A shared workspace</strong> — conversations, unread messages, and files.</td>
+    <td width="50%"><img src="docs/assets/demo/08-dark-mode.png" alt="The same English conversation in dark mode"><br><strong>Your preferred look</strong> — glass-inspired surfaces in light and dark.</td>
+  </tr>
+  <tr>
+    <td><img src="docs/assets/demo/05-shared-files.png" alt="Conversation details with shared files and members"><br><strong>Context at hand</strong> — files and members beside the conversation.</td>
+    <td><img src="docs/assets/demo/07-command-palette.png" alt="English command palette for conversation navigation and actions"><br><strong>Keyboard friendly</strong> — search, navigation, and actions in one place.</td>
+  </tr>
+</table>
 
-## 本地运行
+## Run locally
 
-需要 Bun **1.4.2**、Node.js **24 或更新版本**（CI 使用 26）和 Docker Compose。Windows 推荐在 WSL 的 Linux 文件系统中开发，并启用 Docker Desktop 的 WSL 集成。
+Requires **Bun 1.4.2**, **Node.js 24+** (CI uses 26), and **Docker Compose**. On Windows, use WSL with the repository in the Linux filesystem and Docker Desktop's WSL integration enabled.
 
 ```bash
 git clone https://github.com/liaboveall/ChatApp.git
@@ -46,44 +115,55 @@ bun run admin:create
 bun run dev
 ```
 
-打开终端 `[dev] Open` 显示的地址。默认是 `http://localhost:5173`；遇到 Windows 保留端口时会自动选择可用端口。开发邮件可在 `http://localhost:8025` 查看。
+Open the address printed after `[dev] Open` (normally `http://localhost:5173`). Development email is available in Mailpit at `http://localhost:8025`.
 
-`setup` 生成被 Git 忽略的 `.env.local` 和本地密钥；`db:seed` 仅用于开发数据。AI 凭据由维护者在本机配置，接入检查用 `bun run doctor --ai`。生产环境使用独立配置和 `db:bootstrap`，操作步骤见[部署指南](docs/10-deployment.md)。
+`setup` creates ignored local configuration and secrets. `db:seed` is for development data. Configure AI credentials locally and check the connection with `bun run doctor --ai`. Production uses separate configuration and `db:bootstrap`; follow the [deployment guide](docs/10-deployment.md).
 
-## 常用命令
+## Built with
 
-| 命令 | 用途 |
+| Layer | Technologies |
 | --- | --- |
-| `bun run check` | 格式、类型、架构边界、单元测试、对比度和双语文案一致性 |
-| `bun run build` | 构建前端生产包 |
-| `bun run test:integration` | 真实数据库、缓存和对象存储的集成回归 |
-| `bun run test:e2e` | 真实服务的浏览器端到端测试 |
-| `bun run test:review` | 审查问题的组件浏览器回归 |
-| `bun run test:visual` | Storybook 视觉回归 |
-| `bun run storybook` | 组件开发与预览 |
-| `bun run doctor` | 本地环境与服务诊断 |
+| Web / PWA | React, Vite, TanStack Router / Query, Tailwind CSS, Base UI |
+| API and Agent | TypeScript, Bun, Hono, Zod, Better Auth, AI SDK |
+| Data and jobs | PostgreSQL / pgvector, Drizzle, Valkey, BullMQ |
+| Files and media | Garage (S3), isolated media processing service |
+| Deployment | Docker Compose, Nginx, encrypted offsite backups, systemd |
 
-集成及浏览器测试需要先准备测试环境，共享测试库的套件应串行执行；详见[测试指南](docs/08-testing.md)。
+Dependency versions are pinned in the workspace manifests, `bun.lock`, and infrastructure image definitions.
 
-## 项目结构
+## Development and documentation
+
+| Command | Purpose |
+| --- | --- |
+| `bun run check` | Formatting, types, architecture boundaries, unit tests, contrast, and translation consistency |
+| `bun run build` | Build the production web client |
+| `bun run test:integration` | Integration tests with real database, cache, and object storage |
+| `bun run test:e2e` | Browser tests against real local services |
+| `bun run test:review` | Component browser regressions |
+| `bun run test:visual` | Storybook visual regressions |
+| `bun run storybook` | Component development and previews |
+| `bun run demo:capture` | Refresh the English README screenshots with isolated demo fixtures |
+| `bun run doctor` | Diagnose the local environment and services |
+
+Integration and end-to-end tests need a prepared test environment. Suites that share a test database must run serially; see the [testing guide](docs/08-testing.md).
 
 ```text
-apps/web/           Web / PWA 客户端、组件与浏览器测试
-apps/server/        API、WebSocket、后台任务、Agent、管理 CLI 与评测
-apps/media/         隔离媒体处理服务
-packages/contracts/ 前后端共享的输入校验与协议
-packages/db/        数据模型、完整迁移链、初始化与开发种子
-infra/              Compose、镜像、Nginx 与 systemd 模板
-scripts/            开发、测试、发布、备份恢复及诊断工具
-docs/               当前维护文档
+apps/web/           Web / PWA client, components, and browser tests
+apps/server/        API, WebSocket, background jobs, Agent, admin CLI, and evals
+apps/media/         Isolated media processing service
+packages/contracts/ Shared validation and protocols
+packages/db/        Data models, migrations, bootstrap, and development seeds
+infra/              Compose, images, Nginx, and systemd templates
+scripts/            Development, testing, release, backup, and diagnostic tools
+docs/               Product, engineering, and operations documentation
 ```
 
-## 版本与归档
+[Product tour](docs/demo.md) · [Local development](docs/09-local-dev.md) · [Architecture](docs/03-architecture.md) · [Agent](docs/06-agent.md) · [Security](docs/07-security.md) · [Deployment](docs/10-deployment.md) · [Operations](docs/operations.md) · [Documentation index](docs/00-overview.md)
 
-`main` 是当前上线版本的维护主线（原 `v2`）。旧版 Django + Channels 保存在只用于历史查阅的 [`archive/v1` 分支](https://github.com/liaboveall/ChatApp/tree/archive/v1)和 [`v1-legacy` 标签](https://github.com/liaboveall/ChatApp/tree/v1-legacy)。
+The product tour is in English; the detailed engineering documentation is primarily in Chinese.
 
-上线前的规划、阶段报告、审查记录及 HTML 设计原型，完整保存在 [`v2-pre-cleanup-2026-10-20` 标签](https://github.com/liaboveall/ChatApp/tree/v2-pre-cleanup-2026-10-20)。归档与维护说明见[维护记录](docs/maintenance.md)。
+## History and license
 
-## 许可证
+`main` is the current maintenance branch (previously `v2`). The original Django + Channels application is preserved in [`archive/v1`](https://github.com/liaboveall/ChatApp/tree/archive/v1) and the [`v1-legacy` tag](https://github.com/liaboveall/ChatApp/tree/v1-legacy). Earlier plans, reviews, milestone reports, and design prototypes are preserved in [`v2-pre-cleanup-2026-10-20`](https://github.com/liaboveall/ChatApp/tree/v2-pre-cleanup-2026-10-20). See the [maintenance notes](docs/maintenance.md).
 
-[MIT](LICENSE)。旧版改编自 [rustyxlol/Django-ChatApp](https://github.com/rustyxlol/Django-ChatApp)，原作者的版权声明保留在许可证中。
+[MIT](LICENSE). The original version was adapted from [rustyxlol/Django-ChatApp](https://github.com/rustyxlol/Django-ChatApp); its attribution is retained in the license.
