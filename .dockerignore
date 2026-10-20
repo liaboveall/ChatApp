@@ -4,7 +4,6 @@
 **/node_modules
 coverage
 apps/web
-design
 docs
 scripts/*
 !scripts/production-prune.ts

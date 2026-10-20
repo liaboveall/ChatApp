@@ -80,7 +80,6 @@
     "dev:embeddings": "bun --env-file=.env.local apps/server/src/runtime/embedding-worker.ts",
     "test:media": "bun --no-env-file scripts/test-media.ts",
     "smoke:backend": "bun --env-file=.env.local scripts/smoke-backend.ts",
-    "design:build": "bun design/prototype/tools/build.mjs",
     "design:contrast": "bun apps/web/tools/contrast.ts",
     "web:messages": "bun apps/web/tools/generate-messages.ts"
   },

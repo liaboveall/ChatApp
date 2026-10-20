@@ -32,7 +32,7 @@ Events: api/worker ──publish──▶ Valkey channel "events:{APP_ENV}" ─�
 
 ## 2. 技术栈与版本
 
-以下版本于 2026-09-30 在 npm、Docker Hub、endoflife.date 上核实。**每个里程碑开工时要再核对一次**，锁定当时的最新稳定版（精确版本加锁文件）。原则上不用 beta 或 RC，例外会在表中注明。M1a 已于 2026-10-01 核对并锁定（D-104）；前端部分（2.2、2.3）于 M1b 在 2026-10-03 核对，`apps/web` 的 36 个依赖都等于 npm 的 `latest` 标签（D-115）。
+下表用于解释技术选型；精确依赖版本以当前工作区 `package.json` 与 `bun.lock` 为准，镜像以 `infra/` 的 Dockerfile / Compose 为准。升级需同时核验兼容性、原生架构、媒体和浏览器回归，不能根据历史版本表推断线上版本。
 
 ### 2.1 运行时与后端
 
@@ -49,13 +49,13 @@ Events: api/worker ──publish──▶ Valkey channel "events:{APP_ENV}" ─�
 | AI | `ai`（AI SDK）+ `@ai-sdk/openai-compatible` / `@ai-sdk/deepseek` | 7.0.130 / 3.0.65 / 3.0.61 |
 | 本地向量模型（M5b 验证） | `@huggingface/transformers` | 4.3.0 |
 | 图片处理 | sharp | 0.35.5 |
-| 视频元数据清理（M3） | ffmpeg（镜像里的系统包，只做重新封装） | 随 Debian 版本 |
+| 视频处理 | ffmpeg（独立媒体镜像，固定源码与构建选项） | 见 `infra/Dockerfile.media` |
 | 文件类型识别 | file-type | 22.1.1 |
 | 模糊占位图 | thumbhash | 0.1.1 |
 | 邮件发送 | nodemailer（本地连 Mailpit，生产连 Resend 的 SMTP） | 10.0.13 |
 | Web Push（M6） | 自写 RFC 8291 / 8292（`node:crypto`，官方测试向量验证），不用 `web-push`（D-201） | — |
 | 日志 | pino | 10.3.1 |
-| 错误追踪（M7） | `@sentry/bun`、`@sentry/react` | M7 时核对 |
+| 错误追踪 | `@sentry/bun`、`@sentry/react` | undefined / undefined |
 | API 文档界面（仅开发环境） | `@scalar/hono-api-reference` | 0.12.8 |
 
 ### 2.2 前端
@@ -88,7 +88,7 @@ Events: api/worker ──publish──▶ Valkey channel "events:{APP_ENV}" ─�
 | 前端单元测试 | vitest + jsdom + Testing Library（`react` 16.3.3、`dom` 10.4.2、`jest-dom` 7.0.1、`user-event` 14.6.7） | 5.0.3 / 30.1.1 |
 | 端到端测试 | `@playwright/test` + `@axe-core/playwright` | 1.63.0 / 4.13.0 |
 | 视觉测试运行环境 | Playwright 官方 Docker 镜像（与 `@playwright/test` 同版本） | 同上 |
-| 压力测试 | grafana/k6（Docker 镜像） | M7 时锁定当时的精确版本 |
+| 压力测试 | grafana/k6（Docker 镜像） | 见 `scripts/production-load.ts` |
 | Node（Vite、Vitest、Playwright、Storybook 等工具需要） | Node | ≥ 24；本机与 CI 的 web 相关作业都用 26 |
 
 ### 2.4 基础设施镜像（均支持 arm64）
@@ -99,8 +99,8 @@ Events: api/worker ──publish──▶ Valkey channel "events:{APP_ENV}" ─�
 | Valkey | `valkey/valkey:9.1-alpine` |
 | 对象存储 | `dxflrs/garage:v2.4.1` |
 | 本地邮件接收（仅开发） | `axllent/mailpit:v1.31.3` |
-| 应用运行（api、worker 共用） | `oven/bun:1.4-slim`（Debian）。ffmpeg 和 onnxruntime 需要 glibc，所以不用 alpine（D-041） |
-| 生产式网关（M2b 的 CSP 测试、M7 彩排） | `nginx:1.30.5-alpine@sha256:0985e772…4d94`，1.30 系列，锁定精确版本和索引摘要（D-045，2026-10-04 起 D-169）；服务器上共用的 Nginx 还是 1.28，M8 升到 1.30 |
+| 应用运行 | Debian/glibc 原生镜像，api / worker / media 分层构建 | 见 `infra/Dockerfile.*` |
+| 网关彩排 | 固定版本 Nginx 派生镜像；宿主 Nginx 单独验证 | 见 `infra/Dockerfile.nginx` |
 
 ## 3. 仓库结构（Bun workspaces 单仓库）
 
@@ -113,7 +113,7 @@ Events: api/worker ──publish──▶ Valkey channel "events:{APP_ENV}" ─�
 │  │  │                          routeTree.gen.ts is generated and committed
 │  │  ├─ src/features/           M1b: auth, settings, shell, command-palette; M2b: conversations (sidebar, dialogs,
 │  │  │                          discovery, archived, join), timeline, composer, message-actions, inspector;
-│  │  │                          later: attachments, agent, notifications, admin
+│  │  │                          attachments, agent, notifications, admin
 │  │  ├─ src/design/             tokens.ts (single source, D-114), tokens-css.ts (generator),
 │  │  │                          tokens.generated.css (git-ignored)
 │  │  ├─ src/components/         ui/ (Base UI primitives, styled), layout/ (shell, sidebar, toolbar, inspector),
@@ -159,7 +159,7 @@ Events: api/worker ──publish──▶ Valkey channel "events:{APP_ENV}" ─�
 │  ├─ compose.test.yml           (M1a) isolated per-run services, volumes, network and credentials
 │  ├─ compose.media.yml          (M3) network-free media service + private Unix socket
 │  ├─ compose.edge.yml           (M2b) Nginx container serving a production build with the real site config
-│  ├─ compose.prod.yml           (M7) api, worker, postgres, valkey, garage
+│  ├─ compose.prod.yml           api, worker, media, postgres, valkey, garage, tools
 │  ├─ garage/                    garage.toml template + bootstrap script
 │  ├─ nginx/                     (M2b) chatapp.conf + security-header snippets; edge swaps only the two environment
 │  │                             snippets, rehearsal and prod use the same site file (D-045, D-147)

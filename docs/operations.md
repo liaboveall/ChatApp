@@ -1,10 +1,6 @@
-# 上线前工具与封闭部署操作手册（2026-10-13）
+# 运维命令手册
 
-本手册是 D-212 的工程交付。当前没有执行 SSH、服务器安装、证书申请、部署、提交或推送。封闭部署按 D-211 接续，最终恢复按 D-210 用现有本机；正式开放仍须全部 M7 门槛通过。实际本地结果见 [30](30-prelaunch-implementation-2026-10-13.md)。
-
-> 2026-10-15 最新域名/邮件及新对话接续见 [32](32-launch-handoff-2026-10-15.md)。主站使用 `https://chatapp.software`；本人已收到 Resend 测试邮件，生产 SMTP 私有字段和完整应用邮件流程仍待部署时核验。没有因本次交接执行服务器变更或关闭 M7。
-
-> 后续实际服务器操作与当前接续见 [33](33-closed-launch-2026-10-15.md)：原生 ARM 候选及四个生产依赖已准备，API/worker、HTTPS、真实异地服务和当前源码 CI 仍待完成。本文的 2026-10-13 交付描述保留历史时点。
+本手册从历史部署交付中整理，命令须与当前发布包版本及现场配置核对。生产更新、压测、凭据轮换和恢复按维护窗口与对应操作授权执行。发布与回滚原则见[部署指南](10-deployment.md)。
 
 ## 1. 候选归档与版本绑定
 
@@ -19,13 +15,13 @@ bun --no-env-file scripts/production-scan.ts .test-runs/release-candidate/releas
 
 包内有 `release.json`、`source.tar.gz`、`web.tar.gz`、`images.tar`、`production.js`、`watchdog.js`、`load.js`。镜像归档包含应用、媒体、运维、数据库、Valkey、Garage 和用于恢复/核验的 Nginx 原生镜像，以不可变 image ID 绑定，不依赖恢复时重新下载镜像。`source.tar.gz` 供部署工具、迁移与源代码核验；它不是带 Git 历史的完整开发 checkout。构建或测试需要完整仓库及开发依赖。
 
-`APPLICATION_SHA` 是 Git HEAD；dirty 时它只是基线，实际未提交内容由 `APPLICATION_SOURCE_HASH` 和逐文件指纹标识。打包器在构建后重新核对源码，改变即拒绝生成成功清单。`release.json` 列出全部归档的 SHA-256 和大小；上传前及落盘后逐个核验。x64 包不能用于 ARM 服务器。云端和本机恢复分别需要同一源码的原生 ARM/x64 包；`images` 工作流已编写，远端实际通过回执仍须另外取得。
+`APPLICATION_SHA` 是 Git HEAD；dirty 时它只是基线，实际未提交内容由 `APPLICATION_SOURCE_HASH` 和逐文件指纹标识。打包器在构建后重新核对源码，改变即拒绝生成成功清单。`release.json` 列出全部归档的 SHA-256 和大小；上传前及落盘后逐个核验。x64 包不能用于 ARM 服务器。云端和本机恢复分别需要同一源码的原生 ARM/x64 包；`images` 工作流验证原生候选，实际回执须绑定对应提交。
 
 `production-image-smoke` 只证明三个应用镜像的 UID、版本绑定与二进制可启动；`test-production` 用独立随机项目验证实际生产 Compose、TLS 网关与聊天、原生备份及干净库/桶恢复，异地服务由本地 TLS/Garage 模拟。可选第三个参数提供上一份完整原生候选清单，只有migration文件完全一致才运行版本回退/升回和活数据核验。它不证明 R2、整机失效、独立设备或云端容量。正式扫描不使用 `ignore-unfixed`，自编译 C/C++ 的版本/来源另须人工复核；容器 Nginx 扫描不能证明云端宿主软件安全。
 
 ## 2. 配置与初次启动
 
-以下是准备后的部署流程示例，当前只编写和本地验证工具。宿主需要 Docker/Compose、与镜像一致的 Bun；可以从已核验的本架构服务器镜像提取 `/usr/local/bin/bun`，放到 `/opt/chatapp/bin/bun`，不在生产机安装 Node/npm 包。私有配置目录 `/opt/chatapp/private` 由 root 管理，目录 700、文件 600；`runtime/` 中供容器读取的 keyring、restic 密码、Garage TOML 属主为 10001。
+以下是新实例的初始化流程示例；已有实例按[部署指南](10-deployment.md)更新，不重复初始化。宿主需要 Docker/Compose、与镜像一致的 Bun；可以从已核验的本架构服务器镜像提取 `/usr/local/bin/bun`，放到 `/opt/chatapp/bin/bun`，不在生产机安装 Node/npm 包。私有配置目录 `/opt/chatapp/private` 由 root 管理，目录 700、文件 600；`runtime/` 中供容器读取的 keyring、restic 密码、Garage TOML 属主为 10001。
 
 ```sh
 /opt/chatapp/bin/bun --no-env-file /opt/chatapp/tools/production.js prepare /opt/chatapp/private https://chatapp.software
@@ -33,9 +29,9 @@ docker load --input /opt/chatapp/release/images.tar
 /opt/chatapp/bin/bun --no-env-file /opt/chatapp/tools/production.js bind /opt/chatapp/private /opt/chatapp/release/release.json
 ```
 
-在自己的终端编辑 `app.env` 的 SMTP、MAIL_FROM、所选 AI、journal R2 和可选 Sentry 字段；编辑 `backup.env` 的独立备份 R2 字段。现有 R2 账号已准备；本地已有目标实际是测试桶，生产需要独立新桶/凭据，按 [34](34-r2-production-setup.md)填写单独的生产私有配置，不在聊天发送密钥。生产桶/随机前缀与历史测试前缀分开，权限只覆盖指定桶；journal 和 backup 使用独立访问凭据。`compose.env` 的回环 API 端口及私有 /24 要避免冲突，改变子网时同步 `TRUSTED_PROXIES` 的网关。不要把 owner、备份或 Garage 管理凭据放进 `app.env`。
+在自己的终端编辑 `app.env` 的 SMTP、MAIL_FROM、所选 AI、journal R2 和可选 Sentry 字段；编辑 `backup.env` 的独立备份 R2 字段。生产使用独立私有桶与只对各自单桶授权的凭据，不复用本地测试目标，不在聊天发送密钥。生产桶/随机前缀与历史测试前缀分开，权限只覆盖指定桶；journal 和 backup 使用独立访问凭据。`compose.env` 的回环 API 端口及私有 /24 要避免冲突，改变子网时同步 `TRUSTED_PROXIES` 的网关。不要把 owner、备份或 Garage 管理凭据放进 `app.env`。
 
-工具默认生成 `deny all;` 的访问策略。指定本人/验收人员真实出口 IP 后，用 `production.js edge /opt/chatapp/private <IP或CIDR...>` 生成允许清单；拒绝 `/0` 和配置注入。所有页面、API、WebSocket、附件均受同一封闭策略限制。宿主 Nginx 升级/证书/DNS 按 10、D-169 和实际服务器核对后完成；本站点不设 `default_server`。
+工具默认生成 `deny all;` 的访问策略。指定本人/验收人员真实出口 IP 后，用 `production.js edge /opt/chatapp/private <IP或CIDR...>` 生成允许清单；拒绝 `/0` 和配置注入。所有页面、API、WebSocket、附件使用一致的访问策略，实际开放范围按维护者确认的生产配置执行。宿主 Nginx、证书和 DNS 按[部署指南](10-deployment.md)及实际服务器核对；本站点不设 `default_server`。
 
 在 `/opt/chatapp/source` 使用以下参数运行所有运维命令：
 
@@ -50,9 +46,9 @@ chmod 600 /opt/chatapp/private/storage.json
 
 `storage:init` 的回执同时绑定部署 owner 和桶，重复运行保留已有 key；工具只把 key 写入私有暂存文件。核对容器归属后再移除这个一次性 setup 容器。后续 `tools migrate` 建表和最小应用角色；`tools journal:init` 仅用于空库、空远端前缀的第一次初始化，恢复时禁止使用；`tools backup:init` 初始化独立加密仓库。初次助手初始化使用运维容器的应用 CLI：`run --rm --no-deps --entrypoint bun tools --no-env-file /app/apps/server/src/cli.ts db:bootstrap`；管理员使用同一 CLI 的 `admin:create` 和隐藏终端密码输入。先完成 `production.js configtest`，再启动 API/worker，核对 `/api/readyz`、容器 cgroup、挂载、环境隔离和最小角色。
 
-数据卷的 `CHATAPP_DATA_SOURCE_HASH` 是首次绑定时保存的创建标识，更新/回退应用不得改变。采用此修复前已经更新过旧模板的现场，先只读核对每只现有卷的 owner、项目、角色及创建版本，在私有配置保存实际一致的创建版本；不可仅以当前应用源码推断，遇到混合身份即停止核对。Compose 提示重建卷时不得接受或删除卷。2026-10-16 已部署现场采用额外的私有 `volume-identity.compose.json` 覆盖保证旧候选使用原标签，所有命令须同时传入该文件；换到支持固定标识的新模板后，须先渲染并核对全部实际卷定义。该覆盖不更改卷名或现有数据，细节见 [35](35-closed-deployment-2026-10-16.md)。
+数据卷的 `CHATAPP_DATA_SOURCE_HASH` 是首次绑定时保存的创建标识，更新/回退应用不得改变。采用此修复前已经更新过旧模板的现场，先只读核对每只现有卷的 owner、项目、角色及创建版本，在私有配置保存实际一致的创建版本；不可仅以当前应用源码推断，遇到混合身份即停止核对。Compose 提示重建卷时不得接受或删除卷。2026-10-16 已部署现场采用额外的私有 `volume-identity.compose.json` 覆盖保证旧候选使用原标签，所有命令须同时传入该文件；换到支持固定标识的新模板后，须先渲染并核对全部实际卷定义。该覆盖不更改卷名或现有数据，历史细节见[部署归档](https://github.com/liaboveall/ChatApp/blob/v2-pre-cleanup-2026-10-20/docs/35-closed-deployment-2026-10-16.md)。
 
-向量模型通过运维容器显式运行 `/app/apps/server/src/runtime/embedding-command.ts prepare bge`，模型目录是独立 `embedding-models` 卷；运行时挂只读模型、禁止自行下载。准备、核验和索引世代证据齐备后启用 `EMBEDDING_ENABLED` 并重建 worker/API。初始配置的禁用状态不算 M5/云端容量验收通过；模型与混合资源门槛仍要在 ARM 目标上补证。
+向量模型通过运维容器显式运行 `/app/apps/server/src/runtime/embedding-command.ts prepare bge`，模型目录是独立 `embedding-models` 卷；运行时挂只读模型、禁止自行下载。准备、核验和索引世代证据齐备后启用 `EMBEDDING_ENABLED` 并重建 worker/API。禁用状态不能证明向量能力或容量已验证；模型与混合负载在实际目标环境取证。
 
 前端解压到按源码 hash 命名的版本目录，哈希 assets 追加到共享目录，保留至少 7 天和 3 版，原子切换 `current`。发布前核验 CSP/HSTS、媒体流式下载和默认封闭策略。普通回退只使用兼容迁移的已验证版本；不可逆 schema 变更先取一致备份，不能用回滚应用掩盖数据库不兼容。
 
@@ -82,15 +78,15 @@ chmod 600 /opt/chatapp/private/storage.json
 | `tools backup:maintain` | 先核验全部快照，再保留 7 daily/4 weekly 且年龄不超过 28 天，裁剪后核验，35 天 journal/checkpoint 维护 |
 | `tools monitor` | 备份、journal、待完成删除、物理清理、死信与存储余量；20h 警告/24h RPO 超限，未来时钟也报警 |
 
-`infra/systemd` 中已有 12 小时备份、每天保留维护、每分钟监控和 30 秒 watchdog 模板，当前未安装/启用。按实际系统时区核对 `OnCalendar`；首次运行、跨周期、异常失败、迟到/重启补跑、远端生命周期/私有权限和真实告警送达均在封闭云端验收。watchdog 只重启再次核验的本项目 API/worker/media，连续三次异常才行动，每服务 15 分钟最多三次；不重启数据库/缓存/对象库，不做全局 prune。
+`infra/systemd` 中已有 12 小时备份、每天保留维护、每分钟监控和 30 秒 watchdog 模板；是否安装 / 启用以及最后成功运行时间，以服务器实际状态为准。按实际系统时区核对 `OnCalendar`；首次运行、跨周期、异常失败、迟到/重启补跑、远端生命周期/私有权限和真实告警送达均在目标环境逐项核验。watchdog 只重启再次核验的本项目 API/worker/media，连续三次异常才行动，每服务 15 分钟最多三次；不重启数据库/缓存/对象库，不做全局 prune。
 
-Sentry 在服务器配置 DSN。页面 relay 和运维事件仅发固定类别、页面类别、release；不发正文、邮箱、账号、设备、Cookie、原始 URL/错误堆栈/会话回放。运维问题变化、恢复或持续一小时发送，失败不写已送达回执；未配置时不发送。真实网络送达、通知渠道和 on-call 处理仍需云端确认。
+Sentry 在服务器配置 DSN。页面 relay 和运维事件仅发固定类别、页面类别、release；不发正文、邮箱、账号、设备、Cookie、原始 URL/错误堆栈/会话回放。运维问题变化、恢复或持续一小时发送，失败不写已送达回执；未配置时不发送。真实网络送达、通知渠道和 on-call 处理需单独验证。
 
 恢复材料单独复制：`production.js materials /opt/chatapp/private <新的另存目录>`。它包含 12 个私有配置/密钥文件；工具只证明本地生成，不能证明异地保管。将材料加密后与双架构候选归档保存在源主机之外；TLS/DNS/SMTP/AI/云存储账户访问及经核验的固定模型文件归档也须独立可取。独立演练不能借用本机已有模型缓存，缺模型须计入可恢复能力/准备时间；联网重取时须固定版本/hash并计入RTO。keyring 历史版本不能因轮换丢失。材料更改后更新另存副本并记录版本。
 
 ## 4. 云端丢失后的本机恢复
 
-这部分必须在云端封闭部署后实际演练。从宣布故障连续计时，整台源主机不可访问，仅用异地备份/journal/另存材料；本机新建项目、库、桶、卷，不借用开发数据或源缓存。
+这部分按经过确认的维护窗口与目标实际演练。从宣布故障连续计时，整台源主机不可访问，仅用异地备份/journal/另存材料；本机新建项目、库、桶、卷，不借用开发数据或源缓存。
 
 1. 装载同一源码的 x64 原生归档。`production.js recovery-prepare <全新配置目录> <原始材料目录> <恢复HTTPS origin>` 生成新的部署 owner、数据库/Valkey/Garage 身份、RESTORE_EPOCH、writer epoch；只带回原始解密密钥、VAPID 与异地位置，不带回旧数据库连接或站点 AI/SMTP 外发配置。随后 `bind-recovery` 绑定同一源码的本架构清单。
 2. 子网、回环端口、TLS 和允许清单与现有开发环境分开。撤销源主机的 journal/backup 凭据，在恢复配置填写新的最小权限凭据；核对原 writer epoch 与独立 head。`recovery-prepare` 带回的是材料里的旧凭据，不能据此说轮换已完成。
@@ -101,7 +97,7 @@ Sentry 在服务器配置 DSN。页面 relay 和运维事件仅发固定类别�
 7. `restore:unlock <EPOCH> <PREVIOUS_WRITER> <NEXT_WRITER>` 再验对象、隔离、权限、新凭证和最新独立 head，用 CAS 切换 writer 后才解除恢复隔离并授予应用角色。两个 writer UUID 必须与恢复配置一致；凭据撤销及源主机实际不可访问另有证据，CAS 不是整机停机证明。
 8. 验证后启动受限服务、切换必要入口，记录全量对象/删除零复活/权限范围/外发封锁、实际备份年龄与连续 RTO；目标 RPO ≤24h、RTO ≤4h。本机只恢复数据或没有公网服务入口时，不能报告完整服务 RTO 通过。
 
-## 5. 压测与仍待完成的 M7
+## 5. 压测与验证范围
 
 `tools benchmark:seed smoke|full <新RUN_ID>` 需要显式 `BENCHMARK_ENABLED=true`，只新增合成记录，不清理现有数据。smoke 是 8 用户/3 会话/120 消息/3 对象、12KiB；full 是 1000 用户/200 会话/100 万消息/10 万真实随机对象、约 10.7GB，先测量存储余量。fixture 包含真实 SDK 登录 Cookie，只存 700 目录/600 文件，禁止上传为 CI artifact。失败保留原 run，重试用新 run ID。
 
@@ -111,4 +107,4 @@ summary 不包含用户/URL/Cookie 标签；原始诊断私有存储。门槛包
 
 `bun --no-env-file scripts/test-m7-mixed.ts` 是独立 compose.test 的本地混合 smoke，不接受 full 参数。它使用真实媒体、离线原生 BGE query/回填、一致 pg_dump/对象读回与本地清单，并在约两分钟内观察四个运行中的模拟 Agent、媒体和备份重叠；其中聊天测量三十秒，三条快速连接、一条真实慢连接、四次重连。长模拟流只在 `APP_ENV=test` 允许调节，未调用真实模型服务。API/worker 心跳附带主进程累计事件循环指标，保留原健康新鲜度门槛。备份是本地合成恢复材料，不能当作异地 restic、定时备份或独立恢复证据。混合 smoke 与任何前端构建/浏览器网关套件必须串行，避免覆盖共享 dist；常规 coverage/E2E/edge 也须独占共享测试库。
 
-完整生产混合编排、500 WS/全量 10GB 实跑、所有故障与背压矩阵、生产调度/告警、ARM 容量、独立整机恢复、完整安全清单及本人试用仍须在封闭部署阶段继续。管理页的十五项限制及站点存储预算已接入；政策变更的实际全量运行效果仍需目标环境验收。不得把本地 smoke 或归档交付当作完整 M7 关闭。
+完整生产混合编排、500 WS / 全量 10GB、故障与背压、生产调度 / 告警、ARM 容量和整机独立恢复分别记录目标环境证据。上线状态、本地 smoke 或发布包交付均不能替代这些验证；管理政策变更也需要核对实际运行效果。
