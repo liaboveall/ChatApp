@@ -2,7 +2,7 @@ name: security
 
 on:
   push:
-    branches: [main, v2]
+    branches: [main]
   pull_request:
   schedule:
     - cron: "17 3 * * 1" # every Monday 03:17 UTC

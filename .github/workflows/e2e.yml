@@ -5,9 +5,9 @@ name: e2e
 # smoke tests. The visual job compares Storybook screenshots inside the official Playwright image.
 on:
   push:
-    branches: [main, v2]
+    branches: [main]
   pull_request:
-    branches: [main, v2]
+    branches: [main]
   schedule:
     - cron: "41 18 * * *" # every night, 02:41 in Asia/Shanghai
   workflow_dispatch:

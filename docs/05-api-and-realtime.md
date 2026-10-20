@@ -1,7 +1,7 @@
 # 05 接口与实时协议
 
-> 本文件是接口契约。已实现的部分（M1a 的认证与账号、M1b 的 `PATCH /api/me`、M2a 的会话、成员、消息、同步和目录）落实在 `packages/contracts` 的 zod schema 里，由路由生成 `/api/openapi.json`，快照提交在 `apps/server/test/contract/openapi.snapshot.json`；接口清单里标 ✅ 的行已实现，其余仍是待实现的契约。
-> 实施期间先同步本文件、schema 与调用方，再写代码；契约快照用于发现无意变化。M2a 的实现细节与取舍见 12 的 D-125 到 D-136。
+> 本文件解释接口契约。运行时 schema 位于 `packages/contracts`，路由生成 `/api/openapi.json`，快照提交在 `apps/server/test/contract/openapi.snapshot.json`。表中阶段与 ✅ 是历史实施标记，当前实现范围以 schema、路由和契约测试为准。
+> 修改接口时同步本文、schema、调用方和契约快照；历史 D-xxx 决策可从[维护原则](12-decisions.md)中的归档入口追溯。
 
 ## 1. REST 约定
 

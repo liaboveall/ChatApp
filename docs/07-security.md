@@ -1,7 +1,7 @@
 # 07 安全规范
 
 > 每个里程碑验收前都要对照本文件自查。每条 SEC 要求至少对应一个自动化测试（见 [08](08-testing.md)）。
-> 旧版的 24 个缺陷见 [13-legacy-analysis.md](13-legacy-analysis.md)，它们的回归测试在第 3 节列出。
+> 旧版的 24 个缺陷见 [13-legacy-analysis.md](https://github.com/liaboveall/ChatApp/blob/v2-pre-cleanup-2026-10-20/docs/13-legacy-analysis.md)，它们的回归测试在第 3 节列出。
 
 ## 1. 威胁模型
 
@@ -80,7 +80,7 @@
 
 ## 3. 旧版缺陷 → 新要求 → 回归测试
 
-编号 L-xx 对应 [13-legacy-analysis.md](13-legacy-analysis.md)。回归测试放在两处，每条测试的标题都以 `L-xx` 开头：
+编号 L-xx 对应 [13-legacy-analysis.md](https://github.com/liaboveall/ChatApp/blob/v2-pre-cleanup-2026-10-20/docs/13-legacy-analysis.md)。回归测试放在两处，每条测试的标题都以 `L-xx` 开头：
 - `apps/server/test/security/legacy.test.ts`：接口层和 WebSocket 层；
 - `apps/web/e2e/security.spec.ts`：界面层。
 

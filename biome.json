@@ -42,23 +42,6 @@
   },
   "overrides": [
     {
-      "includes": ["design/**"],
-      "linter": {
-        "rules": {
-          "complexity": {
-            "noCommaOperator": "off",
-            "noImportantStyles": "off"
-          },
-          "suspicious": {
-            "noAssignInExpressions": "off"
-          },
-          "style": {
-            "noDescendingSpecificity": "off"
-          }
-        }
-      }
-    },
-    {
       "includes": ["apps/web/src/styles/**"],
       "linter": {
         "rules": {
