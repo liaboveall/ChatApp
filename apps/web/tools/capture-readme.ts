@@ -15,16 +15,21 @@ import {
   SITE_LIMIT_DEFAULTS,
 } from '@chatapp/contracts'
 import { type Browser, chromium, expect, type Page } from '@playwright/test'
+import english from '../messages/en.json'
+import chinese from '../messages/zh-CN.json'
 import { uuid } from '../src/lib/sync/fixtures.ts'
 import {
   agent,
   approval,
   assistant,
   bob,
+  checklistReady,
   conversations,
   file,
   launch,
+  locale,
   me,
+  memoryNote,
   messages,
   NOW,
   outgoing,
@@ -35,8 +40,14 @@ import {
 
 const origin = 'http://127.0.0.1:25178'
 const web = fileURLToPath(new URL('..', import.meta.url))
-const output = fileURLToPath(new URL('../../../docs/assets/demo/', import.meta.url))
-const reportDir = fileURLToPath(new URL('../../../.test-runs/readme-demo/', import.meta.url))
+const languageDirectory = locale === 'zh-CN' ? 'zh-CN/' : ''
+const labels = locale === 'zh-CN' ? chinese : english
+const output = fileURLToPath(
+  new URL(`../../../docs/assets/demo/${languageDirectory}`, import.meta.url),
+)
+const reportDir = fileURLToPath(
+  new URL(`../../../.test-runs/readme-demo/${languageDirectory}`, import.meta.url),
+)
 await mkdir(output, { recursive: true })
 await mkdir(reportDir, { recursive: true })
 meSchema.parse(me)
@@ -73,7 +84,7 @@ async function settle(page: Page) {
 async function capture(page: Page, name: string) {
   await settle(page)
   const text = await page.locator('body').innerText()
-  assert(!/[\u3400-\u9fff]/u.test(text), `Non-English content in ${name}`)
+  assert.equal(/[\u3400-\u9fff]/u.test(text), locale === 'zh-CN', `Unexpected language in ${name}`)
   assert(
     !/Something went wrong|Unable to load|No such conversation/.test(text),
     `Broken scene: ${name}\n${text}\nUnhandled: ${unexpected.join(', ')}`,
@@ -98,18 +109,18 @@ try {
   const context = await browser.newContext({
     viewport: { width: 1440, height: 960 },
     deviceScaleFactor: 1,
-    locale: 'en-US',
+    locale: locale === 'zh-CN' ? 'zh-CN' : 'en-US',
     timezoneId: 'Asia/Singapore',
     reducedMotion: 'reduce',
     serviceWorkers: 'block',
   })
-  await context.addInitScript(() => {
-    localStorage.setItem('PARAGLIDE_LOCALE', 'en')
+  await context.addInitScript((selectedLocale) => {
+    localStorage.setItem('PARAGLIDE_LOCALE', selectedLocale)
     localStorage.setItem(
       'chatapp.appearance',
       JSON.stringify({ theme: 'light', reduceMotion: true }),
     )
-  })
+  }, locale)
   // Every request to an API is fulfilled here; an unhandled API request fails the capture.
   await context.route('**/api/**', async (route) => {
     const request = route.request()
@@ -158,7 +169,7 @@ try {
         memories: [
           {
             id: uuid(960),
-            content: 'Keep project updates concise and list the owner of each next step.',
+            content: memoryNote,
             source: 'user',
             privacyClass: 'standard',
             contentVersion: 1,
@@ -308,32 +319,32 @@ try {
   const page = await context.newPage()
   page.on('pageerror', (error) => errors.push(error.message))
   await page.goto(`${origin}/c/${launch.id}`)
-  await expect(
-    page.getByText('The launch checklist is ready for review.', { exact: true }).last(),
-  ).toBeVisible()
+  await expect(page.getByText(checklistReady, { exact: true }).last()).toBeVisible()
   await capture(page, '01-workspace')
   await page.keyboard.press('Control+j')
   await expect(
-    page.locator('.agent-panel__messages').getByText('Launch recap', { exact: true }),
+    page.locator('.agent-panel__messages').getByText(panel.name ?? '', { exact: true }),
   ).toBeVisible()
-  await expect(page.locator('.agent-panel__messages')).toContainText('Launch recap')
+  await expect(page.locator('.agent-panel__messages')).toContainText(panel.name ?? '')
   await capture(page, '02-agent-panel')
   await page.keyboard.press('Control+j')
   await page.locator(`a[href="/c/${assistant.id}"]`).click()
-  await expect(page.getByRole('button', { name: 'Approve', exact: true })).toBeVisible()
+  await expect(
+    page.getByRole('button', { name: labels.agent_approval_approve, exact: true }),
+  ).toBeVisible()
   await capture(page, '03-agent-approval')
-  await page.getByRole('button', { name: 'Approve', exact: true }).click()
-  await expect(page.getByText('Approved', { exact: true })).toBeVisible()
+  await page.getByRole('button', { name: labels.agent_approval_approve, exact: true }).click()
+  await expect(page.getByText(labels.agent_approval_approved, { exact: true })).toBeVisible()
   assert(approved)
   // The approval is a fixture response; this capture never sends the proposed message to a real service.
   await capture(page, '04-agent-approved')
   await page.locator(`a[href="/c/${launch.id}"]`).click()
-  await page.getByRole('button', { name: 'Members and details', exact: true }).click()
-  await expect(page.getByText('launch-checklist.pdf', { exact: true }).last()).toBeVisible()
+  await page.getByRole('button', { name: labels.toolbar_members, exact: true }).click()
+  await expect(page.getByText(file.name, { exact: true }).last()).toBeVisible()
   await capture(page, '05-shared-files')
   await page.goto(`${origin}/c/${launch.id}?settings=assistant`)
   await expect(page.getByRole('dialog')).toBeVisible()
-  await expect(page.getByText('Personal memories', { exact: true })).toBeVisible()
+  await expect(page.getByText(labels.settings_memories, { exact: true })).toBeVisible()
   await capture(page, '06-assistant-settings')
   await page.keyboard.press('Escape')
   await expect(page.getByRole('dialog')).not.toBeVisible()
@@ -343,7 +354,7 @@ try {
   await page.keyboard.press('Escape')
   // Change appearance through the application's preferences, then return to the same conversation.
   await page.goto(`${origin}/c/${launch.id}?settings=appearance`)
-  await page.getByRole('radio', { name: 'Dark', exact: true }).check()
+  await page.getByRole('radio', { name: labels.settings_theme_dark, exact: true }).check()
   await page.keyboard.press('Escape')
   await capture(page, '08-dark-mode')
   await page.setViewportSize({ width: 390, height: 844 })
@@ -361,7 +372,7 @@ try {
       {
         source:
           'Real application UI with browser-local synthetic API and WebSocket fixtures; no live AI or backend.',
-        locale: 'en-US',
+        locale,
         viewport: '1440x960; narrow 390x844',
         captures,
         errors,
@@ -374,7 +385,7 @@ try {
       2,
     ),
   )
-  console.log(`Saved ${captures.length} English screenshots; approval and layout checks passed.`)
+  console.log(`Saved ${captures.length} ${locale} screenshots; approval and layout checks passed.`)
 } catch (error) {
   await writeFile(
     `${reportDir}/failure-${Date.now()}.json`,

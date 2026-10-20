@@ -1,19 +1,24 @@
 """Assemble the README slideshow from unchanged browser captures. Requires Pillow.
 
-Run: python3 scripts/render-readme-tour.py
-An optional first argument selects a different repository root.
+Run: python3 scripts/render-readme-tour.py [--locale=zh-CN]
+An optional positional argument selects a different repository root.
 """
 
+import argparse
 import json
-import sys
 from pathlib import Path
 
 from PIL import Image
 
 
 def main():
-    root = Path(sys.argv[1]) if len(sys.argv) > 1 else Path(__file__).resolve().parents[1]
-    assets = root / "docs" / "assets" / "demo"
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("root", nargs="?", type=Path, default=Path(__file__).resolve().parents[1])
+    parser.add_argument("--locale", choices=("en", "zh-CN"), default="en")
+    args = parser.parse_args()
+    assets = args.root / "docs" / "assets" / "demo"
+    if args.locale == "zh-CN":
+        assets /= "zh-CN"
     tour = json.loads((assets / "tour.json").read_text(encoding="utf-8"))
     frames = []
     for scene in tour["frames"]:

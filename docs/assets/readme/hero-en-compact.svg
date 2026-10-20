@@ -1,0 +1,23 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="680" height="240" viewBox="0 0 680 240" role="img" aria-labelledby="title description">
+  <title id="title">ChatApp</title>
+  <desc id="description">ChatApp: chat, share files, and work with an Agent that keeps you in control.</desc>
+  <defs>
+    <linearGradient id="surface" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#0b1533"/><stop offset="1" stop-color="#22234f"/></linearGradient>
+    <linearGradient id="icon" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#6db4ff"/><stop offset="1" stop-color="#6150df"/></linearGradient>
+    <radialGradient id="glow"><stop stop-color="#6486ff" stop-opacity=".3"/><stop offset="1" stop-color="#6486ff" stop-opacity="0"/></radialGradient>
+    <linearGradient id="edge"><stop stop-color="#a9baff" stop-opacity=".3"/><stop offset="1" stop-color="#ffffff" stop-opacity=".06"/></linearGradient>
+  </defs>
+  <rect width="680" height="240" rx="28" fill="url(#surface)"/>
+  <ellipse cx="560" cy="100" rx="370" ry="250" fill="url(#glow)"/>
+  <path d="M0 240Q320 130 650 240T1280 200" fill="none" stroke="#a6b6ff" stroke-opacity=".08"/>
+  <g transform="translate(36 64) scale(.75)">
+    <rect width="128" height="128" rx="30" fill="url(#icon)"/>
+    <path d="M44 30h40a24 24 0 0 1 24 24v12a24 24 0 0 1-24 24H70L50 108V90H44a24 24 0 0 1-24-24V54a24 24 0 0 1 24-24Z" fill="#fff"/>
+    <path d="M0-1c.07.56.44.93 1 1-.56.07-.93.44-1 1-.07-.56-.44-.93-1-1 .56-.07.93-.44 1-1Z" transform="translate(64 60) scale(20)" fill="url(#icon)"/>
+  </g>
+  <g font-family="Inter, -apple-system, BlinkMacSystemFont, Segoe UI, Noto Sans CJK SC, Microsoft YaHei, sans-serif">
+    <text x="160" y="58" font-size="13" font-weight="600" letter-spacing="2.5" fill="#bac7f3">A SPACE TO CONNECT</text>
+    <text x="156" y="132" font-size="64" font-weight="750" letter-spacing="-3" fill="#fff">ChatApp</text>
+    <text x="160" y="178" font-size="20" fill="#d5dcf3">Your conversations. Your context. Your Agent.</text>
+  </g>
+</svg>
