@@ -1,5 +1,6 @@
 import { readFileSync } from 'node:fs'
 import { expect, test } from '@playwright/test'
+import { setVisualTime } from './clock.ts'
 
 type IndexEntry = { id: string; type: string; tags?: string[] }
 
@@ -28,6 +29,7 @@ for (const theme of ['light', 'dark'] as const) {
     for (const story of stories) {
       test(story.id, async ({ page }) => {
         await page.setViewportSize(size(story.id))
+        await setVisualTime(page)
         await page.goto(`/iframe.html?id=${story.id}&viewMode=story&globals=theme:${theme}`)
         await page
           .locator(

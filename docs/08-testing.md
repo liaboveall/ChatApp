@@ -52,6 +52,8 @@ bun run test:integration
 
 Storybook 与 `apps/web/review/` 是回归设施；合成数据测试不能证明真实后端或生产环境正常。
 
+视觉测试通过 `apps/web/visual/clock.ts` 固定浏览器日期，计时器继续运行。截图夹具使用固定日期时不能依赖真实日历；邀请码等到期状态另有过去 / 未来日期的明暗主题回归。不要通过顺延夹具、增加像素容差或覆盖基线消除日期漂移。
+
 ## CI
 
 `.github/workflows/` 包含 check、integration、e2e、media、embeddings、images、security，以及定时 / 手动真实 provider eval。开发主线统一为 `main`；原生 ARM、镜像、安全扫描、真实服务与浏览器结果分别取证。
