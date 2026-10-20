@@ -1,5 +1,7 @@
 # ChatApp product tour
 
+**English** · [简体中文](demo.zh-CN.md)
+
 [Back to the README](../README.md) · [Open ChatApp](https://chatapp.software)
 
 A walkthrough of the English application: discuss a launch, share a file, catch up with the Agent, and review an action before it happens.
@@ -96,10 +98,12 @@ From the repository root, after installing dependencies:
 ```bash
 bun x playwright install chromium
 bun run demo:capture
+# Chinese UI and demo content
+bun run demo:capture --locale=zh-CN
 ```
 
-The capture script starts the real Vite client on `127.0.0.1:25178`, intercepts API and WebSocket traffic with English fixtures, takes nine screenshots, and stops its server. The port must be free. It checks fixture contracts, visible text for Chinese characters, approval interaction, dialog dismissal, browser runtime errors, unexpected API requests, and horizontal overflow at 390 pixels. It writes a local report to `.test-runs/readme-demo/capture.json`; failed attempts are retained separately.
+The capture script starts the real Vite client on `127.0.0.1:25178`, intercepts API and WebSocket traffic with localized fixtures, takes nine screenshots per language, and stops its server. Run each language separately; the port must be free. It checks fixture contracts, visible text for the selected language, approval interaction, dialog dismissal, browser runtime errors, unexpected API requests, and horizontal overflow at 390 pixels. English assets are in `docs/assets/demo/`; Chinese assets are in its `zh-CN/` directory. Local reports follow the same language directory layout in `.test-runs/readme-demo/`; failed attempts are retained separately.
 
-The source is in [`capture-readme.ts`](../apps/web/tools/capture-readme.ts) and [`readme-fixtures.ts`](../apps/web/tools/readme-fixtures.ts). These tools are outside the production client entry points. The animated overview is a slideshow of the captured states, with its frame order and timing in [`tour.json`](assets/demo/tour.json). After refreshing the screenshots, rebuild it with `python3 scripts/render-readme-tour.py` (requires Pillow).
+The source is in [`capture-readme.ts`](../apps/web/tools/capture-readme.ts) and [`readme-fixtures.ts`](../apps/web/tools/readme-fixtures.ts). These tools are outside the production client entry points. The animated overview is a slideshow of the captured states, with its frame order and timing in [`tour.json`](assets/demo/tour.json). After refreshing the screenshots, rebuild it with `python3 scripts/render-readme-tour.py` (requires Pillow); add `--locale=zh-CN` for the Chinese tour.
 
 This is product presentation evidence. Real backend, model quality, media uploads, push delivery, device behavior, and deployment acceptance are covered separately by the [testing guide](08-testing.md).
