@@ -17,6 +17,13 @@ const failure = (route: Route, status = 503) =>
     },
     status,
   )
+async function openShellPalette(page: Page) {
+  // The fixture starts the sync engine before React renders. WebKit can finish navigation while #root is still empty.
+  const trigger = page.getByRole('button', { name: '搜索、跳转或执行命令', exact: true })
+  await expect(trigger).toBeVisible()
+  await trigger.press('Control+k')
+  await expect(page.getByRole('combobox')).toBeFocused()
+}
 const member = {
   id: uuid(2),
   username: 'alice',
@@ -293,7 +300,7 @@ test('message search exposes later pages and source information, and can retry a
     })
   })
   await page.goto('/?mode=shell')
-  await page.keyboard.press('Control+k')
+  await openShellPalette(page)
   await page.getByRole('combobox').fill('重复结果')
   await expect(page.getByRole('option')).toHaveCount(20)
   await expect(page.getByRole('option').first()).toContainText('产品讨论 · Bob')
@@ -345,7 +352,7 @@ test('an invalid message search cursor can restart from a fresh first page', asy
     })
   })
   await page.goto('/?mode=shell')
-  await page.keyboard.press('Control+k')
+  await openShellPalette(page)
   await page.getByRole('combobox').fill('游标测试')
   await expect(page.getByRole('option')).toHaveCount(1)
   await page.getByRole('button', { name: '加载更多', exact: true }).click()

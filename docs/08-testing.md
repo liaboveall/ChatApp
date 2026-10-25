@@ -39,6 +39,8 @@ bun run test:integration
 
 共享测试库的 integration、coverage、普通 E2E、edge 必须串行。媒体栈虽然独立，浏览器、混合负载、发布包和网关构建仍不能同时覆盖共享 `dist`。故障脚本只操作已核验归属的独立 Compose 项目，不能指向开发或生产实例。
 
+`typecheck`（包含在 `check` 中）会重新生成 Paraglide 文案模块，应在基于 Vite 开发服务器的 `test:review` 之前串行完成，避免热更新重置正在验证的页面状态。
+
 ## 回归重点
 
 - 身份与权限：同浏览器换人、迟到响应、旧请求 401 / Cookie、成员撤销、加入前历史、私有资源统一 404。
