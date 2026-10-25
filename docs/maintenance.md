@@ -62,3 +62,21 @@ git show v2-pre-cleanup-2026-10-20:docs/31-prelaunch-operations-2026-10-13.md
 - `git diff --check`：通过。生产业务逻辑、邀请码状态优先级与线上实例未修改。
 
 本地修复结果与新提交的远端 CI 分别取证，原失败运行保留。
+
+## 2026-10-25：关闭定时 CI 与依赖安全修复
+
+移除 e2e、security、eval 的全部 `schedule` 触发；提交、PR 和原有手动入口保留，真实 provider eval 仅手动运行。
+
+关闭定时任务的提交 `b9cefcf` 触发了正常的 push CI。[安全扫描](https://github.com/liaboveall/ChatApp/actions/runs/40147629519) 检出锁文件中 8 个包版本的 23 条漏洞记录，其中包括 Storybook 的 Critical 告警。该提交未更改依赖；扫描数据库更新后，既有锁定版本也可能产生新的失败。
+
+- Storybook 及其配套包升级至 10.6.2，Vite 至 8.3.3，Zod 至 4.6.6，Nodemailer 至 10.1.4。
+- 按原依赖范围更新 fast-uri、serialize-javascript，以及 Undici 的 7.x / 8.x 两条依赖链；未升级其他无关依赖。
+- 本地 `bun audit --audit-level=high` 通过；与 CI 同版本的 OSV Scanner 2.6.0 递归扫描通过。
+- 原有 `GHSA-67mh-4wv8-2f99` 开发工具例外及到期日不变；没有新增忽略项，也没有降低扫描门槛。
+- 本地 `bun run check` 通过：后端 / 脚本 702 项、前端 750 项；生产构建与 Storybook 构建通过。
+
+浏览器组件回归同时复现原有的 WebKit 搜索超时：首次运行 57 项通过、1 项失败，trace 显示导航结束时 `#root` 仍为空，测试已经发送了 `Ctrl+K`。两项搜索测试改为等待真实搜索按钮可见，再从该按钮发送同一快捷键并检查输入框焦点；没有放宽超时门槛、增加重试或跳过断言。原失败 trace 保留在本地排查目录。
+
+修复后串行验证：WebKit 两项搜索场景各重复 6 次，12/12 通过；完整组件浏览器回归 58/58 通过。一轮与类型检查并行的重复验证因生成文案触发 Vite 热更新而失败，该记录也已保留；类型检查与开发服务器浏览器测试须串行执行。
+
+远端检查应以修复提交的 Actions 回执为准；此记录不表示生产实例已更新。
