@@ -56,7 +56,7 @@ Storybook 与 `apps/web/review/` 是回归设施；合成数据测试不能证�
 
 ## CI
 
-`.github/workflows/` 包含 check、integration、e2e、media、embeddings、images、security，以及定时 / 手动真实 provider eval。开发主线统一为 `main`；原生 ARM、镜像、安全扫描、真实服务与浏览器结果分别取证。
+`.github/workflows/` 包含 check、integration、e2e、media、embeddings、images、security，以及仅手动触发的真实 provider eval。所有工作流均不设定时触发；其余工作流保留 push、pull_request 和原有的手动触发配置。开发主线统一为 `main`；原生 ARM、镜像、安全扫描、真实服务与浏览器结果分别取证。
 
 推送后检查当前提交的所有最终作业，不以旧 SHA 的绿色结果替代。评测依赖凭据、人工审核或外部服务时，按实际完成范围记录，失败、跳过和重跑原因保留。
 
