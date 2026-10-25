@@ -4,9 +4,7 @@ on:
   push:
     branches: [main]
   pull_request:
-  schedule:
-    - cron: "17 3 * * 1" # every Monday 03:17 UTC
-  workflow_dispatch: # push and pull_request scans cover only their commits; this and the schedule scan the whole history
+  workflow_dispatch: # push and pull_request scans cover only their commits; this scans the whole history
 
 permissions:
   contents: read
