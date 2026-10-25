@@ -37,6 +37,8 @@ await run([
   `${uid}:${gid}`,
   '-e',
   'HOME=/tmp',
+  '-e',
+  'CI',
   '-v',
   `${ROOT}:/work`,
   '-w',

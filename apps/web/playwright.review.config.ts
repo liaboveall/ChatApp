@@ -1,7 +1,7 @@
 import { defineConfig, devices } from '@playwright/test'
 export default defineConfig({
   testDir: './review',
-  // Keep the real-service E2E failure traces when both suites run in the same CI job.
+  // Keep component traces separate from the real-service E2E artifacts.
   outputDir: '../../test-results/review-components',
   testMatch: '**/*.spec.ts',
   fullyParallel: true,

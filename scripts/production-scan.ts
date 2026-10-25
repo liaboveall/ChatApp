@@ -84,9 +84,22 @@ async function main() {
         await writeFile(join(directory, `trivy-${name}.log`), `${stdout}\n${stderr}`, {
           mode: 0o600,
         })
-        if (code !== 0) failed = true
+        if (code !== 0) {
+          failed = true
+          console.error(
+            JSON.stringify({
+              image: name,
+              status: 'scan_failed',
+              exitCode: code,
+              report: `trivy-${name}.json`,
+            }),
+          )
+        }
       } catch {
         failed = true
+        console.error(
+          JSON.stringify({ image: name, status: 'scan_error', report: `trivy-${name}.log` }),
+        )
       }
       await rm(path, { force: true })
     }

@@ -60,6 +60,8 @@ Storybook 与 `apps/web/review/` 是回归设施；合成数据测试不能证�
 
 `.github/workflows/` 包含 check、integration、e2e、media、embeddings、images、security，以及仅手动触发的真实 provider eval。所有工作流均不设定时触发；其余工作流保留 push、pull_request 和原有的手动触发配置。开发主线统一为 `main`；原生 ARM、镜像、安全扫描、真实服务与浏览器结果分别取证。
 
+e2e 工作流中的真实服务浏览器、组件回归和隔离媒体浏览器链分别运行在独立作业中，避免三套测试共用 60 分钟预算。每个作业使用自己的 runner / 服务 / 产物路径；测试、断言和单项性能门槛保持原值。视觉测试将 `CI` 传入官方 Playwright 容器；时间线夹具等待 TypeScript 语法加载，截图前另检查高亮 token 已出现。
+
 推送后检查当前提交的所有最终作业，不以旧 SHA 的绿色结果替代。评测依赖凭据、人工审核或外部服务时，按实际完成范围记录，失败、跳过和重跑原因保留。
 
 ## 生产与人工验证

@@ -38,6 +38,12 @@ for (const theme of ['light', 'dark'] as const) {
           .first()
           .waitFor()
         await page.evaluate(() => document.fonts.ready)
+        if (story.id === 'timeline-rows--conversation') {
+          // Grammar preloading is best-effort. The baseline includes highlighted TypeScript, not its plain-text fallback.
+          await expect(
+            page.locator('[data-streamdown="code-block"]').getByText('const', { exact: true }),
+          ).toBeVisible()
+        }
         // Let layout, glass and Base UI's positioning settle before the picture is taken.
         await page.waitForTimeout(400)
         await expect(page).toHaveScreenshot(`${story.id}--${theme}.png`)

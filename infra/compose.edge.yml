@@ -8,7 +8,7 @@ services:
   nginx:
     # The 1.30 series (D-169): exact tag and index digest (amd64 and arm64 among them). Upstream stopped security support for
     # 1.28 on 2026-04-14; the owner chose 1.30 on 2026-10-04. The server itself is moved at M8, not before.
-    image: nginx:1.30.5-alpine@sha256:0985e772fb9f729e6fa0980da05fca5d9c468e870eed43071545afa9d2e27d94
+    image: nginx:1.30.6-alpine@sha256:47928bf67eb62a1863cb08d9ecb52d3e704304ba614eaee17884204677702951
     ports:
       - "127.0.0.1:8443:443"
     extra_hosts:
