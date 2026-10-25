@@ -12,8 +12,14 @@ const meta = {
   title: 'Timeline/Rows',
   tags: ['visual'],
   parameters: { layout: 'padded', surface: 'plain' },
-  // The Markdown renderer is its own chunk (D-145): wait for it, so the rows are drawn the way they are in the app.
-  loaders: [async () => void (await loadMarkdown())],
+  // Wait for both the renderer and this fixture's grammar: otherwise a cold load can capture plain code before highlighting.
+  loaders: [
+    async () => {
+      await loadMarkdown()
+      const { warmHighlighter } = await import('@/components/markdown/safe-markdown.tsx')
+      await warmHighlighter('ts')
+    },
+  ],
 } satisfies Meta
 export default meta
 type Story = StoryObj<typeof meta>

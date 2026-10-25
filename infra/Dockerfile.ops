@@ -1,10 +1,10 @@
 # PostgreSQL 18 clients and restic belong only to the operator image. No Docker socket is required.
-FROM golang:1.27.2-trixie@sha256:e58d6f83b3416618d8bcac2b3dde1b7f7e3c4a77d25e88637f8bbae81536c48d AS restic
-# Keep the upstream release; apply the four dependency security updates with Go's checksum database.
+FROM golang:1.27.3-trixie@sha256:fbb7ae40b62ff8afe31662df570d39b4f5052ac32b90dae8e60d7657a20a74f4 AS restic
+# Keep the upstream release; apply dependency security updates with Go's checksum database.
 RUN go mod download github.com/restic/restic@v0.19.1 \
     && cp -a "$(go env GOMODCACHE)/github.com/restic/restic@v0.19.1" /source \
     && chmod -R u+w /source && cd /source \
-    && go get golang.org/x/crypto@v0.58.0 golang.org/x/net@v0.61.0 golang.org/x/text@v0.43.0 google.golang.org/grpc@v1.84.0 \
+    && go get golang.org/x/crypto@v0.58.0 golang.org/x/net@v0.61.0 golang.org/x/text@v0.43.0 google.golang.org/grpc@v1.84.0 github.com/klauspost/compress@v1.18.7 \
     && mkdir /out && CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o /out/restic ./cmd/restic \
     && go list -m all > /out/restic-modules.txt && cp LICENSE /out/LICENSE
 
@@ -42,7 +42,7 @@ COPY --from=base --chown=10001:10001 --chmod=0700 /var/lib/chatapp/restore /var/
 COPY --from=clients /runtime/ /
 COPY --from=restic /out/restic /usr/local/bin/restic
 COPY --from=restic /out/restic-modules.txt /out/LICENSE /usr/share/doc/chatapp-restic/
-LABEL chatapp.restic.version="0.19.1" chatapp.restic.compiler="1.27.2" chatapp.restic.security-patch="1"
+LABEL chatapp.restic.version="0.19.1" chatapp.restic.compiler="1.27.3" chatapp.restic.security-patch="2"
 ENV PATH=/usr/local/bin:/usr/lib/postgresql/18/bin:/usr/bin:/bin LANG=C.UTF-8 TMPDIR=/tmp
 WORKDIR /app
 COPY --from=dependencies /app/package.json ./package.json

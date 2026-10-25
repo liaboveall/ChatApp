@@ -20,8 +20,8 @@ concurrency:
 jobs:
   e2e:
     runs-on: ubuntu-24.04
-    # M6's complete browser suite took 42 minutes on the shared runner. Reserve time for setup, the subsequent
-    # real-decoder browser chain, artifact upload and cleanup as well. Individual test and performance limits are unchanged.
+    # The complete browser suite takes about 47 minutes on the shared runner. Component and decoder suites have their
+    # own jobs so their setup and runtime cannot exhaust this job's budget. Individual test/performance limits are unchanged.
     timeout-minutes: 60
     steps:
       - uses: actions/checkout@v7
@@ -44,12 +44,6 @@ jobs:
         run: bun run test:e2e
         env:
           CI: "true"
-      - name: Review regression scenarios with real components
-        run: bun run test:review
-      - name: Rich messages with the real isolated decoder (M3 scenario 6)
-        run: bun run test:m3:e2e
-        env:
-          CI: "true"
       - name: Report and traces
         if: ${{ !cancelled() }}
         uses: actions/upload-artifact@v7
@@ -58,7 +52,6 @@ jobs:
           path: |
             apps/web/playwright-report
             apps/web/test-results
-            test-results/review-components
           retention-days: 7
       - name: Service logs
         if: failure()
@@ -66,6 +59,62 @@ jobs:
       - name: Stop services
         if: always()
         run: bun run infra:down
+
+  review:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version-file: package.json
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 26
+      - run: bun install --frozen-lockfile
+      - name: Generate localized messages for the standalone review harness
+        run: bun run --cwd apps/web generate
+      - name: Install the browsers and their system libraries
+        run: node_modules/.bin/playwright install --with-deps chromium webkit
+        working-directory: apps/web
+      - name: Review regression scenarios with real components
+        run: bun run test:review
+      - name: Report and traces
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: review-report
+          path: test-results/review-components
+          retention-days: 7
+
+  media-browser:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v7
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version-file: package.json
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 26
+      - run: bun install --frozen-lockfile
+      - name: Install the browsers and their system libraries
+        run: node_modules/.bin/playwright install --with-deps chromium webkit
+        working-directory: apps/web
+      # The script creates and closes its own verified API, worker, storage and isolated decoder stack.
+      - name: Rich messages with the real isolated decoder (M3 scenario 6)
+        run: bun run test:m3:e2e
+        env:
+          CI: "true"
+      - name: Failure traces (exclude generated accounts and instance secrets)
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: media-browser-report
+          path: .test-runs/e2e-media/results
+          include-hidden-files: true
+          retention-days: 7
 
   # The gateway's configuration: the compose file is valid and Nginx loads the site in the pinned image. The suite that
   # runs against the live gateway is local only (docs/12 D-147): Docker on a hosted runner has another network topology.
