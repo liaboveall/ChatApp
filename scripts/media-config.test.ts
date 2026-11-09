@@ -320,7 +320,7 @@ describe('images and development entry points', () => {
     const file = read('infra/Dockerfile.media')
     expect(file).toContain('ffmpeg-9.0.2.tar.xz')
     expect(file).toContain(
-      'ADD --checksum=sha256:8c3850283eb25fa026482078a04051e0be17347b09ef81a0849bec15a96e002e',
+      '8c3850283eb25fa026482078a04051e0be17347b09ef81a0849bec15a96e002e  /tmp/ffmpeg.tar.xz" | sha256sum --check --strict -',
     )
     expect(file).toContain('--disable-network')
     expect(file).not.toMatch(/^COPY\s+(?:apps\/(?:server|web)|packages\/db)/m)

@@ -1,9 +1,12 @@
 # Both multi-architecture indexes verified against Docker Hub on 2026-10-06.
 FROM oven/bun:1.4.2-slim@sha256:cb3bbbb08e13a4a2ff400f24c7a2a1d5efa83f6ef8544d52d95a519631e2fc61 AS bun
 FROM debian:trixie-slim@sha256:a29215f6a35e51e22adffa17f89e9d2ef06214e64a2bad10d765c46aea49f11f AS ffmpeg
-RUN apt-get update && apt-get install -y --no-install-recommends build-essential pkg-config nasm xz-utils libx264-dev libdav1d-dev && rm -rf /var/lib/apt/lists/*
+RUN apt-get update && apt-get install -y --no-install-recommends build-essential pkg-config nasm xz-utils ca-certificates curl libx264-dev libdav1d-dev && rm -rf /var/lib/apt/lists/*
 # Official release signature verified against FCF986EA15E6E293A5644F10B4322F04D67658D8; retain the exact source hash.
-ADD --checksum=sha256:8c3850283eb25fa026482078a04051e0be17347b09ef81a0849bec15a96e002e https://ffmpeg.org/releases/ffmpeg-9.0.2.tar.xz /tmp/ffmpeg.tar.xz
+# ADD has no retry and ffmpeg.org is intermittently unreachable from CI runners.
+RUN curl --fail --silent --show-error --location --retry 8 --retry-all-errors --retry-delay 15 \
+      --connect-timeout 20 --max-time 300 --output /tmp/ffmpeg.tar.xz https://ffmpeg.org/releases/ffmpeg-9.0.2.tar.xz \
+    && echo "8c3850283eb25fa026482078a04051e0be17347b09ef81a0849bec15a96e002e  /tmp/ffmpeg.tar.xz" | sha256sum --check --strict -
 RUN mkdir /source && tar -xJf /tmp/ffmpeg.tar.xz -C /source --strip-components=1 \
     && cd /source && ./configure --prefix=/usr --disable-shared --enable-static --disable-autodetect --disable-network --enable-protocol=file,pipe --disable-doc --disable-ffplay --enable-gpl --enable-libx264 --enable-libdav1d \
     && make -j4 && make install \
