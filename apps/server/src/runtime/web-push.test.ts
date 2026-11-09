@@ -101,6 +101,13 @@ describe('RFC 8291 message encryption', () => {
 })
 
 describe('VAPID (RFC 8292)', () => {
+  test('a generated private key is always the full 32-byte scalar', () => {
+    // createECDH drops leading zero bytes, which about one scalar in 256 has.
+    for (let run = 0; run < 4096; run++) {
+      expect(b64u.decode(generateVapidKeys().privateKey)).toHaveLength(32)
+    }
+  })
+
   const keys = { ...generateVapidKeys(), subject: 'mailto:admin@example.test' }
 
   test('a generated key pair is consistent, a mismatched one is detected', () => {

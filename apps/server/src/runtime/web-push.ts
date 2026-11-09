@@ -167,7 +167,8 @@ export function generateVapidKeys(): { publicKey: string; privateKey: string } {
   ecdh.generateKeys()
   return {
     publicKey: b64u.encode(ecdh.getPublicKey()),
-    privateKey: b64u.encode(ecdh.getPrivateKey()),
+    // getPrivateKey() drops leading zero bytes, and the scalar must stay 32 bytes.
+    privateKey: b64u.encode(Buffer.from(ecdh.getPrivateKey('hex').padStart(64, '0'), 'hex')),
   }
 }
 
