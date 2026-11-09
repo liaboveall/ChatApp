@@ -48,7 +48,7 @@ RUN bun install --frozen-lockfile --production --ignore-scripts --filter @chatap
 COPY scripts/production-prune.ts /app/production-prune.ts
 RUN bun --no-env-file /app/production-prune.ts
 
-FROM gcr.io/distroless/cc-debian13:nonroot@sha256:e792ab3d241a468a4fd7519ddbbebe66b49b5f365771716ea688ad40b6c6f1c2 AS application
+FROM gcr.io/distroless/cc-debian13:nonroot@sha256:cc66d222f0a7ec996b78a99fe76a969bc80b539a5016ad866c14d1949bc6d0ab AS application
 COPY --from=base /usr/local/bin/bun /usr/local/bin/bun
 COPY --from=base /etc/passwd /etc/passwd
 COPY --from=base /etc/group /etc/group

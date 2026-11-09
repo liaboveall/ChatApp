@@ -4,12 +4,12 @@ FROM golang:1.27.3-trixie@sha256:fbb7ae40b62ff8afe31662df570d39b4f5052ac32b90dae
 RUN go mod download github.com/restic/restic@v0.19.1 \
     && cp -a "$(go env GOMODCACHE)/github.com/restic/restic@v0.19.1" /source \
     && chmod -R u+w /source && cd /source \
-    && go get golang.org/x/crypto@v0.58.0 golang.org/x/net@v0.61.0 golang.org/x/text@v0.43.0 google.golang.org/grpc@v1.84.0 github.com/klauspost/compress@v1.18.7 \
+    && go get golang.org/x/crypto@v0.58.0 golang.org/x/net@v0.62.0 github.com/go-jose/go-jose/v4@v4.1.6 golang.org/x/text@v0.43.0 google.golang.org/grpc@v1.84.0 github.com/klauspost/compress@v1.18.7 \
     && mkdir /out && CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o /out/restic ./cmd/restic \
     && go list -m all > /out/restic-modules.txt && cp LICENSE /out/LICENSE
 
 FROM postgres:18.6-trixie@sha256:74935e72241653ca55e0414067e6d8763aceb8a810eb51b452253ec3dcfc4336 AS clients
-RUN apt-get update && apt-get install -y --no-install-recommends python3 && rm -rf /var/lib/apt/lists/*
+RUN apt-get update && apt-get install -y --no-install-recommends python3 && apt-get install -y --only-upgrade zlib1g && rm -rf /var/lib/apt/lists/*
 COPY infra/runtime-libraries.py /runtime-libraries.py
 RUN python3 /runtime-libraries.py /runtime /usr/lib/postgresql/18/bin/pg_dump /usr/lib/postgresql/18/bin/pg_restore
 
@@ -33,7 +33,7 @@ RUN bun install --frozen-lockfile --production --ignore-scripts --filter @chatap
 COPY scripts/production-prune.ts /app/production-prune.ts
 RUN bun --no-env-file /app/production-prune.ts
 
-FROM gcr.io/distroless/cc-debian13:nonroot@sha256:e792ab3d241a468a4fd7519ddbbebe66b49b5f365771716ea688ad40b6c6f1c2 AS runtime
+FROM gcr.io/distroless/cc-debian13:nonroot@sha256:cc66d222f0a7ec996b78a99fe76a969bc80b539a5016ad866c14d1949bc6d0ab AS runtime
 COPY --from=base /usr/local/bin/bun /usr/local/bin/bun
 COPY --from=base /etc/passwd /etc/passwd
 COPY --from=base /etc/group /etc/group
@@ -42,7 +42,7 @@ COPY --from=base --chown=10001:10001 --chmod=0700 /var/lib/chatapp/restore /var/
 COPY --from=clients /runtime/ /
 COPY --from=restic /out/restic /usr/local/bin/restic
 COPY --from=restic /out/restic-modules.txt /out/LICENSE /usr/share/doc/chatapp-restic/
-LABEL chatapp.restic.version="0.19.1" chatapp.restic.compiler="1.27.3" chatapp.restic.security-patch="2"
+LABEL chatapp.restic.version="0.19.1" chatapp.restic.compiler="1.27.3" chatapp.restic.security-patch="3"
 ENV PATH=/usr/local/bin:/usr/lib/postgresql/18/bin:/usr/bin:/bin LANG=C.UTF-8 TMPDIR=/tmp
 WORKDIR /app
 COPY --from=dependencies /app/package.json ./package.json
