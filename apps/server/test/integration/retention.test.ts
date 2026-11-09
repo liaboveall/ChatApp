@@ -84,6 +84,24 @@ test('shortening policy within one cleanup interval creates a distinct frozen jo
   expect((await offsite.journal.head()).head.seq).toBe(2)
 })
 
+test('retention appends one journal operation per UTC month', async () => {
+  const deps = app.services.deps
+  app.clock.set(Date.UTC(2026, 10, 30, 23, 50))
+  await prepareRetention(deps)
+  await dispatchDeletions(deps, applyDeletion)
+  app.clock.advance(5 * 60_000)
+  await prepareRetention(deps)
+  await dispatchDeletions(deps, applyDeletion)
+  expect(await deps.db.select().from(deletionOperations)).toHaveLength(1)
+  expect((await offsite.journal.head()).head.seq).toBe(1)
+  app.clock.advance(10 * 60_000)
+  await prepareRetention(deps)
+  const cutoffs = (await deps.db.select().from(deletionOperations)).map((row) =>
+    row.intent.action === 'retention' ? row.intent.target.cutoff : null,
+  )
+  expect(cutoffs.sort()).toEqual(['2026-11-01T00:00:00.000Z', '2026-12-01T00:00:00.000Z'])
+})
+
 test('isolated recovery applies current attachment expiry without emitting a new journal record, refunds only the expired orphan and keeps live/avatar references', async () => {
   const alice = await person(app, 'alice'),
     deps = app.services.deps,
@@ -183,7 +201,7 @@ test('expiry retains private run and task content during an offsite outage, then
   const alice = await person(app, 'alice'),
     deps = app.services.deps
   const now = deps.clock.now(),
-    old = new Date(now.getTime() - 31 * 86_400_000)
+    old = new Date(now.getTime() - 62 * 86_400_000)
   const principal = await makePrincipal(deps, alice)
   const run = await createAgentRun(
     deps,

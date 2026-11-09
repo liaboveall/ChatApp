@@ -24,10 +24,18 @@ import { readSitePolicy } from './site-policy.ts'
 import { retireAttachment } from './uploads.ts'
 
 const DAY = 86_400_000
+
+/**
+ * One stable operation per UTC month, including after a restart. Accepting an operation reads the
+ * whole offsite journal chain and object storage bills per read, so this cadence sets the cost.
+ */
+export function retentionCutoff(now: Date): Date {
+  return new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth()))
+}
+
 export async function prepareRetention(deps: Deps): Promise<void> {
   if (!deps.deletionJournal) throw new Error('journal retention requires an offsite journal')
-  // One stable operation per cleanup interval, including after a restart.
-  const cutoff = new Date(Math.floor(deps.clock.now().getTime() / 600_000) * 600_000).toISOString()
+  const cutoff = retentionCutoff(deps.clock.now()).toISOString()
   await deps.db.transaction(async (tx) => {
     await tx.execute(sql`select pg_advisory_xact_lock(hashtext('chatapp.retention.prepare'))`)
     await tx.execute(sql`select pg_advisory_xact_lock(hashtext('chatapp.deletion.prepare'))`)
