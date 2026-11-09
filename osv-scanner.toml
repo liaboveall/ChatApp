@@ -5,3 +5,18 @@
 id = "GHSA-67mh-4wv8-2f99"
 ignoreUntil = 2027-01-01
 reason = "Only esbuild's development server (serve) is affected. The vulnerable 0.18.20 is pulled in solely by drizzle-kit 0.31.11 (the latest stable) through the deprecated @esbuild-kit/core-utils, which uses the transform API and never starts a server. drizzle-kit is a dev dependency of packages/db and is not part of any production image."
+
+[[IgnoredVulns]]
+id = "GHSA-3g3m-2fjr-6pw4"
+ignoreUntil = 2027-01-01
+reason = "Only cancellation through AbortSignal is bypassed. glob 11 and 13 are dev-only, pulled in by workbox-build and the Storybook docgen plugin, which match this repository's own patterns at build time and pass no AbortSignal. The fix is glob 14, outside both parents' ranges, and neither version reaches a production image."
+
+[[IgnoredVulns]]
+id = "GHSA-g3hv-75wg-m249"
+ignoreUntil = 2027-01-01
+reason = "Denial of service through a crafted glob pattern. minimatch 10 is dev-only, pulled in by the glob versions above, and only receives this repository's own build-time patterns. It does not reach a production image."
+
+[[IgnoredVulns]]
+id = "GHSA-gcqx-w48m-w2h4"
+ignoreUntil = 2027-01-01
+reason = "Prototype poisoning of objects merged from untrusted input, with no fixed release. deepmerge is dev-only, pulled in through workbox-build by @rollup/plugin-node-resolve, runs only at build time on this repository's locked inputs, and does not reach a production image."
