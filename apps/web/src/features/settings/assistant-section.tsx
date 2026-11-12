@@ -160,7 +160,7 @@ function OwnKeyGroup({ me }: { me: Me }) {
             </Button>
           </Row>
         ) : null}
-        <form className="row" onSubmit={submit}>
+        <form className="row row--field" onSubmit={submit}>
           <div className="row__main">
             <TextField
               label={m.settings_ai_key_input()}
@@ -369,7 +369,18 @@ function TasksGroup() {
             <Banner tone="danger">{describeError(error)}</Banner>
           </div>
         ) : null}
-        <div className="row task-actions">
+        {/* Only when there is something to load or to retry: an empty row would still draw its rule and its height. */}
+        <div
+          className="row task-actions"
+          hidden={
+            !(
+              reminders.hasNextPage ||
+              reminders.isError ||
+              scheduled.hasNextPage ||
+              scheduled.isError
+            )
+          }
+        >
           {reminders.hasNextPage || reminders.isError ? (
             <Button
               size="sm"

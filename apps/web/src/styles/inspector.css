@@ -2,7 +2,18 @@
 
 .details {
   display: grid;
-  gap: 22px;
+  gap: 18px;
+}
+/* Sections are parted by a hairline, so each heading can stay quiet. */
+.details > .dsec + .dsec,
+.details > .details__head ~ .dsec {
+  padding-top: 16px;
+  border-top: 1px solid var(--separator);
+}
+/* Change or remove the picture: two small actions under the head they belong to. */
+.details > .avatar-editor {
+  justify-content: center;
+  margin-top: -10px;
 }
 .details__head {
   display: grid;
@@ -12,11 +23,12 @@
 }
 .details__name {
   max-width: 100%;
-  margin-top: 6px;
+  margin-top: 8px;
   overflow-wrap: anywhere;
-  font-size: var(--fs-title-3);
-  line-height: var(--lh-title-3);
+  font-size: var(--fs-title-2);
+  line-height: var(--lh-title-2);
   font-weight: 700;
+  letter-spacing: -0.01em;
   color: var(--label);
 }
 .details__meta {
@@ -26,12 +38,13 @@
 }
 .details__text {
   max-width: 100%;
-  margin-top: 6px;
+  margin-top: 8px;
   overflow-wrap: anywhere;
   white-space: pre-wrap;
   color: var(--label);
   font-size: var(--fs-callout);
   line-height: var(--lh-callout);
+  text-wrap: pretty;
 }
 
 /* A section: a heading, then what belongs under it. */
@@ -53,6 +66,9 @@
   line-height: var(--lh-headline);
   font-weight: 600;
   color: var(--label);
+}
+.dsec__head {
+  min-height: 28px;
 }
 .dsec__count {
   color: var(--label-secondary);
@@ -91,8 +107,10 @@
   align-items: center;
   gap: 10px;
   min-height: 44px;
-  padding: 4px 4px 4px 2px;
-  border-radius: var(--radius-control);
+  margin-inline: -6px;
+  padding: 4px 4px 4px 6px;
+  border-radius: 12px;
+  transition: background-color 0.15s;
 }
 .member:hover {
   background: var(--fill-hover);
@@ -147,8 +165,8 @@
   align-items: center;
   gap: 8px;
   min-height: 44px;
-  padding: 4px 4px 4px 8px;
-  border-radius: var(--radius-control);
+  padding: 4px 4px 4px 10px;
+  border-radius: 12px;
   background: var(--fill);
 }
 .invite__body {

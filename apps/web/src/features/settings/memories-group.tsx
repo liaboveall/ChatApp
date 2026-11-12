@@ -136,6 +136,7 @@ export function MemoriesGroup() {
           <label>
             <span>{m.settings_memory_content()}</span>
             <textarea
+              className="textarea"
               value={draft}
               maxLength={1000}
               rows={3}

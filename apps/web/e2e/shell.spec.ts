@@ -1,4 +1,5 @@
 import { createVerifiedMember } from './support/api.ts'
+import { createGroupApi, signedIn } from './support/chat.ts'
 import { expect, newContext, test } from './support/fixtures.ts'
 import { animationsFinished, openSettings, signIn } from './support/ui.ts'
 
@@ -211,6 +212,43 @@ test.describe('time zone', () => {
   })
 })
 
+test.describe('sidebar', () => {
+  test('the open conversation is marked in the list, drawn and announced, and the mark follows', async ({
+    page,
+  }) => {
+    const person = await createVerifiedMember('current')
+    const api = await signedIn(person)
+    const stamp = Date.now().toString(36)
+    const first = `甲组${stamp}`
+    const second = `乙组${stamp}`
+    await createGroupApi(api, first)
+    await createGroupApi(api, second)
+    await signIn(page, person.email, person.password)
+    const nav = page.getByRole('navigation', { name: '会话' })
+    const row = (name: string) => nav.getByRole('link', { name })
+    // What the row looks like: the tinted fill and the bar on its left edge (docs/02 section 3: not colour alone).
+    const drawn = (name: string) =>
+      row(name).evaluate((element) => ({
+        fill: getComputedStyle(element).backgroundColor,
+        bar: getComputedStyle(element, '::before').content,
+      }))
+    const clear = 'rgba(0, 0, 0, 0)'
+
+    await row(first).click()
+    await expect(row(first)).toHaveAttribute('aria-current', 'page')
+    await expect.poll(async () => (await drawn(first)).fill).not.toBe(clear)
+    expect((await drawn(first)).bar).not.toBe('none')
+    // The other row was never under the pointer: it has neither.
+    expect(await drawn(second)).toEqual({ fill: clear, bar: 'none' })
+
+    await row(second).click()
+    await expect(row(second)).toHaveAttribute('aria-current', 'page')
+    await expect(row(first)).not.toHaveAttribute('aria-current')
+    expect((await drawn(second)).bar).not.toBe('none')
+    expect((await drawn(first)).bar).toBe('none')
+  })
+})
+
 test.describe('layout', () => {
   for (const width of [320, 375, 600, 768, 1024, 1100, 1280, 1440]) {
     test(`@smoke nothing overflows sideways at ${width} px, signed out and signed in`, async ({
@@ -231,6 +269,82 @@ test.describe('layout', () => {
       expect(await overflow(), `app at ${width}`).toBeLessThanOrEqual(0)
       await openSettings(page, 'account')
       expect(await overflow(), `settings at ${width}`).toBeLessThanOrEqual(0)
+    })
+  }
+
+  // What the test above cannot see: the sheet scrolls its own body, so a control that sticks out of its card, or a
+  // group wider than the sheet, never widens the document. Both languages, because the English names are the long ones.
+  for (const language of ['简体中文', 'English'] as const) {
+    test(`@smoke on a phone every settings section keeps its controls inside their cards (${language})`, async ({
+      page,
+    }) => {
+      const person = await createVerifiedMember(language === 'English' ? 'phone-en' : 'phone-zh')
+      await signIn(page, person.email, person.password)
+      if (language === 'English') {
+        await openSettings(page, 'appearance')
+        await page.getByRole('radio', { name: 'English' }).click()
+        await expect(page.getByRole('heading', { name: 'Appearance' })).toBeVisible()
+      }
+      for (const width of [390, 320]) {
+        await page.setViewportSize({ width, height: 800 })
+        for (const section of [
+          'appearance',
+          'notifications',
+          'account',
+          'assistant',
+          'invites',
+        ] as const) {
+          await openSettings(page, section)
+          const sheet = page.getByRole('dialog')
+          // The lists of a section (devices, invitation codes, tasks) are in: what is measured is the section itself.
+          await expect(sheet.locator('.skeleton')).toHaveCount(0)
+          const where = `${section} at ${width}`
+          const measured = await sheet.evaluate((element) => {
+            const body = element.querySelector('.sheet__body')
+            const outside: string[] = []
+            for (const box of element.querySelectorAll('.group__box')) {
+              const card = box.getBoundingClientRect()
+              // The controls as drawn (a switch and a segment also carry an input nobody sees, placed by the library).
+              for (const control of box.querySelectorAll(
+                '.seg, .btn, .switch, .slider, .input, .textarea, .select',
+              )) {
+                const rect = control.getBoundingClientRect()
+                if (rect.left < card.left - 0.5 || rect.right > card.right + 0.5)
+                  outside.push((control.textContent || control.tagName).trim().slice(0, 40))
+              }
+            }
+            // The words beside a control: the narrowest column any of them was left with.
+            const words = [...element.querySelectorAll('.row__main:has(> .row__title)')].map(
+              (main) => main.getBoundingClientRect().width,
+            )
+            return {
+              sideways: body ? body.scrollWidth - body.clientWidth : Number.NaN,
+              outside,
+              narrowest: Math.min(...words),
+            }
+          })
+          expect(measured.sideways, where).toBeLessThanOrEqual(0)
+          expect(measured.outside, where).toEqual([])
+          // Ten characters to a line at the least (docs/02, 2026-11-12): a wider control goes under the words instead.
+          expect(measured.narrowest, where).toBeGreaterThanOrEqual(140)
+          // The row of sections scrolls sideways here: the one that is open has its tab in sight.
+          await expect
+            .poll(
+              () =>
+                sheet.evaluate((element) => {
+                  const row = element.querySelector('.sheet__nav')?.getBoundingClientRect()
+                  const tab = element
+                    .querySelector('[aria-current="page"]')
+                    ?.getBoundingClientRect()
+                  return row && tab
+                    ? tab.left >= row.left - 0.5 && tab.right <= row.right + 0.5
+                    : false
+                }),
+              { message: where },
+            )
+            .toBe(true)
+        }
+      }
     })
   }
 

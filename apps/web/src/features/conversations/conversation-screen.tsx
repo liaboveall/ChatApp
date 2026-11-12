@@ -160,10 +160,14 @@ export function ConversationScreen({ id, meId }: { id: string; meId: string }) {
     conversation && (member || adminView)
       ? {
           title: displayName(conversation, m.conversation_unnamed()),
+          // What sits under the name says something about this conversation: whether the other person is around,
+          // what kind of conversation the assistant's is (it has one member, always), how many people read the rest.
           subtitle:
             conversation.kind === 'dm'
               ? peerStatus
-              : m.toolbar_member_count({ count: conversation.memberCount }),
+              : conversation.kind === 'agent'
+                ? m.inspector_kind_agent()
+                : m.toolbar_member_count({ count: conversation.memberCount }),
           avatar: {
             name: displayName(conversation, m.conversation_unnamed()),
             seed: conversation.dmPeer?.id ?? conversation.id,
@@ -202,10 +206,10 @@ export function ConversationScreen({ id, meId }: { id: string; meId: string }) {
         handleRef={timeline}
       />
       <div className="composer-stack">
+        <TypingIndicator conversationId={id} />
         {conversation.kind === 'agent' ? (
           <AgentChatControls conversation={conversation} showDisclosure={false} />
         ) : null}
-        <TypingIndicator conversationId={id} />
         <Composer conversation={conversation} timeline={timeline} />
         {conversation.kind === 'agent' ||
         (['group', 'channel'].includes(conversation.kind) &&

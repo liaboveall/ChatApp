@@ -29,28 +29,74 @@
   max-height: 320px;
   object-fit: cover;
 }
+/* A file: what kind of thing it is, its name and size, and the arrow that says the whole card downloads it. */
 .file-card {
   display: flex;
   gap: 10px;
   align-items: center;
-  padding: 12px;
+  padding: 8px 12px 8px 8px;
   border-radius: 12px;
   background: var(--fill);
   color: inherit;
   text-decoration: none;
   min-width: 0;
+  transition: background-color 0.15s;
+}
+.file-card:hover {
+  background: var(--fill-hover);
 }
 .file-card span {
   min-width: 0;
 }
+.file-card__icon {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 36px;
+  height: 36px;
+  border-radius: 9px;
+  background: color-mix(in srgb, var(--accent-solid) 14%, transparent);
+  color: var(--accent-text);
+}
+.file-card__body {
+  flex: 1;
+}
 .file-card b {
   display: block;
   overflow-wrap: anywhere;
+  font-size: var(--fs-body);
+  line-height: var(--lh-body);
   font-weight: 500;
 }
 .file-card small {
   display: block;
   color: var(--label-secondary);
+  font-size: var(--fs-subheadline);
+  line-height: var(--lh-subheadline);
+  font-variant-numeric: tabular-nums;
+}
+.file-card__get {
+  flex: none;
+  color: var(--label-secondary);
+}
+/* Inside a bubble the card is an inset of the bubble's own colour (the quote's recipe), so its text keeps the bubble's
+   checked contrast: lighter than the gray bubble, darker than the accent one. */
+.bubble--in .file-card {
+  background: color-mix(in srgb, var(--bg-content) 62%, transparent);
+}
+.bubble--in .file-card:hover {
+  background: color-mix(in srgb, var(--bg-content) 80%, transparent);
+}
+.bubble--out .file-card {
+  background: var(--inset);
+}
+.bubble--out .file-card__icon {
+  background: color-mix(in srgb, var(--on-accent) 18%, transparent);
+  color: inherit;
+}
+.bubble--out .file-card small,
+.bubble--out .file-card__get {
+  color: inherit;
 }
 .attachment-video {
   display: block;
@@ -81,18 +127,29 @@
 }
 .upload-drafts {
   display: flex;
-  gap: 8px;
+  gap: 6px;
   flex-wrap: wrap;
-  padding: 10px;
+  padding: 10px 10px 2px;
 }
 .upload-draft {
   display: flex;
   gap: 6px;
   align-items: center;
-  padding: 6px 8px;
-  border-radius: 10px;
+  padding: 2px 2px 2px 10px;
+  border-radius: 999px;
   background: var(--fill);
   max-width: 100%;
+  font-size: var(--fs-callout);
+  line-height: var(--lh-callout);
+}
+.upload-draft progress {
+  width: 56px;
+  height: 4px;
+  accent-color: var(--accent-solid);
+}
+.upload-draft > button:not(.icon-btn) {
+  color: var(--accent-text);
+  font-weight: 600;
 }
 .upload-draft > span {
   max-width: 180px;
@@ -103,25 +160,72 @@
 .upload-draft small {
   color: var(--label-secondary);
 }
-.mention-picker,
-.emoji-picker {
-  display: flex;
-  gap: 4px;
-  flex-wrap: wrap;
-  padding: 8px;
+/* Who to mention: a grid of people inside the composer (the server offers ten at most). It never scrolls, so the chosen
+   one cannot be out of sight; the chosen cell is filled like a menu's row. */
+.mention-picker {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(min(200px, 100%), 1fr));
+  gap: 2px;
+  padding: 6px;
   border-bottom: 1px solid var(--separator);
 }
-.mention-picker button,
-.emoji-picker button {
-  border: 0;
-  background: var(--fill);
-  color: var(--label);
+.mention-picker button {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  min-height: 34px;
+  padding: 6px 10px 6px 7px;
   border-radius: 8px;
-  padding: 8px;
+  color: var(--label-secondary);
+  font-size: var(--fs-callout);
+  line-height: var(--lh-callout);
+  text-align: left;
   cursor: pointer;
 }
+/* The face comes first, as in the list of members: people are picked by face and name, the handle is the detail. */
+.mention-picker button > span:last-child {
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.mention-picker button b {
+  margin-right: 4px;
+  color: var(--label);
+  font-weight: 600;
+}
+.mention-picker button:hover {
+  background: var(--fill);
+}
+/* Emoji: a grid of even cells; each lights up under the pointer. */
+.emoji-picker {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(38px, 1fr));
+  gap: 2px;
+  margin: 0;
+  padding: 8px;
+  border: 0;
+  border-bottom: 1px solid var(--separator);
+}
 .emoji-picker button {
+  display: grid;
+  place-items: center;
+  aspect-ratio: 1;
+  border-radius: 10px;
   font-size: 22px;
+  line-height: 1;
+  cursor: pointer;
+  transition:
+    background-color 0.12s,
+    scale var(--dur-snappy) var(--spring-snappy);
+}
+.emoji-picker button:hover {
+  background: var(--fill-hover);
+  scale: 1.12;
+}
+.emoji-picker button:active {
+  scale: 0.94;
 }
 .mention {
   color: var(--accent-text);
@@ -180,9 +284,14 @@
   height: 100%;
   pointer-events: none;
 }
-.mention-picker button[aria-selected="true"] {
-  background: var(--fill-hover);
-  outline: 2px solid var(--focus-ring);
+.mention-picker button[aria-selected="true"],
+.mention-picker button[aria-selected="true"] b {
+  background: var(--accent-solid);
+  color: var(--on-accent);
+}
+/* On the filled cell a disc of a near hue would melt into it: a thin ring of the text colour keeps its edge. */
+.mention-picker button[aria-selected="true"] .avatar {
+  box-shadow: 0 0 0 1.5px color-mix(in srgb, var(--on-accent) 72%, transparent);
 }
 
 .emoji-picker {

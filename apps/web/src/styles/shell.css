@@ -30,22 +30,31 @@
 .orb {
   position: absolute;
   border-radius: 999px;
-  animation: drift 48s ease-in-out infinite alternate;
-  /* Soft falloff: the core carries the full tint, the edge fades to nothing. */
-  background: radial-gradient(closest-side, var(--orb) 0%, var(--orb) 38%, transparent 100%);
+  /* Soft falloff: only the very centre carries the full tint, and it eases out to nothing, so the blobs read as light
+     in the room and not as discs. Never above --orb, which the contrast check assumes. */
+  background: radial-gradient(
+    closest-side,
+    var(--orb) 0%,
+    color-mix(in oklab, var(--orb) 62%, transparent) 36%,
+    color-mix(in oklab, var(--orb) 22%, transparent) 68%,
+    transparent 100%
+  );
+  @media (prefers-reduced-motion: no-preference) {
+    animation: drift 48s ease-in-out infinite alternate;
+  }
 }
 .orb--a {
-  width: 420px;
-  height: 420px;
-  left: -140px;
-  top: -120px;
+  width: 560px;
+  height: 560px;
+  left: -200px;
+  top: -190px;
   --orb: color-mix(in srgb, var(--accent) var(--wallpaper-tint), transparent);
 }
 .orb--b {
-  width: 300px;
-  height: 300px;
-  left: 60px;
-  bottom: 18%;
+  width: 420px;
+  height: 420px;
+  left: 20px;
+  bottom: 14%;
   --orb: color-mix(
     in srgb,
     oklch(from var(--accent) l c calc(h + 70)) var(--wallpaper-tint),
@@ -55,10 +64,10 @@
   animation-direction: alternate-reverse;
 }
 .orb--c {
-  width: 360px;
-  height: 360px;
-  left: -90px;
-  bottom: -150px;
+  width: 480px;
+  height: 480px;
+  left: -150px;
+  bottom: -210px;
   --orb: color-mix(
     in srgb,
     oklch(from var(--accent) l c calc(h - 55)) var(--wallpaper-tint),
@@ -67,10 +76,10 @@
   animation-duration: 55s;
 }
 .orb--d {
-  width: 520px;
-  height: 520px;
-  right: -180px;
-  top: 10%;
+  width: 640px;
+  height: 640px;
+  right: -240px;
+  top: 6%;
   --orb: color-mix(
     in srgb,
     oklch(from var(--accent) l c calc(h + 30)) calc(var(--wallpaper-tint) * 0.6),
@@ -80,25 +89,27 @@
 }
 /* Auth pages: fewer, larger blobs in the corners around the centred card. */
 .wallpaper--auth .orb--a {
-  left: -100px;
-  top: -140px;
-  width: 520px;
-  height: 520px;
+  left: -160px;
+  top: -220px;
+  width: 760px;
+  height: 760px;
 }
 .wallpaper--auth .orb--b {
   display: none;
 }
 .wallpaper--auth .orb--c {
   left: auto;
-  right: -120px;
-  bottom: -160px;
+  right: -200px;
+  bottom: -260px;
+  width: 700px;
+  height: 700px;
 }
 .wallpaper--auth .orb--d {
   left: auto;
-  right: 10%;
-  top: 5%;
-  width: 320px;
-  height: 320px;
+  right: 6%;
+  top: -6%;
+  width: 480px;
+  height: 480px;
 }
 @keyframes drift {
   to {
@@ -149,7 +160,7 @@
   display: flex;
   align-items: center;
   gap: 6px;
-  padding: 10px 10px 4px;
+  padding: 10px 10px 6px;
 }
 .sidebar__top .search {
   flex: 1;
@@ -162,14 +173,17 @@
 }
 
 .s-section {
-  margin-top: 8px;
+  margin-top: 6px;
+}
+.s-section:first-child {
+  margin-top: 0;
 }
 .s-section__head {
   display: flex;
   align-items: center;
   gap: 2px;
   min-height: 28px;
-  padding: 0 4px 0 8px;
+  padding: 0 4px 0 6px;
   color: var(--label-secondary);
 }
 .s-section__toggle {
@@ -178,21 +192,26 @@
   align-items: center;
   gap: 4px;
   min-height: 28px;
+  padding-inline: 2px 6px;
   border-radius: 8px;
   font-size: var(--fs-footnote);
   line-height: var(--lh-footnote);
   font-weight: 600;
-  letter-spacing: 0.02em;
+  letter-spacing: 0.03em;
   color: var(--label-secondary);
   text-align: left;
+  transition: color 0.15s;
+}
+.s-section__toggle:hover {
+  color: var(--label);
 }
 .s-section__toggle .icon {
   width: 14px;
   height: 14px;
-  transition: transform var(--dur-snappy) var(--spring-snappy);
+  transition: rotate var(--dur-snappy) var(--spring-snappy);
 }
 .s-section__toggle[aria-expanded="false"] .icon {
-  transform: rotate(-90deg);
+  rotate: -90deg;
 }
 
 .s-item {
@@ -203,8 +222,8 @@
   column-gap: 10px;
   width: 100%;
   min-height: 54px;
-  padding: 7px 8px;
-  border-radius: var(--radius-control);
+  padding: 7px 10px 7px 8px;
+  border-radius: 12px;
   text-align: left;
   color: var(--label);
   transition: background-color 0.15s;
@@ -212,17 +231,19 @@
 .s-item:hover {
   background: color-mix(in srgb, var(--fill) 70%, transparent);
 }
-.s-item[aria-current="true"] {
+/* The open conversation: the link the router marks aria-current="page" (the rule used to wait for "true", which nothing
+   writes, so no row was ever marked). */
+.s-item[aria-current="page"] {
   /* --sel-tint is checked against label and secondary text on every glass level (contrast.ts). */
   background: color-mix(in srgb, var(--accent-solid) var(--sel-tint), transparent);
 }
 /* Not colour alone: the open conversation also gets a bar on the left edge. */
-.s-item[aria-current="true"]::before {
+.s-item[aria-current="page"]::before {
   content: "";
   position: absolute;
   left: 0;
-  top: 14px;
-  bottom: 14px;
+  top: 15px;
+  bottom: 15px;
   width: 3px;
   border-radius: 0 3px 3px 0;
   background: var(--accent-solid);
@@ -265,7 +286,12 @@
   font-size: var(--fs-footnote);
   line-height: var(--lh-footnote);
   color: var(--label-secondary);
+  font-variant-numeric: tabular-nums;
   white-space: nowrap;
+}
+.s-item__time .icon {
+  width: 13px;
+  height: 13px;
 }
 .s-item__badges {
   display: flex;
@@ -286,8 +312,8 @@
 .sidebar__user {
   display: flex;
   align-items: center;
-  gap: 8px;
-  padding: 10px 10px 10px 12px;
+  gap: 2px;
+  padding: 8px;
   border-top: 1px solid var(--separator);
 }
 .sidebar__user-main {
@@ -296,8 +322,23 @@
   display: flex;
   align-items: center;
   gap: 10px;
-  border-radius: var(--radius-control);
+  margin-right: 4px;
+  padding: 4px 8px 4px 4px;
+  border-radius: 12px;
   text-align: left;
+  transition: background-color 0.15s;
+}
+.sidebar__user-main:hover {
+  background: color-mix(in srgb, var(--fill) 70%, transparent);
+}
+.sidebar__user-main > div {
+  min-width: 0;
+}
+.sidebar__user-name,
+.sidebar__user-status {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 .sidebar__user-name {
   font-size: var(--fs-headline);
@@ -351,7 +392,7 @@
   align-items: center;
   gap: 12px;
   height: var(--toolbar-h);
-  padding: 0 12px 0 16px;
+  padding: 0 10px 0 16px;
   background: var(--glass-fill-text);
   -webkit-backdrop-filter: var(--glass-filter);
   backdrop-filter: var(--glass-filter);
@@ -374,6 +415,7 @@
   font-size: var(--fs-title-3);
   line-height: var(--lh-title-3);
   font-weight: 600;
+  letter-spacing: -0.005em;
 }
 .toolbar__sub {
   font-size: var(--fs-subheadline);
@@ -531,13 +573,42 @@
     background: var(--accent-solid);
     box-shadow: 0 0 0 2px var(--glass-base);
   }
+  /* A section's heading has no room for its name here, and a chevron on its own reads as a stray glyph: the toggle is
+     drawn as a short rule between the groups of avatars. The chevron comes back when the pointer or the keyboard is
+     on it, and stays while the section is collapsed, so hidden conversations are never unexplained. */
   .app:not([data-drawer="open"]) .sidebar .s-section__head {
     justify-content: center;
+    min-height: 24px;
     padding: 0;
   }
   .app:not([data-drawer="open"]) .sidebar .s-section__toggle {
     justify-content: center;
-    min-height: 36px;
+    min-height: 24px;
+    padding-inline: 0;
+  }
+  .app:not([data-drawer="open"]) .sidebar .s-section__toggle::before {
+    content: "";
+    width: 22px;
+    height: 1px;
+    border-radius: 1px;
+    background: var(--separator);
+  }
+  .app:not([data-drawer="open"]) .sidebar .s-section:first-child .s-section__toggle::before {
+    background: transparent;
+  }
+  .app:not([data-drawer="open"]) .sidebar .s-section__toggle .icon {
+    display: none;
+  }
+  .app:not([data-drawer="open"])
+    .sidebar
+    .s-section__toggle:is(:hover, :focus-visible, [aria-expanded="false"])::before {
+    display: none;
+  }
+  .app:not([data-drawer="open"])
+    .sidebar
+    .s-section__toggle:is(:hover, :focus-visible, [aria-expanded="false"])
+    .icon {
+    display: block;
   }
   .app:not([data-drawer="open"]) .sidebar .sidebar__user {
     flex-direction: column;
@@ -581,6 +652,11 @@
     transform: none;
     visibility: visible;
     transition-delay: 0s;
+  }
+  /* Here the sidebar is only ever a drawer over the conversation: the text-bearing fill, also while it slides away. */
+  .sidebar.glass {
+    background: var(--glass-fill-text);
+    --presence-ring: var(--glass-base);
   }
   .splitter {
     display: none;
@@ -851,6 +927,13 @@
     width: min(320px, calc(100% - 16px));
     transform: none;
     visibility: visible;
+  }
+  /* As a drawer the sidebar no longer sits on the wallpaper but over the conversation, whose bubbles would show
+     through as coloured bands behind the names. It takes the text-bearing fill (never under the opacity floor, never
+     tinted), like every other layer that floats over content (spec 2). */
+  .app[data-drawer="open"] .sidebar.glass {
+    background: var(--glass-fill-text);
+    --presence-ring: var(--glass-base);
   }
 }
 .palette__search-status {

@@ -37,6 +37,14 @@ test('M4 scenario 7: private assistant, tools, regeneration, usage, rename and d
   await page.getByRole('textbox', { name: '重命名助手对话' }).fill('我的助手测试')
   await page.getByRole('dialog').getByRole('button', { name: '保存', exact: true }).click()
   await expect(page.locator('.toolbar__title')).toHaveText('我的助手测试')
+  // Under the name: what this conversation is, not a count of its members (one, always). Its details say the same and
+  // list nobody (docs/01 section 4.4: the assistant's conversation is its owner's alone).
+  await expect(page.locator('.toolbar__sub')).toHaveText('助手对话')
+  const detailsButton = page.getByRole('button', { name: '成员与详情', exact: true })
+  await detailsButton.click()
+  await expect(page.locator('.details__meta')).toHaveText('助手对话')
+  await expect(page.locator('.details #members-title')).toHaveCount(0)
+  await detailsButton.click()
   await openSettings(page, 'assistant')
   await expect(page.getByRole('region', { name: 'AI 用量' })).toContainText(
     /今日已用 \d+ \/ 500000/,

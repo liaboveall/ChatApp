@@ -269,31 +269,39 @@ function MessageRow({ item, context }: { item: MessageItem; context: RowContext 
               </span>
             ) : null}
           </div>
-        </div>
-        <time className="msg__time" dateTime={message.createdAt}>
-          {exactTime(message.createdAt, context.locale, context.timeZone)}
-        </time>
-        {hasAny(actions) ? (
-          <div className="msg__tools glass-lite">
-            {actions.reply ? (
-              <IconButton
-                label={m.action_reply()}
-                icon={CornerUpLeft}
-                tooltip={false}
-                tabIndex={current ? 0 : -1}
-                onClick={() => context.onReply(message)}
-              />
+          {/* Beside the bubble, on the side away from the screen edge and out of the row's flow: what can be done with the
+              message, then its exact time. Shown on hover and while focus is inside the row. */}
+          <div className="msg__side">
+            {hasAny(actions) ? (
+              <div className="msg__tools glass-lite">
+                {actions.reply ? (
+                  <IconButton
+                    label={m.action_reply()}
+                    icon={CornerUpLeft}
+                    small
+                    iconSize={16}
+                    tooltip={false}
+                    tabIndex={current ? 0 : -1}
+                    onClick={() => context.onReply(message)}
+                  />
+                ) : null}
+                <IconButton
+                  label={m.action_more()}
+                  icon={Ellipsis}
+                  small
+                  iconSize={16}
+                  tooltip={false}
+                  aria-haspopup="menu"
+                  tabIndex={current ? 0 : -1}
+                  onClick={(event) => context.onMenu(message, event.currentTarget)}
+                />
+              </div>
             ) : null}
-            <IconButton
-              label={m.action_more()}
-              icon={Ellipsis}
-              tooltip={false}
-              aria-haspopup="menu"
-              tabIndex={current ? 0 : -1}
-              onClick={(event) => context.onMenu(message, event.currentTarget)}
-            />
+            <time className="msg__time" dateTime={message.createdAt}>
+              {exactTime(message.createdAt, context.locale, context.timeZone)}
+            </time>
           </div>
-        ) : null}
+        </div>
       </div>
     </article>
   )
@@ -405,8 +413,11 @@ function PendingRow({ item, context }: { item: PendingItem; context: RowContext 
 
 function StartRow({ item, context }: { item: StartItem; context: RowContext }) {
   return (
-    <div className="history-boundary">
-      <Icon icon={History} size={18} />
+    <div
+      className="history-boundary"
+      data-boundary={item.boundary === 'joined' && context.joinedAt !== null ? 'joined' : 'start'}
+    >
+      <Icon icon={History} size={16} />
       <div>
         {item.boundary === 'joined' && context.joinedAt !== null
           ? m.timeline_joined_boundary({

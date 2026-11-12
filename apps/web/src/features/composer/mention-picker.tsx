@@ -1,6 +1,7 @@
 import { type UserSummary, userSearchResponseSchema } from '@chatapp/contracts'
 import { useEffect, useState } from 'react'
 import { forScreen } from '@/app/sync.ts'
+import { Avatar } from '@/components/ui/avatar.tsx'
 import { api } from '@/lib/api.ts'
 import { m } from '@/paraglide/messages.js'
 export function MentionPicker({
@@ -91,7 +92,16 @@ export function MentionPicker({
           onMouseDown={(event) => event.preventDefault()}
           onClick={() => choose(user)}
         >
-          <b>{user.displayName}</b> @{user.username}
+          <Avatar
+            src={user.avatarUrl}
+            name={user.displayName}
+            seed={user.id}
+            size={22}
+            bot={user.isBot}
+          />
+          <span>
+            <b>{user.displayName}</b> @{user.username}
+          </span>
         </button>
       ))}
     </div>

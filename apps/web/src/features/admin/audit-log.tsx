@@ -66,7 +66,7 @@ export function AuditEntry({
 }) {
   const summary = entry.summary
   return (
-    <article className="admin-row glass-text squircle">
+    <article className="admin-row">
       <div className="admin-row__main">
         <strong>{actionLabel}</strong>
         <p>

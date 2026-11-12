@@ -124,6 +124,20 @@
   padding: 0;
   pointer-events: auto;
 }
+/* The library wraps the actions in a box placed by its own utility classes. Those are not built here, except the few
+   this app happens to use as well: the box then became positioned without offsets, and the copy button hung outside
+   the block's left edge, clipped away. The box is placed here in full, so nothing depends on which utilities exist. */
+.md [data-streamdown="code-block"] > :has(> [data-streamdown="code-block-actions"]) {
+  position: absolute;
+  inset: 2px 4px auto auto;
+  z-index: 1;
+  width: auto;
+  height: auto;
+  pointer-events: none;
+}
+.md [data-streamdown="code-block"] > * > [data-streamdown="code-block-actions"] {
+  position: static;
+}
 .md [data-streamdown="code-block-copy-button"] {
   display: grid;
   place-items: center;
@@ -141,7 +155,7 @@
 .md [data-streamdown="code-block-body"],
 .md [data-streamdown="code-block"] pre {
   margin: 0;
-  padding: 4px 12px 10px;
+  padding: 2px 12px 10px;
   border: 0;
   border-radius: 0;
   background: transparent;
@@ -151,6 +165,11 @@
   line-height: 18px;
   white-space: pre;
   tab-size: 2;
+}
+/* The body holds the <pre>: only the inner one is padded and scrolls, or the code would be inset twice. */
+.md [data-streamdown="code-block-body"]:has(> pre) {
+  padding: 0;
+  overflow: visible;
 }
 .md [data-streamdown="code-block"] code {
   padding: 0;

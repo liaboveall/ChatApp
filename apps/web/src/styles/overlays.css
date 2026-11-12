@@ -35,7 +35,7 @@
   display: flex;
   align-items: center;
   gap: 12px;
-  padding: 0 16px;
+  padding: 0 18px;
   min-height: 56px;
   border-bottom: 1px solid var(--separator);
   color: var(--label-secondary);
@@ -68,14 +68,16 @@
 .palette__row {
   display: flex;
   align-items: center;
-  gap: 12px;
+  gap: 10px;
   width: 100%;
-  min-height: 44px;
-  padding: 6px 10px;
+  min-height: 40px;
+  padding: 5px 10px;
   border-radius: 10px;
   color: var(--label);
   text-align: left;
   cursor: pointer;
+  /* The list scrolls to the active row: leave it clear of the list's own padding. */
+  scroll-margin-block: 6px;
 }
 .palette__row[data-active="true"] {
   background: var(--accent-solid);
@@ -151,10 +153,10 @@
 }
 .sheet {
   display: grid;
-  grid-template-columns: 200px minmax(0, 1fr);
-  width: min(820px, 100%);
-  height: min(620px, 100%);
-  border-radius: 20px;
+  grid-template-columns: 208px minmax(0, 1fr);
+  width: min(860px, 100%);
+  height: min(660px, 100%);
+  border-radius: 22px;
   overflow: hidden;
   pointer-events: auto;
   transition:
@@ -171,27 +173,29 @@
   flex-direction: column;
   gap: 2px;
   min-height: 0;
-  padding: 14px 10px;
+  padding: 16px 10px 10px;
   border-right: 1px solid var(--separator);
-  background: color-mix(in srgb, var(--fill) 70%, transparent);
+  background: color-mix(in srgb, var(--fill) 60%, transparent);
 }
 .sheet__nav h2 {
-  padding: 4px 10px 10px;
-  font-size: var(--fs-title-2);
-  line-height: var(--lh-title-2);
+  padding: 4px 10px 12px;
+  font-size: var(--fs-title-1);
+  line-height: var(--lh-title-1);
   font-weight: 700;
+  letter-spacing: -0.01em;
 }
 .sheet__tab {
   display: flex;
   align-items: center;
   gap: 10px;
-  min-height: 34px;
+  min-height: 36px;
   padding: 0 10px;
   border-radius: 10px;
   text-align: left;
   color: var(--label);
   font-size: var(--fs-body);
   text-decoration: none;
+  transition: background-color 0.15s;
 }
 .sheet__tab .icon {
   color: var(--label-secondary);
@@ -205,6 +209,22 @@
 }
 .sheet__tab[aria-current="page"] .icon {
   color: var(--accent-text);
+}
+/* The foot of the navigation: where settings are explained, and (for an administrator) the console. Quieter than tabs. */
+.sheet__nav-foot {
+  display: grid;
+  gap: 2px;
+  margin-top: auto;
+  padding-top: 8px;
+  border-top: 1px solid var(--separator);
+}
+.sheet__nav-foot .sheet__tab {
+  min-height: 32px;
+  color: var(--label-secondary);
+  font-size: var(--fs-callout);
+}
+.sheet__nav-foot .sheet__tab:hover {
+  color: var(--label);
 }
 .sheet__tab small {
   margin-left: auto;
@@ -222,25 +242,30 @@
   align-items: center;
   justify-content: space-between;
   gap: 12px;
-  padding: 14px 16px 10px 22px;
+  padding: 16px 14px 12px 24px;
 }
 .sheet__body {
   flex: 1;
   min-height: 0;
-  padding: 0 22px 22px;
+  padding: 4px 24px 24px;
   display: grid;
   align-content: start;
-  gap: 22px;
+  gap: 24px;
 }
+/* One column that takes the width it is given and no more: a grid's column is otherwise as wide as the widest thing
+   in it that will not wrap, and one such line (two long buttons side by side) pushed the whole group, card and all,
+   past the edge of a narrow sheet. */
 .group {
   display: grid;
+  grid-template-columns: minmax(0, 1fr);
   gap: 8px;
+  min-width: 0;
 }
 .group__title {
-  font-size: var(--fs-footnote);
-  line-height: var(--lh-footnote);
+  padding-inline: 4px;
+  font-size: var(--fs-subheadline);
+  line-height: var(--lh-subheadline);
   font-weight: 600;
-  letter-spacing: 0.02em;
   color: var(--label-secondary);
 }
 .group__box {
@@ -367,7 +392,7 @@
   font-size: var(--fs-callout);
 }
 .meter__bar {
-  height: 8px;
+  height: 6px;
   border-radius: 999px;
   background: var(--fill-hover);
   overflow: hidden;
@@ -403,6 +428,30 @@
   gap: 4px;
 }
 
+/* The widths of the two fades at the ends of the narrow sheet's row of sections (below). Registered as lengths: an
+   unregistered custom property does not interpolate, and the fades would jump instead of growing with the scroll.
+   A registration is global, hence the names of their own. */
+@property --sheet-nav-fade-start {
+  syntax: "<length>";
+  inherits: false;
+  initial-value: 0px;
+}
+@property --sheet-nav-fade-end {
+  syntax: "<length>";
+  inherits: false;
+  initial-value: 0px;
+}
+@keyframes sheet-nav-fade-start {
+  to {
+    --sheet-nav-fade-start: var(--sheet-nav-fade);
+  }
+}
+@keyframes sheet-nav-fade-end {
+  from {
+    --sheet-nav-fade-end: var(--sheet-nav-fade);
+  }
+}
+
 @media (max-width: 767px) {
   .sheet {
     grid-template-columns: minmax(0, 1fr);
@@ -410,18 +459,56 @@
     height: 100%;
     border-radius: 16px;
   }
+  /* The sections become one row that scrolls sideways: seven entries do not fit a phone, in any language. A tab the
+     page moves to is brought clear of the edge (the sheet scrolls it into view; the padding is how far clear). The
+     scrollbar stays, thin, as everywhere else: in a narrow desktop window it is how a mouse reaches the last tabs (a
+     phone draws none until the row moves). */
   .sheet__nav {
+    --sheet-nav-fade: 28px;
     flex-direction: row;
     overflow-x: auto;
     padding: 8px;
+    scroll-padding-inline: var(--sheet-nav-fade);
+    scrollbar-width: thin;
+    scrollbar-color: color-mix(in srgb, var(--label) 30%, transparent) transparent;
     border-right: 0;
     border-bottom: 1px solid var(--separator);
+  }
+  /* What the scrollbar does not say at a glance: that there is more to either side. The row fades out at that edge,
+     and only at an edge with more beyond it: a tab cut off square reads as a broken layout, a tab fading out reads as
+     "more of the same". The fade is a mask (the sheet is translucent: there is no colour to paint over the tabs with),
+     its two bands sized by the row's own scroll position. Without scroll-driven animations there is no fade, and the
+     scrollbar alone. */
+  @supports (animation-timeline: scroll()) {
+    .sheet__nav {
+      mask:
+        linear-gradient(black, black) no-clip subtract,
+        linear-gradient(to right, black, transparent) 0 0 / var(--sheet-nav-fade-start) 100%
+        no-repeat no-clip,
+        linear-gradient(to right, transparent, black) 100% 0 / var(--sheet-nav-fade-end) 100%
+        no-repeat no-clip;
+      animation:
+        sheet-nav-fade-start linear both,
+        sheet-nav-fade-end linear both;
+      animation-timeline: scroll(self inline);
+      animation-range:
+        0 var(--sheet-nav-fade),
+        calc(100% - var(--sheet-nav-fade)) 100%;
+    }
   }
   .sheet__nav h2 {
     display: none;
   }
   .sheet__tab {
     flex: none;
+  }
+  .sheet__nav-foot {
+    display: flex;
+    flex: none;
+    margin: 0 0 0 8px;
+    padding: 0 0 0 8px;
+    border-top: 0;
+    border-left: 1px solid var(--separator);
   }
   .sheet__body {
     padding: 0 14px 18px;

@@ -4,6 +4,9 @@
  *
  *   bun run test:visual                    compare against the committed baselines
  *   bun run test:visual -- --update-snapshots   (re)create them; review the changed PNGs before committing
+ *   bun run test:visual -- --update-snapshots=all   rewrite every baseline. Without `=all` only pictures that differ by
+ *                                          more than the comparison threshold are rewritten, so a subtle restyle (a
+ *                                          field going from a gray fill to white) leaves the old picture in place.
  *
  * Builds Storybook on the host, then runs Playwright inside `mcr.microsoft.com/playwright:v<version>-noble` with the
  * repository mounted. The image tag follows the installed @playwright/test, because the browsers inside must match it.

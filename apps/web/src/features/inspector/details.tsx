@@ -27,11 +27,12 @@ import { ProfileBlock } from './profile-block.tsx'
 import { SettingsSection } from './settings-section.tsx'
 
 const kindLabel = (kind: Conversation['kind']): string =>
-  kind === 'channel'
-    ? m.inspector_kind_channel()
-    : kind === 'group'
-      ? m.inspector_kind_group()
-      : m.inspector_kind_dm()
+  ({
+    channel: () => m.inspector_kind_channel(),
+    group: () => m.inspector_kind_group(),
+    dm: () => m.inspector_kind_dm(),
+    agent: () => m.inspector_kind_agent(),
+  })[kind]()
 
 export function ConversationDetails({ conversation, me }: { conversation: Conversation; me: Me }) {
   const facts = {
@@ -66,9 +67,12 @@ export function ConversationDetails({ conversation, me }: { conversation: Conver
           glyph={conversation.kind === 'channel' ? 'hash' : undefined}
         />
         <h1 className="details__name">{name}</h1>
+        {/* A conversation with the assistant has one member, its owner: counting them says nothing. */}
         <p className="details__meta">
-          {kindLabel(conversation.kind)} ·{' '}
-          {m.toolbar_member_count({ count: conversation.memberCount })}
+          {kindLabel(conversation.kind)}
+          {conversation.kind === 'agent'
+            ? null
+            : ` · ${m.toolbar_member_count({ count: conversation.memberCount })}`}
         </p>
         {facts.archived ? <Badge tone="muted">{m.inspector_archived_badge()}</Badge> : null}
         {conversation.description ? (
@@ -82,13 +86,16 @@ export function ConversationDetails({ conversation, me }: { conversation: Conver
         key={`${conversation.id}:${conversation.me?.membershipId ?? 'none'}`}
         conversation={conversation}
       />
-      <MembersSection
-        conversation={conversation}
-        meId={me.id}
-        actor={actor}
-        facts={facts}
-        permissions={permissions}
-      />
+      {/* The assistant's conversation is its owner's alone (docs/01 section 4.4): a list of one, "owner", is not shown. */}
+      {conversation.kind === 'agent' ? null : (
+        <MembersSection
+          conversation={conversation}
+          meId={me.id}
+          actor={actor}
+          facts={facts}
+          permissions={permissions}
+        />
+      )}
       {permissions.seeInvites ? (
         <InvitesSection conversation={conversation} meId={me.id} permissions={permissions} />
       ) : null}

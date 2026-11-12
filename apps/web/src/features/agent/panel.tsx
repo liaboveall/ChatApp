@@ -1,11 +1,21 @@
 import { assistantText, type Conversation } from '@chatapp/contracts'
 import { useQuery } from '@tanstack/react-query'
 import { useParams } from '@tanstack/react-router'
-import { Plus } from 'lucide-react'
-import { useEffect, useMemo, useRef, useState } from 'react'
+import {
+  ArrowUp,
+  CircleStop,
+  CornerDownLeft,
+  Loader2,
+  Lock,
+  Sparkles,
+  SquarePen,
+} from 'lucide-react'
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { engine } from '@/app/sync.ts'
 import { MessageBody } from '@/components/markdown/message-body.tsx'
-import { Button } from '@/components/ui/button.tsx'
+import { Button, IconButton } from '@/components/ui/button.tsx'
+import { Icon } from '@/components/ui/icon.tsx'
+import { initialComposition, shouldSend } from '@/features/composer/enter-key.ts'
 import { describeError } from '@/lib/error-messages.ts'
 import { meQuery } from '@/lib/queries.ts'
 import { draftOf, setDraft, setDraftPreview, useDrafts } from '@/lib/sync/drafts.ts'
@@ -152,20 +162,30 @@ function PanelSession({
       if (alive.current) setBusy(false)
     }
   }
+  const composition = useRef(initialComposition())
+  const promptField = useRef<HTMLTextAreaElement>(null)
+  // The field grows with what is written, up to the CSS maximum. `field-sizing: content` does it where the browser has
+  // it; the measured height covers the others. Set through CSSOM, which the content security policy allows.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: re-measures whenever the text changes
+  useLayoutEffect(() => {
+    const element = promptField.current
+    if (element === null) return
+    element.style.height = 'auto'
+    element.style.height = `${element.scrollHeight}px`
+  }, [prompt])
+  const quick = [
+    [m.agent_summary(), m.agent_summary_prompt()],
+    [m.agent_translate(), m.agent_translate_prompt()],
+    [m.agent_draft(), m.agent_draft_prompt()],
+  ] as const
   return (
     <div className="agent-panel agent-panel--conversation">
-      <div className="agent-panel__toolbar">
-        <Button kind="tinted" size="sm" icon={Plus} onClick={() => select('')} disabled={busy}>
-          {m.agent_new()}
-        </Button>
-        {panel ? (
-          <AgentChatControls conversation={panel} showMode={false} onDeleted={() => select('')} />
-        ) : null}
-      </div>
-      <label className="agent-panel__history">
-        <span>{m.agent_history()}</span>
+      {/* Which private chat this is, and what can be done with it. The picker stays a native select: the keyboard, type-ahead
+          and the phone's own picker come with it. */}
+      <div className="agent-panel__bar">
         <select
-          className="select"
+          className="select agent-panel__session"
+          aria-label={m.agent_history()}
           value={panelId ?? ''}
           onChange={(event) => select(event.target.value)}
         >
@@ -176,36 +196,16 @@ function PanelSession({
             </option>
           ))}
         </select>
-      </label>
-      <p className="agent-panel__private">{m.agent_panel_private()}</p>
-      <AgentScope id={preferenceId} />
-      <AgentMode id={preferenceId} />
-      <AgentKeySource conversationId={panelId} />
-      <div className="agent-controls agent-panel__quick">
-        <Button
-          kind="tinted"
-          size="sm"
-          disabled={busy}
-          onClick={() => void ask(m.agent_summary_prompt())}
-        >
-          {m.agent_summary()}
-        </Button>
-        <Button
-          kind="tinted"
-          size="sm"
-          disabled={busy}
-          onClick={() => void ask(m.agent_translate_prompt())}
-        >
-          {m.agent_translate()}
-        </Button>
-        <Button
-          kind="tinted"
-          size="sm"
-          disabled={busy}
-          onClick={() => void ask(m.agent_draft_prompt())}
-        >
-          {m.agent_draft()}
-        </Button>
+        {panel ? (
+          <AgentChatControls conversation={panel} showMode={false} onDeleted={() => select('')} />
+        ) : null}
+        <IconButton
+          small
+          icon={SquarePen}
+          label={m.agent_new()}
+          disabled={busy || !panel}
+          onClick={() => select('')}
+        />
       </div>
       <div ref={messages} className="agent-panel__messages scroll">
         {shown?.hasMoreBefore && panelId ? (
@@ -233,16 +233,31 @@ function PanelSession({
         ) : null}
         {!panel ? (
           <div className="agent-panel__empty">
+            <span className="agent-panel__empty-icon" aria-hidden="true">
+              <Icon icon={Sparkles} size={24} />
+            </span>
             <b>{m.agent_empty()}</b>
             <p>{m.agent_empty_text()}</p>
           </div>
-        ) : null}
+        ) : (
+          <p className="agent-panel__private">
+            <Icon icon={Lock} size={16} />
+            {m.agent_panel_private()}
+          </p>
+        )}
         {shown?.messages
           .filter((msg) => msg.kind !== 'system')
           .map((msg) => (
             <div key={msg.id} className="agent-panel__message" data-kind={msg.kind}>
               <b className="agent-panel__speaker">
-                {msg.kind === 'agent' ? m.agent_assistant() : m.agent_you()}
+                {msg.kind === 'agent' ? (
+                  <>
+                    <Icon icon={Sparkles} size={16} />
+                    {m.agent_assistant()}
+                  </>
+                ) : (
+                  m.agent_you()
+                )}
               </b>
               <MessageBody
                 text={msg.kind === 'agent' ? assistantText(msg.body ?? '') : (msg.body ?? '')}
@@ -252,8 +267,10 @@ function PanelSession({
                   <AgentRunCard message={msg} />
                   {msg.status === 'sent' && msg.body ? (
                     <Button
-                      kind="plain"
+                      kind="tinted"
                       size="sm"
+                      icon={CornerDownLeft}
+                      className="agent-panel__insert"
                       onClick={() => {
                         setDraft(
                           id,
@@ -274,24 +291,96 @@ function PanelSession({
       </div>
       {pending && pending !== 'denied' ? (
         <Button
-          kind="plain"
+          kind="tinted"
           size="sm"
+          icon={CircleStop}
+          className="agent-panel__stop"
           onClick={() => void stopRun(pending.run.id, pending.run.conversationId ?? '')}
         >
           {m.agent_stop()}
         </Button>
       ) : null}
-      <textarea
-        className="input agent-prompt"
-        aria-label={m.agent_prompt()}
-        placeholder={m.agent_prompt()}
-        value={prompt}
-        maxLength={20_000}
-        onChange={(event) => setDraft(draftKey, event.target.value)}
-      />
-      <Button busy={busy} disabled={!prompt.trim()} onClick={() => void ask()}>
-        {m.agent_send()}
-      </Button>
+      {/* What the next request reads and how hard it thinks: said where the request is written. */}
+      <div className="agent-panel__options">
+        <div className="agent-option">
+          <span className="agent-option__label" aria-hidden="true">
+            {m.agent_scope()}
+          </span>
+          <AgentScope id={preferenceId} />
+        </div>
+        {/* Only where there is a context to lose: a chat that has not started has nothing to carry over. */}
+        {panel ? <small className="agent-option__note">{m.agent_scope_change()}</small> : null}
+        <div className="agent-option">
+          <span className="agent-option__label" aria-hidden="true">
+            {m.agent_mode()}
+          </span>
+          <AgentMode id={preferenceId} />
+        </div>
+        <AgentKeySource conversationId={panelId} />
+      </div>
+      <div className="agent-panel__quick">
+        {quick.map(([label, text]) => (
+          <button
+            key={label}
+            type="button"
+            className="agent-chip"
+            aria-disabled={busy ? true : undefined}
+            onClick={() => void ask(text)}
+          >
+            {label}
+          </button>
+        ))}
+      </div>
+      <div className="agent-panel__composer">
+        <textarea
+          ref={promptField}
+          className="agent-prompt"
+          aria-label={m.agent_prompt()}
+          placeholder={m.agent_prompt()}
+          rows={1}
+          value={prompt}
+          maxLength={20_000}
+          onChange={(event) => setDraft(draftKey, event.target.value)}
+          onCompositionStart={() => {
+            composition.current = { composing: true, endedAt: composition.current.endedAt }
+          }}
+          onCompositionEnd={() => {
+            composition.current = { composing: false, endedAt: performance.now() }
+          }}
+          // Enter asks, Shift+Enter breaks the line; an Enter that only confirms an input-method candidate does neither.
+          onKeyDown={(event) => {
+            const native = event.nativeEvent
+            if (
+              shouldSend(
+                {
+                  key: event.key,
+                  shiftKey: event.shiftKey,
+                  altKey: event.altKey,
+                  ctrlKey: event.ctrlKey,
+                  metaKey: event.metaKey,
+                  isComposing: native.isComposing,
+                  keyCode: native.keyCode,
+                },
+                composition.current,
+                performance.now(),
+              )
+            ) {
+              event.preventDefault()
+              void ask()
+            }
+          }}
+        />
+        <IconButton
+          variant="filled"
+          icon={busy ? Loader2 : ArrowUp}
+          label={m.agent_send()}
+          className={busy ? 'agent-panel__send agent-panel__send--busy' : 'agent-panel__send'}
+          tooltip={false}
+          aria-busy={busy ? true : undefined}
+          disabled={!prompt.trim()}
+          onClick={() => void ask()}
+        />
+      </div>
       <p className="agent-disclosure">{m.agent_disclosure()}</p>
     </div>
   )

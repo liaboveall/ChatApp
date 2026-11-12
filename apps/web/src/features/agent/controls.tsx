@@ -37,20 +37,17 @@ export function AgentMode({ id }: { id: string }) {
 export function AgentScope({ id }: { id: string }) {
   const value = useAgent((s) => s.scopes[id] ?? 'current')
   return (
-    <>
-      <SegmentedControl
-        label={m.agent_scope()}
-        value={value}
-        onValueChange={(scope) =>
-          useAgent.setState((s) => ({ scopes: { ...s.scopes, [id]: scope } }))
-        }
-        items={[
-          { value: 'current', label: m.agent_current() },
-          { value: 'all', label: m.agent_all() },
-        ]}
-      />
-      <small>{m.agent_scope_change()}</small>
-    </>
+    <SegmentedControl
+      label={m.agent_scope()}
+      value={value}
+      onValueChange={(scope) =>
+        useAgent.setState((s) => ({ scopes: { ...s.scopes, [id]: scope } }))
+      }
+      items={[
+        { value: 'current', label: m.agent_current() },
+        { value: 'all', label: m.agent_all() },
+      ]}
+    />
   )
 }
 /**
@@ -148,22 +145,33 @@ export function AgentChatControls({
   return (
     <>
       <div className="agent-controls">
-        {showMode ? <AgentMode id={conversation.id} /> : null}
-        <IconButton
-          small
-          icon={Pencil}
-          label={m.agent_rename()}
-          onClick={() => {
-            setName(conversation.name ?? '')
-            setDialog('rename')
-          }}
-        />
-        <IconButton
-          small
-          icon={Trash2}
-          label={m.agent_delete()}
-          onClick={() => setDialog('delete')}
-        />
+        {showMode ? (
+          <>
+            <span className="agent-option__label" aria-hidden="true">
+              {m.agent_mode()}
+            </span>
+            <AgentMode id={conversation.id} />
+          </>
+        ) : null}
+        <span className="agent-controls__end">
+          <IconButton
+            small
+            icon={Pencil}
+            iconSize={16}
+            label={m.agent_rename()}
+            onClick={() => {
+              setName(conversation.name ?? '')
+              setDialog('rename')
+            }}
+          />
+          <IconButton
+            small
+            icon={Trash2}
+            iconSize={16}
+            label={m.agent_delete()}
+            onClick={() => setDialog('delete')}
+          />
+        </span>
       </div>
       {showMode ? <AgentKeySource conversationId={conversation.id} /> : null}
       {showMode && showDisclosure ? (

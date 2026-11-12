@@ -12,7 +12,7 @@
   --shade: light-dark(#000, #fff); /* hover on filled buttons moves away from the text colour */
   --glass-edge: light-dark(rgb(0 0 0 / 0.12), rgb(0 0 0 / 0.62));
   --glass-highlight: light-dark(rgb(255 255 255 / 0.85), rgb(255 255 255 / 0.16));
-  --glass-shadow-color: light-dark(rgb(40 40 80 / 0.16), rgb(0 0 0 / 0.55));
+  --glass-shadow-color: light-dark(rgb(40 40 90 / 0.13), rgb(0 0 0 / 0.5));
   --glass-rim-a: light-dark(rgb(255 255 255 / 0.95), rgb(255 255 255 / 0.34));
   --glass-rim-b: light-dark(rgb(255 255 255 / 0.12), rgb(255 255 255 / 0.05));
   --glass-fill: color-mix(
@@ -26,8 +26,24 @@
     transparent
   );
   --glass-filter: blur(var(--glass-blur)) saturate(var(--glass-saturate));
-  --elev-1: 0 1px 2px light-dark(rgb(0 0 0 / 0.08), rgb(0 0 0 / 0.5));
-  --elev-2: 0 6px 20px light-dark(rgb(30 30 60 / 0.14), rgb(0 0 0 / 0.55));
+  /* Elevation is layered: a tight contact shadow under the edge and a wide ambient one, so depth reads as soft light
+     rather than as one gray smudge. */
+  --elev-1:
+    0 1px 1px light-dark(rgb(20 20 40 / 0.04), rgb(0 0 0 / 0.3)),
+    0 2px 6px light-dark(rgb(20 20 40 / 0.06), rgb(0 0 0 / 0.3));
+  --elev-2:
+    0 1px 2px light-dark(rgb(20 20 40 / 0.06), rgb(0 0 0 / 0.35)),
+    0 8px 24px light-dark(rgb(20 20 50 / 0.1), rgb(0 0 0 / 0.4)),
+    0 24px 48px light-dark(rgb(20 20 50 / 0.06), rgb(0 0 0 / 0.25));
+  /* The floating layers (glass panels, sheets, dialogs): the same two-part recipe at a larger size. */
+  --glass-drop:
+    0 2px 6px light-dark(rgb(30 30 70 / 0.05), rgb(0 0 0 / 0.3)),
+    0 14px 36px var(--glass-shadow-color);
+  /* Filled buttons: a lit top edge and a contact shadow. Fields: a well of the content colour. */
+  --btn-sheen: light-dark(rgb(255 255 255 / 0.24), rgb(255 255 255 / 0.3));
+  --btn-drop: light-dark(rgb(0 0 30 / 0.18), rgb(0 0 0 / 0.4));
+  --field-bg: var(--bg-content);
+  --field-inset: light-dark(rgb(0 0 30 / 0.04), rgb(0 0 0 / 0.3));
 }
 
 :root[data-glass="opaque"] {
@@ -53,7 +69,7 @@
   box-shadow:
     0 0 0 1px var(--glass-edge),
     inset 0 1px 0 var(--glass-highlight),
-    0 10px 30px var(--glass-shadow-color);
+    var(--glass-drop);
 }
 
 .glass {
@@ -106,7 +122,7 @@
   box-shadow:
     0 0 0 1px color-mix(in srgb, var(--accent) 38%, var(--glass-edge)),
     inset 0 1px 0 var(--glass-highlight),
-    0 10px 30px var(--glass-shadow-color);
+    var(--glass-drop);
 }
 
 @supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {

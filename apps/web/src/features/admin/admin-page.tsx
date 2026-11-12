@@ -16,15 +16,18 @@ import {
   siteSettingsUpdateSchema,
 } from '@chatapp/contracts'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
-import { type FormEvent, type ReactNode, useEffect, useState } from 'react'
+import { Inbox, RefreshCw } from 'lucide-react'
+import { type FormEvent, type ReactNode, useEffect, useId, useState } from 'react'
 import type { z } from 'zod'
 import { forScreen } from '@/app/sync.ts'
+import { Avatar } from '@/components/ui/avatar.tsx'
+import { Badge } from '@/components/ui/badge.tsx'
 import { Button } from '@/components/ui/button.tsx'
 import { ConfirmDialog } from '@/components/ui/confirm-dialog.tsx'
 import { Switch } from '@/components/ui/controls.tsx'
 import { Dialog } from '@/components/ui/dialog.tsx'
-import { Banner } from '@/components/ui/feedback.tsx'
-import { TextAreaField, TextField } from '@/components/ui/fields.tsx'
+import { Banner, EmptyState, Spinner } from '@/components/ui/feedback.tsx'
+import { SelectField, TextAreaField, TextField } from '@/components/ui/fields.tsx'
 import { reportReasonLabel } from '@/features/reports/report-dialog.tsx'
 import { api, newIdempotencyKey } from '@/lib/api.ts'
 import { describeError } from '@/lib/error-messages.ts'
@@ -35,7 +38,7 @@ import { showToast } from '@/lib/toast.ts'
 import { m } from '@/paraglide/messages.js'
 import { AuditEntry, AuditFilterForm, type AuditFilters } from './audit-log.tsx'
 
-type Section =
+export type AdminSection =
   | 'users'
   | 'invites'
   | 'conversations'
@@ -44,7 +47,7 @@ type Section =
   | 'usage'
   | 'runs'
   | 'policy'
-const tabs: { id: Section; label: () => string }[] = [
+const tabs: { id: AdminSection; label: () => string }[] = [
   { id: 'users', label: () => m.admin_users() },
   { id: 'invites', label: () => m.admin_invites() },
   { id: 'conversations', label: () => m.admin_conversations() },
@@ -68,16 +71,27 @@ function PageStatus({
   return error ? (
     <Banner tone="danger">{describeError(error)}</Banner>
   ) : pending ? (
-    <Banner>{m.common_loading()}</Banner>
+    <div className="page__state">
+      <Spinner label={m.common_loading()} />
+    </div>
   ) : (
     <>{children}</>
+  )
+}
+/** The rows of one section in a single card, parted by hairlines; with nothing to list, the empty state instead. */
+function Rows({ empty, children }: { empty: boolean; children: ReactNode }) {
+  return empty ? (
+    <EmptyState icon={Inbox} title={m.admin_empty()} />
+  ) : (
+    <div className="admin-rows">{children}</div>
   )
 }
 const at = (value: string) => new Date(value).toLocaleString(document.documentElement.lang)
 const money = (value: number) =>
   (value / 1_000_000).toFixed(6).replace(/0+$/, '').replace(/\.$/, '')
-export function AdminPage() {
-  const [section, setSection] = useState<Section>('users'),
+/** `initialSection` is where the page opens: the route leaves it alone, the stories open the section they show. */
+export function AdminPage({ initialSection = 'users' }: { initialSection?: AdminSection }) {
+  const [section, setSection] = useState<AdminSection>(initialSection),
     [cursor, setCursor] = useState<string | undefined>(),
     [search, setSearch] = useState(''),
     [searchDraft, setSearchDraft] = useState('')
@@ -271,12 +285,12 @@ export function AdminPage() {
       setDialog(
         <Dialog open title={m.admin_bans()} onOpenChange={(open) => !open && setDialog(null)}>
           <div className="admin-context scroll">
-            {result.bans.length ? (
-              result.bans.map((ban) => (
+            <Rows empty={result.bans.length === 0}>
+              {result.bans.map((ban) => (
                 <div className="admin-row" key={ban.id}>
-                  <div>
+                  <div className="admin-row__main">
                     <strong>{ban.name}</strong>
-                    <p>{ban.reason}</p>
+                    {ban.reason ? <p>{ban.reason}</p> : null}
                   </div>
                   <Button
                     size="sm"
@@ -287,10 +301,8 @@ export function AdminPage() {
                     {m.admin_unban()}
                   </Button>
                 </div>
-              ))
-            ) : (
-              <p>{m.admin_empty()}</p>
-            )}
+              ))}
+            </Rows>
           </div>
         </Dialog>,
       )
@@ -303,7 +315,7 @@ export function AdminPage() {
     <div className="admin-page scroll">
       <header className="admin-head">
         <h1 className="text-title-1">{m.admin_title()}</h1>
-        <Button kind="plain" onClick={refresh}>
+        <Button kind="plain" icon={RefreshCw} onClick={refresh}>
           {m.admin_refresh()}
         </Button>
       </header>
@@ -342,7 +354,7 @@ export function AdminPage() {
             value={searchDraft}
             onChange={(event) => setSearchDraft(event.currentTarget.value)}
           />
-          <Button type="submit">{m.admin_search()}</Button>
+          <Button type="submit">{m.admin_search_action()}</Button>
         </form>
       ) : null}
       {section === 'audit' ? (
@@ -356,19 +368,24 @@ export function AdminPage() {
       <PageStatus error={query.error} pending={query.isPending}>
         {data?.section === 'users' ? (
           <div className="admin-list">
-            {data.users.length ? (
-              data.users.map((user) => (
-                <article className="admin-row glass-text squircle" key={user.id}>
+            <Rows empty={data.users.length === 0}>
+              {data.users.map((user) => (
+                <article className="admin-row" key={user.id}>
+                  <Avatar name={user.name} seed={user.id} size={36} />
                   <div className="admin-row__main">
                     <strong>{user.name}</strong>
                     <p>
                       {user.username ? `@${user.username} · ` : ''}
                       {user.email}
                     </p>
-                    <p>
-                      {user.role === 'admin' ? m.admin_role_admin() : m.admin_role_user()}
-                      {user.banned ? ` · ${m.admin_banned()}` : ''}
-                      {!user.emailVerified ? ` · ${m.admin_unverified()}` : ''}
+                    <p className="admin-row__tags">
+                      <Badge tone="role">
+                        {user.role === 'admin' ? m.admin_role_admin() : m.admin_role_user()}
+                      </Badge>
+                      {user.banned ? <Badge tone="danger">{m.admin_banned()}</Badge> : null}
+                      {!user.emailVerified ? (
+                        <Badge tone="muted">{m.admin_unverified()}</Badge>
+                      ) : null}
                     </p>
                   </div>
                   <div className="admin-actions">
@@ -444,24 +461,27 @@ export function AdminPage() {
                     )}
                   </div>
                 </article>
-              ))
-            ) : (
-              <p>{m.admin_empty()}</p>
-            )}
+              ))}
+            </Rows>
           </div>
         ) : null}
         {data?.section === 'invites' ? (
           <div className="admin-list">
-            {data.invites.length ? (
-              data.invites.map((invite) => (
-                <article className="admin-row glass-text squircle" key={invite.id}>
-                  <div>
+            <Rows empty={data.invites.length === 0}>
+              {data.invites.map((invite) => (
+                <article className="admin-row" key={invite.id}>
+                  <div className="admin-row__main">
                     <strong>{invite.creatorName}</strong>
-                    <p>{invite.note}</p>
+                    {invite.note ? <p className="admin-row__text">{invite.note}</p> : null}
                     <p>
                       {m.admin_used({ used: invite.useCount, quota: invite.maxUses ?? '∞' })} ·{' '}
                       {at(invite.createdAt)}
                     </p>
+                    {invite.revokedAt ? (
+                      <p className="admin-row__tags">
+                        <Badge tone="muted">{m.invites_status_revoked()}</Badge>
+                      </p>
+                    ) : null}
                   </div>
                   {!invite.revokedAt ? (
                     <Button
@@ -481,24 +501,32 @@ export function AdminPage() {
                     </Button>
                   ) : null}
                 </article>
-              ))
-            ) : (
-              <p>{m.admin_empty()}</p>
-            )}
+              ))}
+            </Rows>
           </div>
         ) : null}
         {data?.section === 'conversations' ? (
           <div className="admin-list">
-            {data.conversations.length ? (
-              data.conversations.map((conversation) => (
-                <article className="admin-row glass-text squircle" key={conversation.id}>
-                  <div>
+            <Rows empty={data.conversations.length === 0}>
+              {data.conversations.map((conversation) => (
+                <article className="admin-row" key={conversation.id}>
+                  <Avatar
+                    name={conversation.name}
+                    seed={conversation.id}
+                    size={36}
+                    glyph={conversation.kind === 'channel' ? 'hash' : undefined}
+                  />
+                  <div className="admin-row__main">
                     <strong>{conversation.name}</strong>
                     <p>
                       {m.admin_members({ count: conversation.memberCount })} ·{' '}
                       {m.admin_owner({ name: conversation.ownerName ?? m.admin_unavailable() })}
                     </p>
-                    <p>{conversation.archivedAt ? m.admin_archived() : null}</p>
+                    {conversation.archivedAt ? (
+                      <p className="admin-row__tags">
+                        <Badge tone="muted">{m.admin_archived()}</Badge>
+                      </p>
+                    ) : null}
                   </div>
                   <div className="admin-actions">
                     <Button kind="plain" size="sm" onClick={() => void viewBans(conversation.id)}>
@@ -534,29 +562,29 @@ export function AdminPage() {
                     </Button>
                   </div>
                 </article>
-              ))
-            ) : (
-              <p>{m.admin_empty()}</p>
-            )}
+              ))}
+            </Rows>
           </div>
         ) : null}
         {data?.section === 'reports' ? (
           <div className="admin-list">
-            {data.reports.length ? (
-              data.reports.map((report) => (
-                <article className="admin-row glass-text squircle" key={report.id}>
-                  <div>
+            <Rows empty={data.reports.length === 0}>
+              {data.reports.map((report) => (
+                <article className="admin-row" key={report.id}>
+                  <div className="admin-row__main">
                     <strong>{reportReasonLabel(report.reason)}</strong>
                     <p>
                       {report.reporterName} · {at(report.createdAt)}
                     </p>
-                    <p>{report.details}</p>
-                    <p>
-                      {{
-                        open: () => m.admin_report_open(),
-                        resolved: () => m.admin_report_resolved(),
-                        dismissed: () => m.admin_report_dismissed(),
-                      }[report.status]()}
+                    {report.details ? <p className="admin-row__text">{report.details}</p> : null}
+                    <p className="admin-row__tags">
+                      <Badge tone={report.status === 'open' ? 'accent' : 'muted'}>
+                        {{
+                          open: () => m.admin_report_open(),
+                          resolved: () => m.admin_report_resolved(),
+                          dismissed: () => m.admin_report_dismissed(),
+                        }[report.status]()}
+                      </Badge>
                     </p>
                   </div>
                   <div className="admin-actions">
@@ -582,16 +610,14 @@ export function AdminPage() {
                     ) : null}
                   </div>
                 </article>
-              ))
-            ) : (
-              <p>{m.admin_empty()}</p>
-            )}
+              ))}
+            </Rows>
           </div>
         ) : null}
         {data?.section === 'audit' ? (
           <div className="admin-list">
-            {data.entries.length ? (
-              data.entries.map((entry) => (
+            <Rows empty={data.entries.length === 0}>
+              {data.entries.map((entry) => (
                 <AuditEntry
                   key={entry.id}
                   entry={entry}
@@ -610,10 +636,8 @@ export function AdminPage() {
                     setAuditFilters({})
                   }}
                 />
-              ))
-            ) : (
-              <p>{m.admin_empty()}</p>
-            )}
+              ))}
+            </Rows>
           </div>
         ) : null}
         {data?.section === 'usage' ? (
@@ -627,9 +651,9 @@ export function AdminPage() {
                 })}
               </Banner>
             ) : null}
-            {data.usage.length ? (
-              data.usage.map((row) => (
-                <p key={row.day}>
+            <Rows empty={data.usage.length === 0}>
+              {data.usage.map((row) => (
+                <p className="admin-line" key={row.day}>
                   {m.admin_usage_day({
                     day: row.day,
                     input: row.inputTokens,
@@ -637,19 +661,17 @@ export function AdminPage() {
                     cost: money(row.costMicroUsd),
                   })}
                 </p>
-              ))
-            ) : (
-              <p>{m.admin_empty()}</p>
-            )}
+              ))}
+            </Rows>
           </div>
         ) : null}
         {data?.section === 'runs' ? (
           <div className="admin-list">
             <Banner>{m.admin_run_notice()}</Banner>
-            {data.runs.length ? (
-              data.runs.map((run) => (
-                <article className="admin-row glass-text squircle" key={run.id}>
-                  <div>
+            <Rows empty={data.runs.length === 0}>
+              {data.runs.map((run) => (
+                <article className="admin-row" key={run.id}>
+                  <div className="admin-row__main">
                     <strong>{run.model}</strong>
                     <p>
                       {at(run.createdAt)} ·{' '}
@@ -668,17 +690,15 @@ export function AdminPage() {
                     {m.admin_run_content()}
                   </Button>
                 </article>
-              ))
-            ) : (
-              <p>{m.admin_empty()}</p>
-            )}
+              ))}
+            </Rows>
           </div>
         ) : null}
         {data?.section === 'policy' ? (
           <PolicyForm key={data.version} settings={data} onSaved={refresh} />
         ) : null}
         {data && 'nextCursor' in data ? (
-          <div className="admin-actions">
+          <div className="admin-actions admin-pager">
             {cursor ? (
               <Button kind="plain" onClick={() => setCursor(undefined)}>
                 {m.admin_first()}
@@ -797,25 +817,22 @@ function RestoreConversation({
               }}
             />
             <PageStatus error={candidates.error} pending={candidates.isPending}>
-              <label className="field">
-                <span className="field__label">{m.admin_restore_owner()}</span>
-                <select
-                  required
-                  className="input"
-                  value={owner}
-                  onChange={(event) => setOwner(event.currentTarget.value)}
-                >
-                  <option value="">{m.admin_restore_owner()}</option>
-                  {candidates.data?.users
-                    .filter((user) => !user.banned && user.active && user.emailVerified)
-                    .map((user) => (
-                      <option key={user.id} value={user.id}>
-                        {user.name}
-                        {user.username ? ` (@${user.username})` : ''}
-                      </option>
-                    ))}
-                </select>
-              </label>
+              <SelectField
+                label={m.admin_restore_owner()}
+                required
+                value={owner}
+                onChange={(event) => setOwner(event.currentTarget.value)}
+              >
+                <option value="">{m.admin_restore_owner()}</option>
+                {candidates.data?.users
+                  .filter((user) => !user.banned && user.active && user.emailVerified)
+                  .map((user) => (
+                    <option key={user.id} value={user.id}>
+                      {user.name}
+                      {user.username ? ` (@${user.username})` : ''}
+                    </option>
+                  ))}
+              </SelectField>
             </PageStatus>
           </>
         ) : null}
@@ -869,17 +886,14 @@ function UserLimits({
           })
         }}
       >
-        <label className="field">
-          <span className="field__label">{m.admin_role()}</span>
-          <select
-            className="input"
-            value={role}
-            onChange={(event) => setRole(event.currentTarget.value === 'admin' ? 'admin' : 'user')}
-          >
-            <option value="user">{m.admin_role_user()}</option>
-            <option value="admin">{m.admin_role_admin()}</option>
-          </select>
-        </label>
+        <SelectField
+          label={m.admin_role()}
+          value={role}
+          onChange={(event) => setRole(event.currentTarget.value === 'admin' ? 'admin' : 'user')}
+        >
+          <option value="user">{m.admin_role_user()}</option>
+          <option value="admin">{m.admin_role_admin()}</option>
+        </SelectField>
         <TextField
           label={m.admin_invite_quota()}
           type="number"
@@ -1021,22 +1035,75 @@ function ReportDecision({
     </Dialog>
   )
 }
-const policyFields: { key: keyof SiteLimits; label: () => string; factor: number }[] = [
-  { key: 'messageRecallWindowMs', label: () => m.admin_recall_window(), factor: 1000 },
-  { key: 'messageEditWindowMs', label: () => m.admin_edit_window(), factor: 3600000 },
-  { key: 'fileBytes', label: () => m.admin_file_limit(), factor: 1048576 },
-  { key: 'imageBytes', label: () => m.admin_image_limit(), factor: 1048576 },
-  { key: 'groupMemberLimit', label: () => m.admin_group_limit(), factor: 1 },
-  { key: 'channelMemberLimit', label: () => m.admin_channel_limit(), factor: 1 },
-  { key: 'messageRateConversationLimit', label: () => m.admin_message_room_rate(), factor: 1 },
-  { key: 'messageRateUserLimit', label: () => m.admin_message_user_rate(), factor: 1 },
-  { key: 'uploadsPerHour', label: () => m.admin_upload_rate(), factor: 1 },
-  { key: 'maxConversationsPerUser', label: () => m.admin_conversation_limit(), factor: 1 },
-  { key: 'maxFutureTasksPerUser', label: () => m.admin_task_limit(), factor: 1 },
-  { key: 'fastSteps', label: () => m.admin_fast_steps(), factor: 1 },
-  { key: 'deepSteps', label: () => m.admin_deep_steps(), factor: 1 },
-  { key: 'fastDurationMs', label: () => m.admin_fast_duration(), factor: 1000 },
-  { key: 'deepDurationMs', label: () => m.admin_deep_duration(), factor: 1000 },
+/** What a site limit is about: the form shows the limits under these headings instead of as one column of twenty. */
+type PolicyGroup = 'assistant' | 'messages' | 'files' | 'members'
+const policyGroups: { id: PolicyGroup; title: () => string }[] = [
+  { id: 'assistant', title: () => m.admin_policy_group_assistant() },
+  { id: 'messages', title: () => m.admin_policy_group_messages() },
+  { id: 'files', title: () => m.admin_policy_group_files() },
+  { id: 'members', title: () => m.admin_policy_group_members() },
+]
+const policyFields: {
+  key: keyof SiteLimits
+  label: () => string
+  factor: number
+  group: PolicyGroup
+}[] = [
+  {
+    key: 'messageRecallWindowMs',
+    label: () => m.admin_recall_window(),
+    factor: 1000,
+    group: 'messages',
+  },
+  {
+    key: 'messageEditWindowMs',
+    label: () => m.admin_edit_window(),
+    factor: 3600000,
+    group: 'messages',
+  },
+  { key: 'fileBytes', label: () => m.admin_file_limit(), factor: 1048576, group: 'files' },
+  { key: 'imageBytes', label: () => m.admin_image_limit(), factor: 1048576, group: 'files' },
+  { key: 'groupMemberLimit', label: () => m.admin_group_limit(), factor: 1, group: 'members' },
+  { key: 'channelMemberLimit', label: () => m.admin_channel_limit(), factor: 1, group: 'members' },
+  {
+    key: 'messageRateConversationLimit',
+    label: () => m.admin_message_room_rate(),
+    factor: 1,
+    group: 'messages',
+  },
+  {
+    key: 'messageRateUserLimit',
+    label: () => m.admin_message_user_rate(),
+    factor: 1,
+    group: 'messages',
+  },
+  { key: 'uploadsPerHour', label: () => m.admin_upload_rate(), factor: 1, group: 'files' },
+  {
+    key: 'maxConversationsPerUser',
+    label: () => m.admin_conversation_limit(),
+    factor: 1,
+    group: 'members',
+  },
+  {
+    key: 'maxFutureTasksPerUser',
+    label: () => m.admin_task_limit(),
+    factor: 1,
+    group: 'members',
+  },
+  { key: 'fastSteps', label: () => m.admin_fast_steps(), factor: 1, group: 'assistant' },
+  { key: 'deepSteps', label: () => m.admin_deep_steps(), factor: 1, group: 'assistant' },
+  {
+    key: 'fastDurationMs',
+    label: () => m.admin_fast_duration(),
+    factor: 1000,
+    group: 'assistant',
+  },
+  {
+    key: 'deepDurationMs',
+    label: () => m.admin_deep_duration(),
+    factor: 1000,
+    group: 'assistant',
+  },
 ]
 function PolicyForm({ settings, onSaved }: { settings: CurrentSettings; onSaved: () => void }) {
   const [days, setDays] = useState(String(settings.policy.runContentDays)),
@@ -1055,6 +1122,7 @@ function PolicyForm({ settings, onSaved }: { settings: CurrentSettings; onSaved:
     String(settings.storageBudgetBytes / 1073741824),
   )
   const save = useAdminSubmit(onSaved)
+  const pauseId = useId()
   function submit(event: FormEvent) {
     event.preventDefault()
     try {
@@ -1086,62 +1154,96 @@ function PolicyForm({ settings, onSaved }: { settings: CurrentSettings; onSaved:
   return (
     <form className="admin-form admin-policy" onSubmit={submit}>
       <Banner>{m.admin_policy_notice()}</Banner>
-      <p>
-        {settings.provider} · {settings.fastModel} · {settings.deepModel}
+      <p className="admin-policy__models">
+        {settings.provider} · {m.agent_fast()} {settings.fastModel} · {m.agent_deep()}{' '}
+        {settings.deepModel}
       </p>
-      <TextField
-        label={m.admin_retention()}
-        hint={m.admin_retention_hint()}
-        type="number"
-        min={1}
-        max={30}
-        required
-        value={days}
-        onChange={(event) => setDays(event.currentTarget.value)}
-      />
-      <TextField
-        label={m.admin_daily_tokens()}
-        type="number"
-        min={0}
-        step={1}
-        required
-        value={daily}
-        onChange={(event) => setDaily(event.currentTarget.value)}
-      />
-      <TextField
-        label={m.admin_budget()}
-        required
-        inputMode="decimal"
-        value={budget}
-        onChange={(event) => setBudget(event.currentTarget.value)}
-      />
-      {policyFields.map((field) => (
-        <TextField
-          key={field.key}
-          label={field.label()}
-          type="number"
-          min={0}
-          step="any"
-          required
-          value={limits[field.key] ?? ''}
-          onChange={(event) => setLimits({ ...limits, [field.key]: event.currentTarget.value })}
-        />
+      {policyGroups.map((group) => (
+        <fieldset className="admin-fieldset" key={group.id}>
+          <legend>{group.title()}</legend>
+          <div className="admin-fieldset__box">
+            <div className="admin-fields">
+              {group.id === 'assistant' ? (
+                <>
+                  <TextField
+                    label={m.admin_daily_tokens()}
+                    type="number"
+                    min={0}
+                    step={1}
+                    required
+                    value={daily}
+                    onChange={(event) => setDaily(event.currentTarget.value)}
+                  />
+                  <TextField
+                    label={m.admin_budget()}
+                    required
+                    inputMode="decimal"
+                    value={budget}
+                    onChange={(event) => setBudget(event.currentTarget.value)}
+                  />
+                </>
+              ) : null}
+              {policyFields
+                .filter((field) => field.group === group.id)
+                .map((field) => (
+                  <TextField
+                    key={field.key}
+                    label={field.label()}
+                    type="number"
+                    min={0}
+                    step="any"
+                    required
+                    value={limits[field.key] ?? ''}
+                    onChange={(event) =>
+                      setLimits({ ...limits, [field.key]: event.currentTarget.value })
+                    }
+                  />
+                ))}
+              {group.id === 'assistant' ? (
+                <TextField
+                  label={m.admin_retention()}
+                  hint={m.admin_retention_hint()}
+                  type="number"
+                  min={1}
+                  max={30}
+                  required
+                  value={days}
+                  onChange={(event) => setDays(event.currentTarget.value)}
+                />
+              ) : null}
+              {group.id === 'files' ? (
+                <TextField
+                  label={m.admin_storage_budget()}
+                  hint={m.admin_storage_budget_hint()}
+                  type="number"
+                  min={0}
+                  step="any"
+                  required
+                  value={storageBudget}
+                  onChange={(event) => setStorageBudget(event.currentTarget.value)}
+                />
+              ) : null}
+            </div>
+            {group.id === 'assistant' ? (
+              <div className="row admin-fieldset__row">
+                <div className="row__main">
+                  <div className="row__title" id={pauseId}>
+                    {m.admin_pause_ai()}
+                  </div>
+                </div>
+                <div className="row__control">
+                  <Switch labelledBy={pauseId} checked={paused} onCheckedChange={setPaused} />
+                </div>
+              </div>
+            ) : null}
+          </div>
+        </fieldset>
       ))}
-      <TextField
-        label={m.admin_storage_budget()}
-        hint={m.admin_storage_budget_hint()}
-        type="number"
-        min={0}
-        step="any"
-        required
-        value={storageBudget}
-        onChange={(event) => setStorageBudget(event.currentTarget.value)}
-      />
-      <Switch label={m.admin_pause_ai()} checked={paused} onCheckedChange={setPaused} />
-      <p>{m.admin_pause_ai()}</p>
-      <Button type="submit" busy={save.busy}>
-        {m.common_save()}
-      </Button>
+      <div className="admin-form__actions">
+        <Button type="submit" busy={save.busy}>
+          {m.common_save()}
+        </Button>
+      </div>
     </form>
   )
 }

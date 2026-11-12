@@ -460,10 +460,11 @@ function DevicesGroup() {
         )}
       </div>
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <p className="min-w-[260px] flex-1 text-subheadline text-label-secondary">
+        <p className="min-w-[min(260px,100%)] flex-1 text-subheadline text-label-secondary">
           {m.settings_devices_privacy()}
         </p>
-        <div className="flex gap-2">
+        {/* Two buttons with long names: on a phone they go one under the other, not past the edge of the sheet. */}
+        <div className="flex flex-wrap gap-2">
           <Button
             kind="tinted"
             size="sm"

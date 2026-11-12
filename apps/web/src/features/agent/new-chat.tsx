@@ -70,6 +70,7 @@ export function NewAgentChat({
       <textarea
         className="input agent-prompt"
         aria-label={m.agent_prompt()}
+        placeholder={m.agent_prompt()}
         value={prompt}
         maxLength={20_000}
         onChange={(e) => setPrompt(e.target.value)}

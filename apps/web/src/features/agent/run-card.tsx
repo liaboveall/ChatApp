@@ -1,6 +1,6 @@
 import { errorCodeSchema, type Message } from '@chatapp/contracts'
 import { useQuery } from '@tanstack/react-query'
-import { RotateCcw, Square } from 'lucide-react'
+import { CircleStop, RotateCcw } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import { Button } from '@/components/ui/button.tsx'
 import { ApiError } from '@/lib/api.ts'
@@ -127,7 +127,7 @@ export function AgentRunCard({
                 kind="plain"
                 size="sm"
                 busy={busy}
-                icon={active ? Square : RotateCcw}
+                icon={active ? CircleStop : RotateCcw}
                 onClick={() => void action(active ? 'stop' : 'regenerate')}
               >
                 {active ? m.agent_stop() : m.agent_regenerate()}

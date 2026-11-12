@@ -131,7 +131,7 @@ function CreateInvite() {
             ]}
           />
         </Row>
-        <div className="row">
+        <div className="row row--field">
           <div className="row__main">
             <TextField
               label={m.invites_note()}
@@ -141,7 +141,7 @@ function CreateInvite() {
               onChange={(event) => setNote(event.currentTarget.value)}
             />
           </div>
-          <div className="row__control self-end">
+          <div className="row__control">
             <Button icon={Ticket} busy={create.isPending} onClick={() => create.mutate()}>
               {m.invites_create_action()}
             </Button>

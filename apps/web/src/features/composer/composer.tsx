@@ -27,7 +27,7 @@ import {
 import { engine, forScreen, outbox } from '@/app/sync.ts'
 import { MentionContext } from '@/components/markdown/mention-context.ts'
 import { MessageBody } from '@/components/markdown/message-body.tsx'
-import { Button, IconButton } from '@/components/ui/button.tsx'
+import { IconButton } from '@/components/ui/button.tsx'
 import { useSiteLimits } from '@/features/settings/site-limits.ts'
 import { api } from '@/lib/api.ts'
 import { describeError } from '@/lib/error-messages.ts'
@@ -109,8 +109,32 @@ export function Composer({
     users[userId]?.deleted ? m.user_deleted() : (users[userId]?.displayName ?? m.user_member()),
   )
   const field = useRef<HTMLTextAreaElement>(null)
+  const root = useRef<HTMLDivElement>(null)
   const composition = useRef<CompositionState>(initialComposition())
   useTypingSignal(id, draft)
+
+  // The emoji grid is a disclosure of the composer, opened on request: Escape puts it away and gives the field back, and
+  // so does a press anywhere outside the composer. Escape is taken before the field sees it, so it closes the grid first
+  // and only a second Escape leaves a reply or an edit.
+  useEffect(() => {
+    if (!emoji) return
+    const onPointerDown = (event: PointerEvent): void => {
+      if (event.target instanceof Node && root.current?.contains(event.target)) return
+      setEmoji(false)
+    }
+    const onKeyDown = (event: globalThis.KeyboardEvent): void => {
+      if (event.key !== 'Escape' || event.isComposing || event.defaultPrevented) return
+      event.preventDefault()
+      setEmoji(false)
+      field.current?.focus()
+    }
+    document.addEventListener('pointerdown', onPointerDown)
+    document.addEventListener('keydown', onKeyDown, true)
+    return () => {
+      document.removeEventListener('pointerdown', onPointerDown)
+      document.removeEventListener('keydown', onKeyDown, true)
+    }
+  }, [emoji])
 
   // The field grows with its content up to the CSS maximum (40% of the window). Set through CSSOM, which the policy allows.
   // biome-ignore lint/correctness/useExhaustiveDependencies: re-measures whenever the text changes
@@ -409,6 +433,7 @@ export function Composer({
   return (
     // biome-ignore lint/a11y/noStaticElementInteractions: file drop augments the keyboard-accessible attachment button
     <div
+      ref={root}
       className="composer glass-text squircle"
       onDragOver={(event) => {
         if (event.dataTransfer.types.includes('Files')) event.preventDefault()
@@ -616,21 +641,6 @@ export function Composer({
           <IconButton label={m.common_cancel()} icon={X} small onClick={leaveMode} />
         </div>
       ) : null}
-      {draft.trim() ? (
-        <div className="composer__formatbar">
-          <Button
-            kind="plain"
-            size="sm"
-            icon={preview ? Pencil : Eye}
-            onClick={() => {
-              setDraftPreview(id, !preview)
-              if (preview) requestAnimationFrame(() => field.current?.focus())
-            }}
-          >
-            {preview ? m.composer_edit_text() : m.composer_preview()}
-          </Button>
-        </div>
-      ) : null}
       <div className="composer__row">
         <IconButton
           label={m.media_attach()}
@@ -688,6 +698,19 @@ export function Composer({
               <MessageBody text={draft} />
             </MentionContext>
           </section>
+        ) : null}
+        {/* Preview and back: in the row, beside the send button, so the capsule keeps its height when the first character
+            is typed (a bar above the field made the whole dock jump). The label says what a press does. */}
+        {draft.trim() ? (
+          <IconButton
+            label={preview ? m.composer_edit_text() : m.composer_preview()}
+            icon={preview ? Pencil : Eye}
+            className="composer__toggle"
+            onClick={() => {
+              setDraftPreview(id, !preview)
+              if (preview) requestAnimationFrame(() => field.current?.focus())
+            }}
+          />
         ) : null}
         <IconButton
           label={m.composer_send()}

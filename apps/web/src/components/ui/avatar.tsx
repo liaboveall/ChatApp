@@ -5,11 +5,17 @@ import { Icon } from './icon.tsx'
 
 export type PresenceStatus = 'online' | 'away' | 'offline'
 
-/** A stable hue (0-359) from an id, so the same person always gets the same colour. */
+/**
+ * Hues an avatar may take. At the lightness the gradient uses (white initials need 4.5:1), the yellows and yellow-greens
+ * between about 50 and 140 turn into browns and olives, so they are left out.
+ */
+const AVATAR_HUES = [15, 150, 178, 205, 232, 256, 280, 308, 342] as const
+
+/** A stable hue from an id, so the same person always gets the same colour. */
 export function hueOf(seed: string): number {
   let hash = 0
-  for (const char of seed) hash = (hash * 31 + (char.codePointAt(0) ?? 0)) % 360
-  return hash
+  for (const char of seed) hash = (hash * 31 + (char.codePointAt(0) ?? 0)) >>> 0
+  return AVATAR_HUES[hash % AVATAR_HUES.length] ?? AVATAR_HUES[0]
 }
 
 /** First visible character of a name, upper-cased: "alice" gives "A", "周屿" gives "周". */
@@ -51,7 +57,16 @@ export function Avatar({
   const [failed, setFailed] = useState<string | null>(null)
   const style = { '--size': `${size}px`, '--h': hueOf(seed) } as CSSProperties
   return (
-    <span className={cx('avatar', bot && 'avatar--bot', className)} style={style}>
+    <span
+      className={cx(
+        'avatar',
+        bot && 'avatar--bot',
+        // A channel is a place, not a person: a tinted tile instead of a coloured disc (shape carries the difference).
+        glyph === 'hash' && !bot && !(src && failed !== src) && 'avatar--tile',
+        className,
+      )}
+      style={style}
+    >
       {src && failed !== src ? (
         <img src={src} alt="" onError={() => setFailed(src)} />
       ) : bot ? (

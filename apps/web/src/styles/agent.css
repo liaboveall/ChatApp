@@ -3,25 +3,120 @@
   align-items: center;
   gap: 8px;
   flex-wrap: wrap;
+  min-width: 0;
 }
+.agent-controls__end {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  margin-left: auto;
+}
+/* Above the composer of an assistant chat: how hard the next reply thinks, and the chat's own actions. */
+.composer-stack > .agent-controls {
+  padding: 0 6px 0 12px;
+}
+.composer-stack > .agent-controls .seg__item {
+  min-height: 24px;
+  padding: 0 12px;
+  font-size: var(--fs-subheadline);
+}
+.composer-stack > .agent-key-source {
+  padding: 0 12px;
+}
+/* Where the request goes when the assistant is asked: small print, always there where the assistant can be called. */
 .agent-disclosure {
-  font-size: 12px;
+  font-size: var(--fs-footnote);
+  line-height: var(--lh-footnote);
   color: var(--label-secondary);
   padding: 6px 16px;
 }
+/* What a reply cost and what it did: small print under the text. */
 .agent-run-card {
   display: grid;
   gap: 6px;
   margin-top: 8px;
-  font-size: 12px;
+  font-size: var(--fs-footnote);
+  line-height: var(--lh-footnote);
+  color: var(--label-secondary);
+}
+.agent-run-card:empty {
+  display: none;
+}
+.agent-run-card small {
+  font-size: inherit;
+  font-variant-numeric: tabular-nums;
+}
+.agent-run-card .agent-controls {
+  gap: 4px 10px;
+}
+.agent-run-card > .agent-controls > .btn--plain {
+  --btn-h: 26px;
+  margin-left: -8px;
+  padding: 0 8px;
+  font-size: var(--fs-subheadline);
+}
+/* The tool steps open in place. The marker is ours: a chevron that turns, instead of the browser's triangle. */
+.agent-run-card details {
+  min-width: 0;
+}
+.agent-run-card summary {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  min-height: 24px;
+  border-radius: 6px;
+  color: var(--label-secondary);
+  font-weight: 600;
+  cursor: pointer;
+  list-style: none;
+  user-select: none;
+}
+.agent-run-card summary::-webkit-details-marker {
+  display: none;
+}
+.agent-run-card summary::before {
+  content: "";
+  width: 6px;
+  height: 6px;
+  margin: 0 3px 0 1px;
+  border: solid currentColor;
+  border-width: 0 1.5px 1.5px 0;
+  rotate: -45deg;
+  transition: rotate var(--dur-snappy) var(--spring-snappy);
+}
+.agent-run-card details[open] > summary::before {
+  rotate: 45deg;
+}
+.agent-run-card summary:hover {
+  color: var(--label);
+}
+.agent-run-card details > div {
+  display: grid;
+  gap: 4px;
+  margin-top: 6px;
+}
+.agent-run-card details > div > small {
+  font-family: var(--font-mono);
+  color: var(--label-secondary);
 }
 .agent-run-card pre {
   max-height: 220px;
   max-width: 100%;
+  margin: 0;
+  padding: 8px 10px;
+  border-radius: 8px;
+  background: var(--code-bg);
+  color: var(--code-fg);
+  font-family: var(--font-mono);
+  font-size: var(--fs-footnote);
+  line-height: 1.5;
   overflow: auto;
   white-space: pre-wrap;
   overflow-wrap: anywhere;
 }
+
+/* ---- The assistant panel (docs/02 section 6): a private chat beside the conversation ---- */
+
 .agent-panel {
   display: grid;
   grid-template-columns: minmax(0, 1fr);
@@ -29,61 +124,9 @@
   max-width: 100%;
   gap: 12px;
 }
-.agent-panel .seg {
-  display: flex;
-  width: 100%;
-  min-width: 0;
-}
-.agent-panel .seg__item {
-  flex: 1 1 0;
-  min-width: 0;
-  padding: 8px;
-  height: auto;
-  white-space: normal;
-  overflow-wrap: anywhere;
-  text-align: center;
-}
 .agent-panel p,
 .agent-panel small {
   overflow-wrap: anywhere;
-}
-.agent-panel__toolbar {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  flex-wrap: wrap;
-  gap: 8px;
-}
-.agent-panel__toolbar .btn,
-.agent-panel__quick .btn {
-  height: auto;
-  min-height: 32px;
-  max-width: 100%;
-  white-space: normal;
-  overflow-wrap: anywhere;
-}
-.agent-panel__history {
-  display: grid;
-  min-width: 0;
-  gap: 6px;
-  font-size: var(--fs-footnote);
-  color: var(--label-secondary);
-}
-.agent-panel__history .select {
-  width: 100%;
-  min-width: 0;
-}
-.agent-panel__private {
-  color: var(--label-secondary);
-  font-size: var(--fs-footnote);
-}
-.agent-panel__messages {
-  display: grid;
-  min-width: 0;
-  max-height: 42vh;
-  overflow: auto;
-  overscroll-behavior: contain;
-  gap: 14px;
 }
 .agent-panel--conversation {
   display: flex;
@@ -95,99 +138,414 @@
 .agent-panel--conversation > * {
   flex: none;
 }
-.agent-panel--conversation .agent-panel__messages {
+
+/* Which chat, and its controls. */
+.agent-panel__bar {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  min-width: 0;
+}
+.agent-panel__bar .agent-controls {
+  flex: none;
+  flex-wrap: nowrap;
+  gap: 2px;
+}
+/* The chat's name reads as a title that can be changed, not as a form field: no box until it is pointed at. */
+.agent-panel__session {
+  flex: 1;
+  min-width: 0;
+  min-height: 32px;
+  margin-right: 4px;
+  padding-block: 4px;
+  border-color: transparent;
+  background-color: transparent;
+  box-shadow: none;
+  font-size: var(--fs-headline);
+  line-height: var(--lh-headline);
+  font-weight: 600;
+}
+.agent-panel__session:hover:not([disabled]) {
+  border-color: transparent;
+  background-color: var(--fill);
+}
+
+.agent-panel__messages {
   display: flex;
   flex-direction: column;
   flex: 1 1 auto;
+  gap: 16px;
+  min-width: 0;
   min-height: 100px;
-  max-height: none;
-}
-.agent-panel--conversation .agent-panel__message {
-  flex: none;
-}
-.agent-panel--conversation .agent-prompt {
-  height: 72px;
-  min-height: 72px;
-  max-height: 160px;
+  padding: 4px 0 8px;
+  overflow: auto;
+  overscroll-behavior: contain;
 }
 .agent-panel__message {
+  flex: none;
   min-width: 0;
-  padding: 10px;
-  border-radius: 12px;
-  background: var(--fill);
-  border-bottom: 1px solid var(--separator);
-  padding-bottom: 12px;
   overflow-wrap: anywhere;
+  font-size: var(--fs-body);
+  line-height: var(--lh-message);
+}
+/* What I asked: a bubble on my side, in a tint of the accent. */
+.agent-panel__message[data-kind="user"] {
+  align-self: flex-end;
+  max-width: 88%;
+  padding: 7px 12px;
+  border-radius: var(--radius-bubble);
+  border-bottom-right-radius: var(--radius-bubble-join);
+  background: color-mix(in srgb, var(--accent-solid) 14%, transparent);
+  color: var(--label);
+}
+/* What the assistant answered: plain text on the panel, under its name. */
+.agent-panel__message[data-kind="agent"] {
+  display: grid;
+  gap: 2px;
 }
 .agent-panel__speaker {
-  display: block;
-  margin-bottom: 6px;
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  margin-bottom: 4px;
+  color: var(--accent-text);
+  font-size: var(--fs-subheadline);
+  line-height: var(--lh-subheadline);
+  font-weight: 600;
+}
+.agent-panel__speaker .icon {
+  fill: currentColor;
+  stroke: none;
+}
+/* "You" is said to assistive technology; the bubble's side says it to the eye. */
+.agent-panel__message[data-kind="user"] .agent-panel__speaker {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+.agent-panel__insert {
+  justify-self: start;
+  margin-top: 8px;
+}
+.agent-panel__private {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
   color: var(--label-secondary);
   font-size: var(--fs-footnote);
+  line-height: var(--lh-footnote);
+  text-align: center;
+}
+.agent-panel__private .icon {
+  width: 12px;
+  height: 12px;
 }
 .agent-panel__empty {
+  display: grid;
+  justify-items: center;
+  align-content: center;
+  gap: 6px;
+  flex: 1;
   padding: 18px 10px;
   text-align: center;
   color: var(--label-secondary);
+  font-size: var(--fs-callout);
+  line-height: var(--lh-callout);
 }
-.agent-prompt {
-  width: 100%;
-  min-height: 96px;
-  resize: vertical;
-  min-width: 0;
-  max-width: 100%;
+.agent-panel__empty b {
+  color: var(--label);
+  font-size: var(--fs-title-3);
+  line-height: var(--lh-title-3);
+  font-weight: 600;
 }
-.agent-usage {
+.agent-panel__empty p {
+  max-width: 30ch;
+  text-wrap: balance;
+}
+.agent-panel__empty-icon {
   display: grid;
+  place-items: center;
+  width: 48px;
+  height: 48px;
+  margin-bottom: 6px;
+  border-radius: 16px;
+  background: linear-gradient(145deg, oklch(0.5 0.2 285), oklch(0.46 0.2 330));
+  color: #fff;
+  box-shadow: inset 0 1px 0 rgb(255 255 255 / 0.22);
+}
+.agent-panel__empty-icon .icon {
+  fill: currentColor;
+  stroke: none;
+}
+.agent-panel__stop {
+  align-self: center;
+}
+
+/* What the next request reads and how hard it thinks. */
+.agent-panel__options {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: center;
+  gap: 6px 10px;
+  min-width: 0;
+  padding-top: 10px;
+  border-top: 1px solid var(--separator);
+}
+/* Each option is a row of the same two columns: its name, then its control. */
+.agent-option {
+  display: grid;
+  grid-column: 1 / -1;
+  grid-template-columns: subgrid;
+  align-items: center;
+  min-width: 0;
+}
+.agent-option__label {
+  color: var(--label-secondary);
+  font-size: var(--fs-subheadline);
+  line-height: var(--lh-subheadline);
+  font-weight: 500;
+  white-space: nowrap;
+}
+.agent-option__note {
+  grid-column: 2;
+  margin-top: -2px;
+  color: var(--label-secondary);
+  font-size: var(--fs-footnote);
+  line-height: var(--lh-footnote);
+}
+.agent-panel__options .agent-key-source {
+  grid-column: 1 / -1;
+}
+.agent-panel .seg {
+  display: flex;
+  width: 100%;
+  min-width: 0;
+}
+.agent-panel .seg__item {
+  flex: 1 1 0;
+  min-width: 0;
+  min-height: 26px;
+  padding: 4px 8px;
+  font-size: var(--fs-subheadline);
+  line-height: 1.25;
+  white-space: normal;
+  /* Long labels wrap between words ("All accessible / conversations"); a word is only broken when it cannot fit. */
+  overflow-wrap: break-word;
+  text-wrap: balance;
+  text-align: center;
+}
+.agent-key-source {
+  justify-content: space-between;
+}
+.agent-key-source small {
+  color: var(--label-secondary);
+  font-size: var(--fs-footnote);
+}
+
+/* Things to ask in one tap. */
+.agent-panel__quick {
+  display: flex;
+  flex-wrap: wrap;
   gap: 6px;
-  padding: 16px;
+  min-width: 0;
+}
+.agent-chip {
+  min-height: 28px;
+  max-width: 100%;
+  padding: 3px 11px;
+  border-radius: 999px;
+  background: var(--fill);
+  color: var(--label);
+  font-size: var(--fs-subheadline);
+  line-height: 1.3;
+  font-weight: 500;
+  overflow-wrap: anywhere;
+  transition:
+    background-color 0.15s,
+    scale var(--dur-snappy) var(--spring-snappy);
+}
+.agent-chip:hover {
+  background: var(--fill-hover);
+}
+.agent-chip:active {
+  scale: 0.96;
+}
+.agent-chip[aria-disabled="true"] {
+  color: var(--label-disabled);
+  cursor: progress;
+  scale: none;
+}
+
+/* Where the request is written: a field that grows with the text, with the send button inside it. */
+.agent-panel__composer {
+  display: flex;
+  align-items: flex-end;
+  gap: 4px;
+  min-width: 0;
+  padding: 4px;
+  border: 1px solid var(--control-border);
+  border-radius: 20px;
+  background: var(--field-bg);
+  box-shadow: inset 0 1px 1px var(--field-inset);
+  transition:
+    border-color 0.15s,
+    box-shadow 0.15s;
+}
+.agent-panel__composer:has(.agent-prompt:focus-visible) {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: -1px;
+  border-color: var(--focus-ring);
+  box-shadow: 0 0 0 4px color-mix(in srgb, var(--accent-solid) 18%, transparent);
+}
+.agent-panel__composer .agent-prompt {
+  flex: 1;
+  min-width: 0;
+  min-height: 32px;
+  max-height: 160px;
+  padding: 6px 4px 6px 10px;
+  border: 0;
+  background: transparent;
+  color: var(--label);
+  font-size: var(--fs-body);
+  line-height: var(--lh-body);
+  resize: none;
+  overflow-y: auto;
+  field-sizing: content;
+}
+.agent-panel__composer .agent-prompt:focus-visible {
+  outline: none;
+}
+/* The same question asked from a dialog (a new assistant chat): an ordinary field, tall enough for a few lines. */
+.input.agent-prompt {
+  min-height: 96px;
+  max-height: 40vh;
+  margin-top: 10px;
+  resize: vertical;
+}
+.agent-panel__send {
+  flex: none;
+  border-radius: 999px;
+}
+.agent-panel__send--busy .icon {
+  animation: spin 0.9s linear infinite;
+}
+.agent-panel .agent-disclosure {
+  margin-top: -4px;
+  padding: 0 4px;
+  text-align: center;
+  text-wrap: balance;
+}
+
+/* Settings → Assistant: today's tokens and this month's cost, each a line of numbers over a bar. */
+.agent-usage__box {
+  display: grid;
+  gap: 14px;
+  padding: 14px;
+}
+.agent-usage .meter {
+  gap: 6px;
+}
+.agent-usage .meter p {
+  font-size: var(--fs-body);
+  line-height: var(--lh-body);
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
 }
 .agent-usage small {
   display: block;
   color: var(--label-secondary);
+  font-size: var(--fs-subheadline);
+  line-height: var(--lh-subheadline);
+  font-variant-numeric: tabular-nums;
+}
+.agent-usage__foot {
+  display: grid;
+  gap: 2px;
+  padding-top: 12px;
+  border-top: 1px solid var(--separator);
+}
+.agent-usage__alert {
+  color: var(--warning-text);
+  font-size: var(--fs-callout);
+  line-height: var(--lh-callout);
+  font-weight: 600;
+}
+.agent-usage__state {
+  color: var(--label-secondary);
+  font-size: var(--fs-callout);
 }
 
-/* M5a: the approval card (docs/02 section 6) and what an effect left behind. */
+/* M5a: the approval card (docs/02 section 6) and what an effect left behind. It sits on solid content, so it is the
+   glass without blur; while it waits for a decision its edge is the accent. */
 .approval {
   display: grid;
-  gap: 6px;
-  padding: 10px 12px;
-  border: 1px solid var(--separator);
+  gap: 8px;
+  padding: 12px;
   border-radius: var(--radius-card);
-  background: var(--fill);
   color: var(--label);
   font-size: var(--fs-subheadline);
   line-height: var(--lh-subheadline);
   min-width: 0;
 }
 .approval[data-status="pending"] {
-  border-color: var(--accent-solid);
+  box-shadow:
+    0 0 0 1.5px var(--accent-solid),
+    0 0 0 5px color-mix(in srgb, var(--accent-solid) 12%, transparent),
+    var(--elev-1);
 }
 .approval__badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
   color: var(--accent-text);
   font-size: var(--fs-footnote);
   line-height: var(--lh-footnote);
+  font-weight: 600;
+  letter-spacing: 0.02em;
+}
+.approval__badge::before {
+  content: "";
+  width: 6px;
+  height: 6px;
+  border-radius: 999px;
+  background: var(--accent-solid);
 }
 .approval__title {
+  font-size: var(--fs-callout);
+  line-height: var(--lh-callout);
   font-weight: 600;
   overflow-wrap: anywhere;
 }
+/* What will be sent, in full: quoted like a message. */
 .approval__body {
   margin: 0;
-  padding: 6px 10px;
-  border-left: 3px solid var(--separator);
+  padding: 8px 12px;
+  border-left: 3px solid color-mix(in srgb, var(--accent-solid) 55%, transparent);
   background: var(--bg-content);
-  border-radius: var(--radius-control);
+  border-radius: 4px var(--radius-control) var(--radius-control) 4px;
   max-height: 240px;
   overflow: auto;
   overflow-wrap: anywhere;
   white-space: pre-wrap;
+  font-size: var(--fs-callout);
+  line-height: 1.5;
 }
+.approval > small,
 .approval__time,
 .approval__outcome,
 .approval__warning {
   color: var(--label-secondary);
   overflow-wrap: anywhere;
+}
+.approval__outcome {
+  font-weight: 600;
+}
+.approval .agent-controls {
+  margin-top: 2px;
 }
 .approval__choose {
   display: grid;
@@ -216,38 +574,49 @@
   display: grid;
   gap: 4px;
 }
-.agent-key-source small {
-  color: var(--label-secondary);
-}
 .task-row .row__help {
   overflow-wrap: anywhere;
 }
+/* Adding a memory: a short form under the list, in line with its rows (the box already has the padding). */
 .settings-memory-form {
   display: grid;
-  gap: 12px;
-  padding: 16px;
+  gap: 10px;
+  padding: 14px 0 6px;
+  border-top: 1px solid var(--separator);
 }
+.settings-memory-form > small {
+  font-size: var(--fs-subheadline);
+  line-height: var(--lh-subheadline);
+  color: var(--label-secondary);
+}
+.settings-memory-form > .row {
+  min-height: 40px;
+  padding-block: 2px;
+}
+.settings-memory-form > .btn {
+  justify-self: end;
+}
+/* The four states of a task: one row of equal segments across the box; where that does not fit, two rows of two. A grid,
+   not a wrapping flex row: the width a wrapping flex container asks for ignores its items' bases, so it shrank to the
+   width of the words and broke into two rows with room to spare. */
 .task-filters .seg {
-  flex-wrap: wrap;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(110px, 1fr));
   gap: 2px;
-  max-width: 100%;
+  width: 100%;
 }
 .task-filters .seg__item {
-  flex: 1 1 110px;
+  min-width: 0;
 }
 .task-actions {
   flex-wrap: wrap;
 }
 .settings-memory-form label {
   display: grid;
-  gap: 8px;
+  gap: 6px;
 }
-.settings-memory-form textarea {
-  width: 100%;
-  padding: 12px;
-  color: var(--label);
-  background: var(--bg-content);
-  border: 1px solid var(--separator);
-  border-radius: var(--radius-control);
-  resize: vertical;
+.settings-memory-form label > span {
+  font-size: var(--fs-callout);
+  line-height: var(--lh-callout);
+  font-weight: 600;
 }

@@ -15,6 +15,8 @@
   inset: 0;
   display: flex;
   flex-direction: column;
+  /* The rows ask how wide the conversation is (not the window: a docked inspector narrows it). */
+  container: convo / inline-size;
   --composer-h: 76px;
 }
 .timeline {
@@ -22,6 +24,9 @@
   flex: 1;
   min-height: 0;
   overflow-y: auto;
+  /* Rows never scroll sideways (code and tables scroll inside their own box): what hangs beside a bubble on hover must
+     not be able to bring a horizontal scrollbar with it. */
+  overflow-x: hidden;
   overscroll-behavior: contain;
 }
 .timeline:focus-visible {
@@ -62,16 +67,17 @@
 .date-sep {
   display: flex;
   justify-content: center;
-  margin: 18px 0 8px;
+  margin: 20px 0 6px;
 }
+/* A quiet line of text, as in a letter: the day is a heading for what follows, not a control. */
 .date-sep span {
   padding: 2px 10px;
-  border-radius: 999px;
-  background: var(--fill);
   color: var(--label-secondary);
   font-size: var(--fs-footnote);
   line-height: var(--lh-footnote);
   font-weight: 600;
+  letter-spacing: 0.02em;
+  font-variant-numeric: tabular-nums;
 }
 .unread-div {
   display: flex;
@@ -102,22 +108,36 @@
   font-weight: 600;
   color: var(--label);
 }
+/* The top of what can be read. Where the conversation simply begins it is a quiet caption; where it is the edge of what
+   this person may see (they joined later) it is a note in a box, because it explains missing history. */
 .history-boundary {
   display: flex;
   align-items: flex-start;
+  justify-content: center;
+  gap: 6px;
+  width: fit-content;
+  max-width: min(520px, 100%);
+  margin: 14px auto 10px;
+  color: var(--label-secondary);
+  font-size: var(--fs-subheadline);
+  line-height: var(--lh-subheadline);
+  text-wrap: balance;
+}
+.history-boundary .icon {
+  flex: none;
+  color: var(--label-secondary);
+}
+.history-boundary[data-boundary="joined"] {
   gap: 10px;
-  max-width: 520px;
-  margin: 8px auto 12px;
   padding: 10px 14px;
   border-radius: var(--radius-card);
   background: var(--fill);
   color: var(--label);
   font-size: var(--fs-callout);
   line-height: var(--lh-callout);
+  text-wrap: pretty;
 }
-.history-boundary .icon {
-  flex: none;
-  color: var(--label-secondary);
+.history-boundary[data-boundary="joined"] .icon {
   margin-top: 1px;
 }
 
@@ -197,70 +217,81 @@
   z-index: 1;
 }
 
-/* Exact time on hover or focus, beside the bubble on the side away from the screen edge; out of the row's flow. */
-.msg__time {
+/* Beside the bubble, on the side away from the screen edge: the tools, then the exact time. Out of the row's flow, so
+   neither takes width from the bubble; anchored near the first line, so a long message keeps them by its top. */
+.msg__side {
   position: absolute;
-  top: 50%;
-  transform: translateY(-50%);
+  top: min(50%, 18px);
+  z-index: 6;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  translate: 0 -50%;
+  pointer-events: none;
+}
+.msg[data-who="in"] .msg__side {
+  left: calc(100% + 8px);
+}
+.msg[data-who="out"] .msg__side {
+  right: calc(100% + 8px);
+  flex-direction: row-reverse;
+}
+.msg__time {
   opacity: 0;
   font-size: var(--fs-footnote);
   line-height: var(--lh-footnote);
   color: var(--label-secondary);
+  font-variant-numeric: tabular-nums;
   white-space: nowrap;
-  pointer-events: none;
   transition: opacity 0.12s;
-}
-.msg[data-who="in"] .msg__time {
-  left: calc(100% + 12px);
-}
-.msg[data-who="out"] .msg__time {
-  right: calc(100% + 12px);
 }
 .msg-article:hover .msg__time,
 .msg-article:focus-within .msg__time,
 .msg-article:focus-visible .msg__time {
   opacity: 1;
 }
+/* The time needs room beside the tools: a narrow conversation (a small window, a docked inspector) goes without it.
+   It is still in the row's accessible name. */
+@container convo (max-width: 899px) {
+  .msg__time {
+    display: none;
+  }
+}
 
-/* Hover toolbar: reply and more. It floats over solid content, so it uses the glass without blur: any number of
+/* Hover tools: reply and more. They float over solid content, so they use the glass without blur: any number of
    messages can be lit (one hovered, one focused) without adding backdrop layers. */
 .msg__tools {
-  position: absolute;
-  top: -16px;
-  z-index: 6;
   display: flex;
   gap: 1px;
   padding: 2px;
-  border-radius: 12px;
+  border-radius: 999px;
   opacity: 0;
-  pointer-events: none;
-  transform: translateY(4px) scale(0.96);
+  scale: 0.94;
   transition:
     opacity 0.12s,
-    transform var(--dur-snappy) var(--spring-snappy);
+    scale var(--dur-snappy) var(--spring-snappy);
 }
 .msg[data-who="in"] .msg__tools {
-  left: 40px;
+  transform-origin: left center;
 }
 .msg[data-who="out"] .msg__tools {
-  right: 0;
+  transform-origin: right center;
 }
 .msg-article:hover .msg__tools,
 .msg-article:focus-within .msg__tools {
   opacity: 1;
   pointer-events: auto;
-  transform: none;
+  scale: 1;
 }
 .msg__tools .icon-btn {
-  width: 30px;
-  height: 30px;
+  border-radius: 999px;
 }
 
 /* ---- Bubble ---- */
 
 .bubble {
   position: relative;
-  padding: 7px 12px;
+  padding: 7px 13px;
   border-radius: var(--radius-bubble);
   font-size: var(--fs-message);
   line-height: var(--lh-message);
@@ -441,7 +472,7 @@
 .composer-dock {
   position: relative;
   flex: none;
-  padding: 8px 16px 16px;
+  padding: 8px 16px 14px;
   z-index: 15;
   pointer-events: none;
 }
@@ -452,7 +483,10 @@
   margin: 0 auto;
 }
 .composer-dock .agent-disclosure {
-  margin: 0;
+  margin: 0 0 -4px;
+  padding: 0 16px;
+  text-align: center;
+  text-wrap: balance;
 }
 .composer-dock > * {
   pointer-events: auto;
@@ -461,8 +495,9 @@
   width: 100%;
   max-width: 828px;
   margin: 0 auto;
-  border-radius: 26px;
+  border-radius: 24px;
   display: grid;
+  transition: box-shadow 0.15s;
   /* Let long reply previews shrink within the capsule and show their ellipsis. */
   grid-template-columns: minmax(0, 1fr);
 }
@@ -493,12 +528,12 @@
   display: flex;
   align-items: flex-end;
   gap: 2px;
-  padding: 6px 8px;
+  padding: 6px;
 }
-.composer__formatbar {
-  display: flex;
-  justify-content: flex-end;
-  padding: 4px 12px 0;
+.composer__row .icon-btn {
+  width: 36px;
+  height: 36px;
+  border-radius: 999px;
 }
 .composer__preview {
   flex: 1;
@@ -513,7 +548,6 @@
 }
 .composer__row .icon-btn {
   flex: none;
-  margin-bottom: 1px;
 }
 .composer__ctx .icon-btn {
   flex: none;
@@ -555,14 +589,25 @@
 .composer__input:focus-visible {
   outline: none;
 }
+/* Focus on the field shows on the capsule: the 2px ring of the spec, with a soft halo of the accent around it. */
 .composer:has(.composer__input:focus-visible) {
   box-shadow:
     0 0 0 2px var(--focus-ring),
+    0 0 0 6px color-mix(in srgb, var(--accent-solid) 16%, transparent),
     inset 0 1px 0 var(--glass-highlight),
-    0 10px 30px var(--glass-shadow-color);
+    var(--glass-drop);
 }
 .composer__send {
   align-self: flex-end;
+  margin: 2px;
+  transition:
+    background-color 0.15s,
+    color 0.15s,
+    scale var(--dur-snappy) var(--spring-snappy);
+}
+.composer__row .composer__send {
+  width: 32px;
+  height: 32px;
 }
 .composer__hint {
   padding: 0 18px 8px;
@@ -589,6 +634,14 @@
   .composer__row {
     flex-wrap: wrap;
   }
+  /* The field takes the first line; under it the tools stay left and what ends the message (preview, send) goes right. */
+  .composer__toggle,
+  .composer__send {
+    margin-left: auto;
+  }
+  .composer__toggle + .composer__send {
+    margin-left: 2px;
+  }
   .composer__input {
     order: -1;
     flex: 1 1 100%;
@@ -611,15 +664,22 @@
 .jump {
   position: absolute;
   right: 20px;
-  bottom: calc(var(--composer-h) + 28px);
+  bottom: calc(var(--composer-h) + 20px);
   z-index: 25;
   display: grid;
   place-items: center;
-  width: 40px;
-  height: 40px;
+  width: 38px;
+  height: 38px;
   border-radius: 999px;
   color: var(--label);
   animation: pop-in var(--dur-bouncy) var(--spring-bouncy) both;
+  transition: scale var(--dur-snappy) var(--spring-snappy);
+}
+.jump:hover {
+  scale: 1.06;
+}
+.jump:active {
+  scale: 0.94;
 }
 .jump .badge {
   position: absolute;
@@ -655,6 +715,19 @@
   }
   .timeline__inner {
     padding: 0 10px;
+  }
+  /* No room beside the bubble: the tools ride on its far top corner instead, clear of the sender's name. They sit above
+     the first line (the bubble's padding is all they overlap), so they never cover the words of the message they act
+     on; what they pass over is the end of the bubble before, where its last line is usually short. */
+  .msg__side {
+    top: -28px;
+    translate: none;
+  }
+  .msg[data-who="in"] .msg__side {
+    left: max(100% - 52px, 56px);
+  }
+  .msg[data-who="out"] .msg__side {
+    right: 4px;
   }
 }
 
@@ -697,13 +770,19 @@
 
 /* ---- Search input and chips (pickers, discovery) ---- */
 
+/* A search box that is typed into is a field like the others: the same well, hairline and focus halo. */
 .search--field {
-  background: var(--fill);
-  box-shadow: 0 0 0 1px var(--control-border);
+  background: var(--field-bg);
+  box-shadow:
+    0 0 0 1px var(--control-border),
+    inset 0 1px 1px var(--field-inset);
   color: var(--label-secondary);
+  transition: box-shadow 0.15s;
 }
 .search--field:focus-within {
-  box-shadow: 0 0 0 2px var(--focus-ring);
+  box-shadow:
+    0 0 0 2px var(--focus-ring),
+    0 0 0 6px color-mix(in srgb, var(--accent-solid) 18%, transparent);
 }
 .search__input {
   flex: 1;
@@ -831,19 +910,54 @@
   place-items: center;
   padding: 16px;
 }
+/* A list of places: rows parted by a hairline that starts under the text, not under the picture. */
 .list-rows {
   display: grid;
-  gap: 2px;
 }
 .list-row {
+  position: relative;
   display: flex;
   align-items: center;
   gap: 12px;
-  padding: 10px 8px;
-  border-radius: var(--radius-control);
+  padding: 12px 10px;
+  border-radius: 12px;
 }
-.list-row:hover {
+.list-row + .list-row::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  left: 62px;
+  right: 10px;
+  height: 1px;
+  background: var(--separator);
+}
+/* A row whose name is a link opens from anywhere on it: the link is stretched over the row, so there is still one link
+   for the keyboard and for a screen reader, and the row's own controls stay above it. The row answers the link, not the
+   pointer: it lights up and takes the focus ring when a press or Enter would open it, so a row that only carries a
+   button (an archived conversation) does not pretend to be one. */
+a.list-row__title::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: 12px;
+}
+.list-row:has(a.list-row__title) :is(button, a:not(.list-row__title), input, select) {
+  position: relative;
+  z-index: 1;
+}
+.list-row:has(a.list-row__title:hover) {
   background: var(--fill-hover);
+}
+.list-row:has(a.list-row__title:hover)::before,
+.list-row:has(a.list-row__title:hover) + .list-row::before {
+  opacity: 0;
+}
+a.list-row__title:focus-visible {
+  outline: none;
+}
+.list-row:has(a.list-row__title:focus-visible) {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: -2px;
 }
 .list-row__body {
   flex: 1;

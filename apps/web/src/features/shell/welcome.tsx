@@ -1,4 +1,5 @@
 import { useNavigate } from '@tanstack/react-router'
+import { Compass, MessageCircle, Sparkles } from 'lucide-react'
 import { useState } from 'react'
 import { AppIcon } from '@/components/brand/app-icon.tsx'
 import { Button } from '@/components/ui/button.tsx'
@@ -15,14 +16,16 @@ export function Welcome({ name }: { name: string }) {
   return (
     <div className="welcome">
       <AppIcon size={72} />
-      <h1 className="text-title-1">{m.welcome_title({ name })}</h1>
+      <h1 className="text-large-title">{m.welcome_title({ name })}</h1>
       <p className="max-w-[44ch] text-body text-label-secondary text-balance">{m.welcome_text()}</p>
       <div className="welcome__actions">
-        <Button onClick={() => setDmOpen(true)}>{m.sidebar_new_dm()}</Button>
-        <Button kind="tinted" onClick={() => void navigate({ to: '/channels' })}>
+        <Button icon={MessageCircle} onClick={() => setDmOpen(true)}>
+          {m.sidebar_new_dm()}
+        </Button>
+        <Button kind="tinted" icon={Compass} onClick={() => void navigate({ to: '/channels' })}>
           {m.sidebar_browse()}
         </Button>
-        <Button kind="tinted" onClick={() => setAgentOpen(true)}>
+        <Button kind="tinted" icon={Sparkles} onClick={() => setAgentOpen(true)}>
           {m.agent_new()}
         </Button>
       </div>

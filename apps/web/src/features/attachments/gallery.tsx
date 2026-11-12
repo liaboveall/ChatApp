@@ -1,5 +1,5 @@
 import type { Attachment } from '@chatapp/contracts'
-import { ChevronLeft, ChevronRight, Download, X } from 'lucide-react'
+import { ChevronLeft, ChevronRight, Download, FileText, X } from 'lucide-react'
 import { useEffect, useLayoutEffect, useState } from 'react'
 import { IconButton } from '@/components/ui/button.tsx'
 import { Dialog } from '@/components/ui/dialog.tsx'
@@ -13,14 +13,17 @@ export const byteLabel = (bytes: number) =>
 function FileCard({ file }: { file: Attachment }) {
   return (
     <a className="file-card" href={file.urls.original} download={file.name}>
-      <Download size={18} aria-hidden="true" />
-      <span>
+      <span className="file-card__icon" aria-hidden="true">
+        <FileText size={18} strokeWidth={1.75} />
+      </span>
+      <span className="file-card__body">
         <b>{file.name}</b>
         <small>{byteLabel(file.sizeBytes)}</small>
         {file.metadataCleared === false ? (
           <small role="note">{m.media_metadata_uncleared()}</small>
         ) : null}
       </span>
+      <Download className="file-card__get" size={16} strokeWidth={1.75} aria-hidden="true" />
       <span className="sr-only">{m.media_download({ name: file.name })}</span>
     </a>
   )

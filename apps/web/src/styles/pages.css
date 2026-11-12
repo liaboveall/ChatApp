@@ -97,9 +97,46 @@
   justify-content: center;
   gap: 10px;
 }
+/* The shortcuts open in place; the marker is a chevron that turns, as in the assistant's tool steps. */
 .welcome__keys summary {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  width: fit-content;
+  min-height: 28px;
+  margin: 0 auto 8px;
+  padding: 0 10px;
+  border-radius: 999px;
+  color: var(--label-secondary);
+  font-size: var(--fs-callout);
   cursor: pointer;
-  margin-bottom: 8px;
+  list-style: none;
+  user-select: none;
+  transition:
+    background-color 0.15s,
+    color 0.15s;
+}
+.welcome__keys summary::-webkit-details-marker {
+  display: none;
+}
+.welcome__keys summary::after {
+  content: "";
+  width: 6px;
+  height: 6px;
+  margin-top: -3px;
+  border: solid currentColor;
+  border-width: 0 1.5px 1.5px 0;
+  rotate: 45deg;
+  transition: rotate var(--dur-snappy) var(--spring-snappy);
+}
+.welcome__keys[open] summary::after {
+  margin-top: 3px;
+  rotate: -135deg;
+}
+.welcome__keys summary:hover {
+  background: var(--fill);
+  color: var(--label);
 }
 .welcome__keys .keys-row {
   border-bottom: 0;

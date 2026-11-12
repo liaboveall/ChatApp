@@ -478,7 +478,7 @@ test('admin tab changes reset the draft, applied filter and cursor together', as
   const field = page.getByRole('textbox', { name: '搜索成员或会话' })
   await field.fill('Alice')
   const searched = page.waitForRequest((request) => request.url().includes('query=Alice'))
-  await page.getByRole('button', { name: '搜索成员或会话', exact: true }).click()
+  await page.getByRole('button', { name: '搜索', exact: true }).click()
   await searched
   const changed = page.waitForRequest((request) =>
     request.url().includes('/api/admin/conversations'),

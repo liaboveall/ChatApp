@@ -27,6 +27,11 @@ async function adminPage(page: Page, administrator = admin) {
   await expect(page.locator('.admin-row').first()).toBeVisible()
 }
 async function accessible(page: Page) {
+  // A resize across a layout tier slides the sidebar away over half a second, and for that long its buttons pass over
+  // the toolbar's. That frame is nobody's layout: the rules are checked once the slide is over. (The public pages have
+  // no sidebar.)
+  const sidebar = page.locator('.sidebar')
+  if ((await sidebar.count()) > 0) await animationsFinished(sidebar)
   const result = await new AxeBuilder({ page }).withTags(tags).analyze()
   expect(
     result.violations.map((v) => ({
@@ -177,7 +182,7 @@ for (const scheme of ['light', 'dark'] as const) {
         .click()
       async function search(value: string) {
         await page.getByLabel('搜索成员或会话').fill(value)
-        await page.getByRole('button', { name: '搜索成员或会话', exact: true }).click()
+        await page.getByRole('button', { name: '搜索', exact: true }).click()
       }
       await search(name)
       const row = page.locator('.admin-row').filter({ hasText: name })

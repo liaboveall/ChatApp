@@ -51,16 +51,20 @@
   font-size: var(--fs-callout);
   line-height: 1.2;
   font-weight: 600;
+  letter-spacing: 0.005em;
   white-space: nowrap;
   user-select: none;
   transition:
     background-color 0.15s,
     color 0.15s,
-    transform var(--dur-snappy) var(--spring-snappy);
+    box-shadow 0.15s,
+    scale var(--dur-snappy) var(--spring-snappy);
 }
 
+/* Press: every button gives a little under the pointer. Hover, press and focus each change a different property, so
+   any combination of them shows all of its parts. */
 .btn:active {
-  transform: scale(0.97);
+  scale: 0.97;
 }
 
 .btn--sm {
@@ -81,6 +85,10 @@
 .btn--filled {
   background: var(--accent-solid);
   color: var(--on-accent);
+  /* A lit top edge and a short contact shadow: the button reads as a raised key, not a flat block. */
+  box-shadow:
+    inset 0 1px 0 var(--btn-sheen),
+    0 1px 2px var(--btn-drop);
 }
 .btn--filled:hover {
   background: color-mix(in srgb, var(--accent-solid) 88%, var(--shade));
@@ -118,6 +126,12 @@
   background: var(--danger-solid);
   color: var(--on-accent);
 }
+.btn--danger.btn--plain:hover {
+  background: color-mix(in srgb, var(--danger-solid) 10%, transparent);
+}
+.btn--danger.btn--tinted:hover {
+  background: color-mix(in srgb, var(--danger-solid) 18%, transparent);
+}
 .btn--danger.btn--filled:hover {
   background: color-mix(in srgb, var(--danger-solid) 88%, var(--shade));
 }
@@ -135,7 +149,7 @@
   color: var(--label-disabled);
   box-shadow: none;
   cursor: not-allowed;
-  transform: none;
+  scale: none;
 }
 
 .btn[aria-busy="true"] {
@@ -157,14 +171,14 @@
   transition:
     background-color 0.15s,
     color 0.15s,
-    transform var(--dur-snappy) var(--spring-snappy);
+    scale var(--dur-snappy) var(--spring-snappy);
 }
 .icon-btn:hover {
   background: var(--fill);
   color: var(--label);
 }
 .icon-btn:active {
-  transform: scale(0.94);
+  scale: 0.92;
   background: var(--fill-hover);
 }
 .icon-btn[aria-pressed="true"],
@@ -174,8 +188,10 @@
   color: var(--accent-text);
 }
 .icon-btn[disabled] {
+  background: transparent;
   color: var(--label-disabled);
   cursor: not-allowed;
+  scale: none;
 }
 .icon-btn--sm {
   width: 28px;
@@ -195,6 +211,9 @@
 .icon-btn--filled {
   background: var(--accent-solid);
   color: var(--on-accent);
+  box-shadow:
+    inset 0 1px 0 var(--btn-sheen),
+    0 1px 2px var(--btn-drop);
 }
 .icon-btn--filled:hover {
   background: color-mix(in srgb, var(--accent-solid) 88%, var(--shade));
@@ -203,12 +222,16 @@
 .icon-btn--filled[disabled] {
   background: var(--fill);
   color: var(--label-disabled);
+  box-shadow: none;
 }
 
 /* ---- Fields ---- */
 
 .field {
   display: grid;
+  /* One column that may shrink: left to itself the column is as wide as the widest control asks to be (a date and time
+     input asks for more than a narrow cell has), and the field pushes out of its place. */
+  grid-template-columns: minmax(0, 1fr);
   gap: 6px;
   min-width: 0;
 }
@@ -243,33 +266,62 @@
   height: 16px;
 }
 
+/* A field is a well of the content colour with a hairline the eye can find (--control-border, 3:1 on every surface).
+   The gray control fill is kept for what cannot be typed into: read-only and disabled fields. */
 .input,
-.textarea {
+.textarea,
+.select {
   width: 100%;
   min-height: 34px;
   padding: 6px 10px;
   border: 1px solid var(--control-border);
   border-radius: var(--radius-control);
-  background: var(--fill);
+  background-color: var(--field-bg);
   color: var(--label);
   font-size: var(--fs-body);
   line-height: var(--lh-body);
-  transition: border-color 0.15s;
+  box-shadow: inset 0 1px 1px var(--field-inset);
+  transition:
+    border-color 0.15s,
+    box-shadow 0.15s;
 }
+.input:hover:not([disabled], [readonly]),
+.textarea:hover:not([disabled], [readonly]),
+.select:hover:not([disabled]) {
+  border-color: var(--label-secondary);
+}
+/* Focus: the 2px ring of the spec drawn over the hairline, and a soft halo of the accent around it. */
 .input:focus-visible,
-.textarea:focus-visible {
+.textarea:focus-visible,
+.select:focus-visible {
   outline: 2px solid var(--focus-ring);
-  outline-offset: 1px;
+  outline-offset: -1px;
   border-color: var(--focus-ring);
+  box-shadow: 0 0 0 4px color-mix(in srgb, var(--accent-solid) 18%, transparent);
 }
-.input[aria-invalid="true"] {
+.input[aria-invalid="true"],
+.textarea[aria-invalid="true"],
+.select[aria-invalid="true"] {
   border-color: var(--danger-text);
 }
-.input[disabled],
-.input[readonly] {
-  border-color: var(--separator);
+.input[aria-invalid="true"]:focus-visible,
+.textarea[aria-invalid="true"]:focus-visible,
+.select[aria-invalid="true"]:focus-visible {
+  outline-color: var(--danger-text);
+  box-shadow: 0 0 0 4px color-mix(in srgb, var(--danger-solid) 16%, transparent);
 }
-.input[disabled] {
+.input[disabled],
+.input[readonly],
+.textarea[disabled],
+.textarea[readonly],
+.select[disabled] {
+  border-color: var(--separator);
+  background-color: var(--fill);
+  box-shadow: none;
+}
+.input[disabled],
+.textarea[disabled],
+.select[disabled] {
   color: var(--label-disabled);
   cursor: not-allowed;
 }
@@ -284,31 +336,33 @@
   display: block;
 }
 
-/* A select keeps the browser's own arrow and popup; only the box is drawn like the other fields. */
+/* A select keeps the browser's own popup (keyboard, type-ahead and the phone's picker come with it); the box is drawn
+   like the other fields and the arrow is ours: a chevron of two gradient strokes, so no image is needed. */
 .select {
-  width: 100%;
-  min-height: 34px;
-  padding: 6px 8px;
-  border: 1px solid var(--control-border);
-  border-radius: var(--radius-control);
-  background: var(--fill);
-  color: var(--label);
-  font-size: var(--fs-body);
-  line-height: var(--lh-body);
-  transition: border-color 0.15s;
-}
-.select:focus-visible {
-  outline: 2px solid var(--focus-ring);
-  outline-offset: 1px;
-  border-color: var(--focus-ring);
-}
-.select[aria-invalid="true"] {
-  border-color: var(--danger-text);
-}
-.select[disabled] {
-  border-color: var(--separator);
-  color: var(--label-disabled);
-  cursor: not-allowed;
+  appearance: none;
+  padding-right: 30px;
+  background-image:
+    linear-gradient(
+      45deg,
+      transparent 50%,
+      var(--label-secondary) 50%,
+      var(--label-secondary) 62%,
+      transparent 62%
+    ),
+    linear-gradient(
+      -45deg,
+      transparent 50%,
+      var(--label-secondary) 50%,
+      var(--label-secondary) 62%,
+      transparent 62%
+    );
+  background-position:
+    right 16px top 50%,
+    right 10.5px top 50%;
+  background-size: 6px 6px;
+  background-repeat: no-repeat;
+  text-overflow: ellipsis;
+  cursor: pointer;
 }
 
 .input-wrap {
@@ -392,9 +446,16 @@
   border-width: 0 2px 2px 0;
   transform: rotate(45deg);
 }
+/* Off and unavailable: the track fades but the thumb stays a thumb, so it still reads as a switch. */
 .switch[data-disabled] {
-  opacity: 0.5;
+  background: var(--fill-pressed);
   cursor: not-allowed;
+}
+.switch[data-disabled][data-checked] {
+  background: color-mix(in srgb, var(--accent-solid) 45%, var(--fill-pressed));
+}
+.switch[data-disabled] .switch__thumb {
+  box-shadow: 0 1px 2px rgb(0 0 0 / 0.2);
 }
 
 /* ---- Checkbox ---- */
@@ -572,15 +633,35 @@
   width: var(--size);
   height: var(--size);
   border-radius: 999px;
-  background: linear-gradient(160deg, oklch(0.56 0.14 var(--h)), oklch(0.44 0.14 var(--h)));
+  /* Top lightness 0.56 keeps the white initial at 4.5:1 or better across the whole disc; the hue comes from a short list
+     without the muddy yellows (avatar.tsx). */
+  background: linear-gradient(
+    155deg,
+    oklch(0.56 0.15 var(--h)),
+    oklch(0.45 0.16 calc(var(--h) + 12))
+  );
   color: #fff;
   font-size: calc(var(--size) * 0.4);
   line-height: 1;
   font-weight: 600;
   user-select: none;
+  /* A hairline of light inside the top edge, as on the glass. */
+  box-shadow: inset 0 1px 0 rgb(255 255 255 / 0.22);
 }
 .avatar--bot {
   background: linear-gradient(145deg, oklch(0.5 0.2 285), oklch(0.46 0.2 330));
+}
+/* A channel: a tinted tile with the hash sign in the accent text colour (checked on the 16% tint). */
+.avatar--tile {
+  border-radius: 30%;
+  background: color-mix(in srgb, var(--accent-solid) 14%, transparent);
+  color: var(--accent-text);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent-solid) 14%, transparent);
+}
+.avatar--tile .icon {
+  width: 50%;
+  height: 50%;
+  stroke-width: 2;
 }
 .avatar--bot .icon {
   width: 56%;
@@ -940,18 +1021,25 @@
 .rows {
   display: grid;
 }
+/* A setting: its words, and its control at the far edge. The words keep a measure that reads (ten characters to a
+   line at the least); a control too wide to leave them that (three or four choices side by side, on a phone) goes
+   onto a line of its own under them instead of pressing them into a column two characters wide. */
 .row {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
-  gap: 16px;
+  gap: 8px 16px;
   min-height: 48px;
   padding: 10px 0;
 }
 .row + .row {
   border-top: 1px solid var(--separator);
 }
+/* The words take the room that is left on their line. Their share of it is set so far above the control's that the
+   control, beside them, stays the width it asks for (it gains a thousandth of a pixel), while on a line of its own
+   it is the only one there to take the room: it spans the row. */
 .row__main {
-  flex: 1;
+  flex: 99999 1 10em;
   min-width: 0;
 }
 .row__title {
@@ -965,10 +1053,50 @@
   color: var(--label-secondary);
 }
 .row__control {
-  flex: none;
+  flex: 1 0 auto;
   display: flex;
   align-items: center;
+  justify-content: flex-end;
   gap: 8px;
+  max-width: 100%;
+  /* A value with no place to break (a long address) wraps inside the row once it is as wide as the row. */
+  overflow-wrap: anywhere;
+}
+/* A row of choices fills the line it has to itself, a switch or a button keeps to the far edge of it. */
+.row__control > .seg {
+  flex: 1;
+  min-width: 0;
+}
+/* A row that is one labelled field with its action beside it (a key and "save", a note and "create"). The action lines
+   up with the input itself: not with the middle of label and input together, and not with a hint or an error under the
+   input, which come and go. The offset is the label's line and the field's gap; the control is as tall as the input and
+   centres its button in that. */
+.row--field {
+  flex-wrap: nowrap;
+  align-items: flex-start;
+}
+.row--field > .row__control {
+  min-height: 34px;
+  margin-top: calc(var(--lh-callout) + 6px);
+}
+/* The narrowest phones (320 px wide: some 230 px inside a card). A field and its action no longer share a line that
+   leaves the input a few characters wide: the field takes the row and the action goes under it. Three or four
+   choices in a row give up half of their padding and take the widths of their words, not equal shares, so that the
+   longest one ("Standard", "跟随系统" with its icon) still fits. */
+@media (max-width: 359px) {
+  .row--field {
+    flex-wrap: wrap;
+  }
+  .row--field > .row__main {
+    flex-basis: 100%;
+  }
+  .row--field > .row__control {
+    margin-top: 0;
+  }
+  .row__control > .seg > .seg__item {
+    flex: 1 1 auto;
+    padding-inline: 6px;
+  }
 }
 
 .dot {
@@ -995,69 +1123,195 @@
   display: none;
 }
 /* Administration and the public privacy document share the existing form and glass tokens. */
+/* ---- Site administration ---- */
+
+/* A page of records to scan: one column of a comfortable width, centred in the main panel. */
 .admin-page {
   min-width: 0;
   height: 100%;
-  padding: 20px;
+  padding: 24px 20px 40px;
 }
-.admin-head,
-.admin-row,
-.admin-search,
-.admin-actions {
+.admin-page > * {
+  max-width: 880px;
+  margin-inline: auto;
+}
+.admin-head {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   justify-content: space-between;
   gap: 12px;
 }
-.admin-head {
-  flex-wrap: wrap;
-}
-.admin-row > div {
-  min-width: 0;
-  max-width: 100%;
-  overflow-wrap: anywhere;
-}
-.admin-tabs,
-.admin-actions,
-.settings-site-links {
+/* The sections: a row of pills that wraps, so every section stays in sight at any width. */
+.admin-tabs {
   display: flex;
   flex-wrap: wrap;
-  gap: 8px;
+  gap: 4px;
+  margin-block: 14px 18px;
 }
-.admin-tabs {
-  margin-block: 16px;
-}
+/* A filter: its field, then its button on the input's own line. The button starts where the input starts (past the
+   label and the field's gap) and is as tall, so the two read as one control whatever comes and goes under the input. */
 .admin-search {
-  align-items: end;
-  margin-block: 16px;
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  margin-bottom: 16px;
 }
 .admin-search .field {
   flex: 1;
   min-width: 0;
 }
+.admin-search > .btn {
+  flex: none;
+  min-height: 34px;
+  margin-top: calc(var(--lh-callout) + 6px);
+}
+/* The audit filters are four fields: as many to a line as fit, and the button on a line of its own under them. */
 .admin-audit-filters {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(min(100%, 200px), 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 180px), 1fr));
+  gap: 12px;
+}
+.admin-audit-filters > .btn {
+  grid-column: 1 / -1;
+  justify-self: end;
+  margin-top: 0;
 }
 .admin-list,
 .admin-form {
   display: grid;
   gap: 12px;
 }
-.admin-row {
-  padding: 16px;
-  flex-wrap: wrap;
+/* The records of a section: one card with its rows parted by hairlines, the grouped list of the settings sheet (not a
+   pile of cards with a shadow each). */
+.admin-rows {
+  padding: 2px 14px;
+  border-radius: var(--radius-card);
+  background: var(--bg-elevated);
+  box-shadow: 0 0 0 1px var(--separator);
 }
-.admin-row p {
-  margin-block: 4px;
-  overflow-wrap: anywhere;
+.admin-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 12px;
+  padding: 12px 0;
+}
+.admin-row + .admin-row,
+.admin-line + .admin-line {
+  border-top: 1px solid var(--separator);
+}
+/* The picture keeps to the first line of a row that runs to three or four. */
+.admin-row > .avatar {
+  align-self: flex-start;
+  margin-top: 2px;
 }
 .admin-row__main {
+  flex: 1 1 200px;
+  display: grid;
+  gap: 2px;
   min-width: 0;
-  flex: 1 1 180px;
+  overflow-wrap: anywhere;
 }
+.admin-row strong {
+  font-size: var(--fs-body);
+  line-height: var(--lh-body);
+  font-weight: 600;
+}
+.admin-row p {
+  color: var(--label-secondary);
+  font-size: var(--fs-subheadline);
+  line-height: var(--lh-subheadline);
+  overflow-wrap: anywhere;
+}
+/* What a person wrote (a note on an invitation, the details of a report) reads as text, not as a caption. */
+.admin-row p.admin-row__text {
+  color: var(--label);
+  font-size: var(--fs-callout);
+  line-height: var(--lh-callout);
+}
+/* States as tags: who is an administrator, banned or unverified shows down a list without reading every line. */
+.admin-row__tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 4px;
+}
+.admin-row__tags .badge {
+  height: 20px;
+  padding: 0 8px;
+  font-size: var(--fs-footnote);
+  line-height: 20px;
+}
+.admin-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px;
+}
+/* The actions keep to the far edge, also when a narrow row puts them on a line of their own. */
+.admin-row > .admin-actions,
+.admin-row > .btn {
+  flex: none;
+  margin-inline-start: auto;
+}
+.admin-line {
+  padding: 10px 0;
+  font-size: var(--fs-callout);
+  line-height: var(--lh-callout);
+  font-variant-numeric: tabular-nums;
+}
+.admin-pager {
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+/* The site settings: some twenty limits, shown under what they are about, two to a line where there is room. */
 .admin-policy {
-  max-width: 600px;
+  gap: 18px;
+}
+.admin-policy__models {
+  margin-top: -8px;
+  padding-inline: 4px;
+  color: var(--label-secondary);
+  font-size: var(--fs-subheadline);
+  line-height: var(--lh-subheadline);
+  overflow-wrap: anywhere;
+}
+/* A fieldset asks for the width of its content unless told otherwise, which would push a narrow page sideways. */
+.admin-fieldset {
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+.admin-fieldset > legend {
+  padding: 0 4px 8px;
+  font-size: var(--fs-subheadline);
+  line-height: var(--lh-subheadline);
+  font-weight: 600;
+  color: var(--label-secondary);
+}
+.admin-fieldset__box {
+  padding: 14px;
+  border-radius: var(--radius-card);
+  background: var(--bg-elevated);
+  box-shadow: 0 0 0 1px var(--separator);
+}
+.admin-fields {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 300px), 1fr));
+  align-items: start;
+  gap: 14px 16px;
+}
+.admin-fieldset__row {
+  margin-top: 14px;
+  padding-bottom: 0;
+  border-top: 1px solid var(--separator);
+}
+.admin-form__actions {
+  display: flex;
+  justify-content: flex-end;
 }
 .admin-context {
   max-height: 55dvh;
@@ -1077,20 +1331,46 @@
   border-inline-start: 3px solid var(--accent-solid);
   padding-inline-start: 12px;
 }
+/* The privacy document: a page to read. A wider card than the sign-in forms, lines kept to a comfortable length. */
+.auth__inner:has(> .privacy-page) {
+  width: min(720px, 100%);
+}
 .privacy-page {
-  width: min(100%, 800px);
-  max-height: calc(100dvh - 100px);
-  padding: 20px;
-  line-height: 1.65;
+  width: 100%;
+  max-height: calc(100dvh - 48px);
+  padding: 32px 36px 28px;
+  border-radius: 28px;
+  font-size: var(--fs-body);
+  line-height: 1.7;
+}
+.privacy-page h1 {
+  margin-bottom: 4px;
 }
 .privacy-page section {
-  margin-block: 20px;
+  max-width: 64ch;
+  margin-block: 22px;
 }
-.privacy-page nav,
-.settings-site-links {
+.privacy-page h2 {
+  margin-bottom: 4px;
+}
+.privacy-page p {
+  text-wrap: pretty;
+}
+.privacy-page p + p,
+.privacy-page p + .banner {
+  margin-top: 8px;
+}
+.privacy-page nav {
   display: flex;
-  gap: 12px;
+  flex-wrap: wrap;
+  gap: 8px 20px;
+  margin-top: 28px;
+  padding-top: 16px;
+  border-top: 1px solid var(--separator);
+  font-size: var(--fs-callout);
 }
-.settings-site-links {
-  margin-block-end: 16px;
+@container win (max-width: 767px) {
+  .privacy-page {
+    padding: 24px 20px 20px;
+  }
 }

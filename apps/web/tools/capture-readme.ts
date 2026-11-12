@@ -337,6 +337,8 @@ try {
   await expect(page.getByText(labels.agent_approval_approved, { exact: true })).toBeVisible()
   assert(approved)
   // The approval is a fixture response; this capture never sends the proposed message to a real service.
+  // The pointer is still where "Approve" was: away with it, or the row's hover tools and time are in the picture.
+  await page.mouse.move(0, 0)
   await capture(page, '04-agent-approved')
   await page.locator(`a[href="/c/${launch.id}"]`).click()
   await page.getByRole('button', { name: labels.toolbar_members, exact: true }).click()
