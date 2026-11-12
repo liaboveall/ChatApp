@@ -93,3 +93,9 @@ git show v2-pre-cleanup-2026-10-20:docs/31-prelaunch-operations-2026-10-13.md
 - 最终本地验证：`bun run check`（702 + 750 项）、生产构建、58 项组件浏览器回归、官方镜像内 CI 模式 146 项视觉回归全部通过；新版 Nginx 配置加载通过。8 份工作流 YAML 可解析、无定时触发，PNG 基线未改动。
 
 以上为仓库和本地测试修复，未部署到生产实例。远端结果以同一修复提交的全部最终作业为准。
+
+## 2026-11-12：CI 不再扫描镜像漏洞
+
+提交 `ced834d` 的 [images](https://github.com/liaboveall/ChatApp/actions/runs/43201268317) 中，两个原生镜像的构建与 smoke 均通过，`trivy` 作业在运维镜像检出 56 条 High：14 个 2026-11-09 发布的 krb5 CVE，各计入 4 个 Debian 13 krb5 库（`1.21.3-5+deb13u1`，经 PostgreSQL 客户端的 libpq 引入）。Debian trixie 当时对这 14 个 CVE 均无修复版本。
+
+维护者决定不处理该结果，并从 `images` 工作流移除 `trivy` 作业。依赖漏洞（OSV Scanner、`bun audit`）和密钥（gitleaks）仍由 `security` 工作流扫描。`scripts/production-scan.ts` 保留，发布流程中的手动镜像扫描（docs/10）不变，在 Debian 修复前同样会报告这批 krb5 记录。

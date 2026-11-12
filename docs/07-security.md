@@ -47,7 +47,7 @@
 | **SEC-17** | Agent必须遵守[06第11节](06-agent.md)的A1–A15，包含持久委托和跨key来源隔离 |
 | **SEC-18** | 启动时校验配置：生产环境缺少密钥、密钥太短或仍是示例值，都拒绝启动；错误响应里不包含堆栈和内部信息 |
 | **SEC-19** | 应用/Nginx/Sentry只记录允许字段和规范化route，不存原始URL/query/path参数/Referer/请求体/Cookie/认证头/正文。网关未知路由只记unknown，不能用默认combined；错误日志也不可带原始请求行。Sentry事件/breadcrumb双层过滤且关闭回放，SDK遥测无输入输出。假哨兵覆盖正常和错误路径（AT-26）。 |
-| **SEC-20** | 依赖和镜像：<br>• 依赖锁定精确版本，用 Renovate 自动提升级 PR<br>• CI 运行 `osv-scanner`（查依赖漏洞）、`trivy`（查镜像漏洞）、`gitleaks`（查泄露的密钥） |
+| **SEC-20** | 依赖和镜像：<br>• 依赖锁定精确版本，用 Renovate 自动提升级 PR<br>• CI 运行 `osv-scanner`（查依赖漏洞）、`gitleaks`（查泄露的密钥）<br>• 镜像漏洞自 2026-11-12 起不在 CI 扫描（见[维护记录](maintenance.md)）；发布时按 [10](10-deployment.md) 用 `scripts/production-scan.ts` 扫描候选镜像 |
 | **SEC-21** | 以下操作都要写入审计日志：<br>• 站点管理员和会话管理员的操作<br>• 站点管理员查看敏感内容：举报上下文、Agent run 详情（包括站点 key 运行的内容）<br>• 审计日志只存 id 和元数据，不存正文 |
 | **SEC-22** | HSTS 由 Nginx 的独立片段 add_header ... always 覆盖每个 HTTPS location 及错误页，不能只放 server 级后被子 location 覆盖。静态 CSP、Referrer/Permissions/COOP 由静态片段设置；API/附件除 HSTS 外的头由应用设置，不重复。 |
 | **SEC-23** | M6 Web Push 即实施 SSRF 防护：HTTPS/443、经真实浏览器订阅验证的服务商域名清单、拒绝用户信息与 IP 字面量、每次解析全部 A/AAAA 并拒绝非公网地址、连接钉住已验证 IP 且保持正确 TLS SNI、不跟随重定向、5 秒超时及出口防火墙。DNS 重绑定、IPv4-mapped IPv6、元数据地址须测试。Sentry 固定服务端目的地/项目 id，envelope 不能指定任意转发地址。将来 fetch_url 也须独立实施防护。**M6 实现（D-203）**：名单是 `fcm.googleapis.com`、`updates.push.services.mozilla.com`、`web.push.apple.com`、`*.notify.windows.com`；传输层自己写 HTTP/1.1（`node:tls`），因为 Bun 的 `node:https` 建在 `fetch` 上、会忽略钉住的地址；登记和每次发送都检查；测试见 `runtime/push-endpoints.test.ts`（端点与地址分类表）、`push-transport.test.ts`（本地 TLS 服务器：钉住的地址、证书名、不跟随重定向、超时、畸形回答、头注入）、`integration/push.test.ts`（AT-11）。 |
