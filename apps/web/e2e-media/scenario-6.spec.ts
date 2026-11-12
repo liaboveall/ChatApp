@@ -128,8 +128,10 @@ test('scenario 6: real images and GIF, file card, mention, lightbox, shared file
   await expect(bubble.locator('.attachment-grid img')).toHaveCount(2)
   for (const image of await bubble.locator('.attachment-grid img').all()) {
     await expect(image).toHaveAttribute('src', /\/thumb$/)
-    const source = await image.getAttribute('src')
-    expect(thumbRequests.has(new URL(source ?? '', page.url()).href)).toBe(true)
+    const source = new URL((await image.getAttribute('src')) ?? '', page.url()).href
+    // A lazy image asks for its file once it is laid out, a moment after the attribute is set: WebKit has been seen to ask
+    // 0.7 s later. Wait for the request instead of looking only once.
+    await expect.poll(() => thumbRequests.has(source)).toBe(true)
     await expect
       .poll(() => image.evaluate((el: HTMLImageElement) => el.naturalWidth))
       .toBeGreaterThan(0)
