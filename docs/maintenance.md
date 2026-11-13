@@ -99,3 +99,14 @@ git show v2-pre-cleanup-2026-10-20:docs/31-prelaunch-operations-2026-10-13.md
 提交 `ced834d` 的 [images](https://github.com/liaboveall/ChatApp/actions/runs/43201268317) 中，两个原生镜像的构建与 smoke 均通过，`trivy` 作业在运维镜像检出 56 条 High：14 个 2026-11-09 发布的 krb5 CVE，各计入 4 个 Debian 13 krb5 库（`1.21.3-5+deb13u1`，经 PostgreSQL 客户端的 libpq 引入）。Debian trixie 当时对这 14 个 CVE 均无修复版本。
 
 维护者决定不处理该结果，并从 `images` 工作流移除 `trivy` 作业。依赖漏洞（OSV Scanner、`bun audit`）和密钥（gitleaks）仍由 `security` 工作流扫描。`scripts/production-scan.ts` 保留，发布流程中的手动镜像扫描（docs/10）不变，在 Debian 修复前同样会报告这批 krb5 记录。
+
+## 2026-11-13：生产网关改为公开访问
+
+收到邀请码的人都无法打开站点。原因是生产 Nginx 仍按封闭部署时的 IP 允许清单拒绝其他来源，请求还没到达应用、看不到注册页，就被直接返回 403。应用容器一直健康，本人在允许清单之外的网络上同样看到 403。维护者决定改为公开访问，注册仍需邀请码和邮箱验证。
+
+- `production.ts edge DIR --public` 生成 `allow all;`。`--public` 只能单独使用，不能与地址混用；IP/CIDR 清单的校验（拒绝 `/0`、拒绝注入）和默认的 `deny all;` 不变。
+- `configtest` 只接受这两种策略，并在结果中给出 `accessPolicy`。单元测试覆盖默认封闭、拒绝宽泛或混用参数、精确的清单输出，以及切换到公开再恢复封闭。
+- 生产已按同样的字节安装 `allow all;`；`chatapp-production` 站点文件只有 access include 的注释一行变化，与仓库保持一致。原文件已备份在服务器 root 目录。以允许清单之外的来源访问，`/`、`/api/readyz` 和 `/privacy` 均返回 200，`/ws` 不带 Upgrade 时返回 426。
+- 本地 `bun run check` 通过：后端 / 脚本 703 项，前端 750 项。改动只涉及部署工具、文档和 Nginx 注释，没有运行浏览器组件回归和 M3 媒体链，由 CI 执行。
+
+旧版部署轮次的 postflight 断言封闭策略，并要求清单外来源返回 403；下一轮部署须先改为按实际策略核验。应用镜像和数据库没有变化。

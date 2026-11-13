@@ -150,7 +150,7 @@ describe('private production preparation', () => {
     )
     expect(() => readRawEnvironment('SMTP_PASS=a\nSMTP_PASS=b\n')).toThrow()
   })
-  test('a new gateway defaults to closed, broad or injected allowlists are refused and recovery materials cannot overwrite source files', async () => {
+  test('a new gateway defaults to closed, broad or injected allowlists are refused, public is one explicit flag and recovery materials cannot overwrite source files', async () => {
     const root = await mkdtemp(join(tmpdir(), 'chatapp-production-'))
     directories.push(root)
     const directory = join(root, 'configuration')
@@ -158,9 +158,20 @@ describe('private production preparation', () => {
     expect(await readFile(join(directory, 'runtime/access.conf'), 'utf8')).toBe('deny all;\n')
     await expect(renderProductionEdge(directory, ['0.0.0.0/0'])).rejects.toThrow()
     await expect(renderProductionEdge(directory, ['127.0.0.1;allow all'])).rejects.toThrow()
+    await expect(renderProductionEdge(directory, ['--public', '127.0.0.1'])).rejects.toThrow()
+    await expect(renderProductionEdge(directory, ['all'])).rejects.toThrow()
     expect(await readFile(join(directory, 'runtime/access.conf'), 'utf8')).toBe('deny all;\n')
     await renderProductionEdge(directory, ['127.0.0.1/32', '::1/128'])
-    expect(await readFile(join(directory, 'runtime/access.conf'), 'utf8')).toContain('deny all;')
+    expect(await readFile(join(directory, 'runtime/access.conf'), 'utf8')).toBe(
+      'allow 127.0.0.1/32;\nallow ::1/128;\ndeny all;\n',
+    )
+    expect(await renderProductionEdge(directory, ['--public'])).toEqual({
+      status: 'public_edge_prepared',
+      allowedNetworks: 'all',
+    })
+    expect(await readFile(join(directory, 'runtime/access.conf'), 'utf8')).toBe('allow all;\n')
+    await renderProductionEdge(directory, [])
+    expect(await readFile(join(directory, 'runtime/access.conf'), 'utf8')).toBe('deny all;\n')
     await expect(exportRecoveryMaterials(directory, join(directory, 'inside'))).rejects.toThrow()
     const bundle = join(root, 'recovery')
     await exportRecoveryMaterials(directory, bundle)

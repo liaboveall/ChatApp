@@ -19,6 +19,11 @@ const SECRET_FILE = /(^|\/)(\.env(?:\..*)?|[^/]+\.env|garage\.toml|.*(?:password
 const digest = (value: string | Uint8Array) => createHash('sha256').update(value).digest('hex')
 const random = () => randomBytes(32).toString('base64url')
 const COMPOSE = 'infra/compose.prod.yml'
+/** `edge DIR --public`: the maintainer's explicit choice to drop the IP allowlist; registration stays invite-only. */
+const PUBLIC_ACCESS_FLAG = '--public'
+const PUBLIC_ACCESS_POLICY = 'allow all;\n'
+const isAllowlistPolicy = (policy: string) =>
+  policy.endsWith('deny all;\n') && !/allow\s+all|\/0\s*;/.test(policy)
 
 export function readRawEnvironment(text: string): Record<string, string> {
   const values: Record<string, string> = {}
@@ -514,8 +519,11 @@ export async function checkProduction(directory: string) {
   await readJournalKeys(join(target, 'runtime/journal-keyring.json'))
   await privateFile(join(target, 'runtime/restic-password'))
   const access = await privateFile(join(target, 'runtime/access.conf'))
-  if (!access.endsWith('deny all;\n') || /allow\s+all|\/0\s*;/.test(access))
-    throw new Error('closed access policy required')
+  const publicAccess = access === PUBLIC_ACCESS_POLICY
+  if (!publicAccess && !isAllowlistPolicy(access))
+    throw new Error(
+      'access policy must be an IP allowlist ending in deny all, or the explicit public policy',
+    )
   // `config` output contains rendered credentials: it is captured, inspected, and never printed or archived.
   const rendered = JSON.parse(
     await capture([
@@ -581,6 +589,7 @@ export async function checkProduction(directory: string) {
   }
   return {
     status: 'configuration-valid',
+    accessPolicy: publicAccess ? 'public' : 'allowlist',
     networkRequests: 0,
     runtimeOwnershipNeedsRootInstallation: process.getuid?.() !== 0,
   }
@@ -593,21 +602,29 @@ export async function renderProductionEdge(directory: string, allowed: string[])
   const origin = new URL(app.APP_ORIGIN ?? '')
   if (!/^[a-z0-9][a-z0-9.-]{0,252}$/.test(origin.hostname))
     throw new Error('safe DNS name required for TLS configuration')
-  const checked = parseTrustedProxies(allowed.join(','))
-  if (
-    checked.invalid.length ||
-    checked.ok.length !== allowed.length ||
-    allowed.some((item) => item.includes('/0') || /[\r\n;]/.test(item))
-  )
-    throw new Error('explicit restricted IP/CIDR allowlist required')
+  // Public is a single explicit flag; it never mixes with addresses, so a typo cannot widen an allowlist.
+  const publicAccess = allowed.length === 1 && allowed[0] === PUBLIC_ACCESS_FLAG
+  if (!publicAccess) {
+    const checked = parseTrustedProxies(allowed.join(','))
+    if (
+      checked.invalid.length ||
+      checked.ok.length !== allowed.length ||
+      allowed.some((item) => item.includes('/0') || /[\r\n;]/.test(item))
+    )
+      throw new Error(
+        `explicit restricted IP/CIDR allowlist or ${PUBLIC_ACCESS_FLAG} alone required`,
+      )
+  }
   const port = Number(compose.CHATAPP_API_PORT)
   if (!Number.isSafeInteger(port) || port < 1 || port > 65535)
     throw new Error('valid private API port required')
   await writeFile(
     join(target, 'runtime/access.conf'),
-    allowed.map((item) => `allow ${item};`).join('\n') +
-      (allowed.length ? '\n' : '') +
-      'deny all;\n',
+    publicAccess
+      ? PUBLIC_ACCESS_POLICY
+      : allowed.map((item) => `allow ${item};`).join('\n') +
+          (allowed.length ? '\n' : '') +
+          'deny all;\n',
     { mode: 0o600 },
   )
   await writeFile(
@@ -620,7 +637,9 @@ export async function renderProductionEdge(directory: string, allowed: string[])
     `server_name ${origin.hostname};\nssl_certificate /etc/letsencrypt/live/${origin.hostname}/fullchain.pem;\nssl_certificate_key /etc/letsencrypt/live/${origin.hostname}/privkey.pem;\n`,
     { mode: 0o600 },
   )
-  return { status: 'closed_edge_prepared', allowedNetworks: allowed.length }
+  return publicAccess
+    ? { status: 'public_edge_prepared', allowedNetworks: 'all' }
+    : { status: 'closed_edge_prepared', allowedNetworks: allowed.length }
 }
 
 export async function installStorageCredentials(directory: string, file: string) {
@@ -804,7 +823,7 @@ async function main() {
   if (command === 'help' || !command)
     return {
       usage:
-        'production.ts prepare DIR HTTPS_ORIGIN | bind DIR PRIVATE_RELEASE_MANIFEST | bind-recovery DIR SAME_SOURCE_NATIVE_MANIFEST | configtest DIR | package EMPTY_DIR [--source-only] | edge DIR [ALLOWED_IP_OR_CIDR...] | storage-install DIR PRIVATE_FILE | materials DIR NEW_SEPARATE_DIR | recovery-prepare NEW_DIR ORIGINAL_MATERIALS HTTPS_ORIGIN',
+        'production.ts prepare DIR HTTPS_ORIGIN | bind DIR PRIVATE_RELEASE_MANIFEST | bind-recovery DIR SAME_SOURCE_NATIVE_MANIFEST | configtest DIR | package EMPTY_DIR [--source-only] | edge DIR [ALLOWED_IP_OR_CIDR...|--public] | storage-install DIR PRIVATE_FILE | materials DIR NEW_SEPARATE_DIR | recovery-prepare NEW_DIR ORIGINAL_MATERIALS HTTPS_ORIGIN',
       note: 'Local preparation only; never deploys or prints credentials.',
     }
   throw new Error('invalid production preparation command')

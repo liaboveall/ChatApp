@@ -31,7 +31,7 @@ docker load --input /opt/chatapp/release/images.tar
 
 在自己的终端编辑 `app.env` 的 SMTP、MAIL_FROM、所选 AI、journal R2 和可选 Sentry 字段；编辑 `backup.env` 的独立备份 R2 字段。生产使用独立私有桶与只对各自单桶授权的凭据，不复用本地测试目标，不在聊天发送密钥。生产桶/随机前缀与历史测试前缀分开，权限只覆盖指定桶；journal 和 backup 使用独立访问凭据。`compose.env` 的回环 API 端口及私有 /24 要避免冲突，改变子网时同步 `TRUSTED_PROXIES` 的网关。不要把 owner、备份或 Garage 管理凭据放进 `app.env`。
 
-工具默认生成 `deny all;` 的访问策略。指定本人/验收人员真实出口 IP 后，用 `production.js edge /opt/chatapp/private <IP或CIDR...>` 生成允许清单；拒绝 `/0` 和配置注入。所有页面、API、WebSocket、附件使用一致的访问策略，实际开放范围按维护者确认的生产配置执行。宿主 Nginx、证书和 DNS 按[部署指南](10-deployment.md)及实际服务器核对；本站点不设 `default_server`。
+工具默认生成 `deny all;` 的访问策略。受限访问时，指定本人/验收人员真实出口 IP，用 `production.js edge /opt/chatapp/private <IP或CIDR...>` 生成允许清单，拒绝 `/0` 和配置注入；对外开放时单独使用 `production.js edge /opt/chatapp/private --public`，生成 `allow all;`，`--public` 不能与地址混用，注册仍需邀请码和邮箱验证。`configtest` 只接受这两种策略。生成后以 root、600 权限安装到 `/etc/nginx/chatapp/access.conf`，`nginx -t` 通过后 reload；`env-http.conf`、`env-server.conf` 会一并重写，应与原文件一致。所有页面、API、WebSocket、附件使用一致的访问策略，实际开放范围按维护者确认的生产配置执行；2026-11-13 起生产为公开访问。宿主 Nginx、证书和 DNS 按[部署指南](10-deployment.md)及实际服务器核对；本站点不设 `default_server`。
 
 在 `/opt/chatapp/source` 使用以下参数运行所有运维命令：
 

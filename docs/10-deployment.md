@@ -32,7 +32,7 @@ bun --no-env-file scripts/production-scan.ts .test-runs/release-candidate/releas
 
 删除 journal 与加密备份分别使用私有桶和只对单桶授权的不同凭据。关闭公开桶入口，生产与测试使用不同桶 / 前缀，不将凭据写进 README、源码、聊天或日志。SMTP、AI、Sentry、证书与 DNS 按实例配置核验。
 
-准备工具默认生成拒绝访问的策略；实际公开或受限范围由经过确认的生产网关配置决定。本站不设 `default_server`，不更改同机其他站点。
+准备工具默认生成拒绝访问的策略；实际公开或受限范围由经过确认的生产网关配置决定，公开须显式使用 `edge --public`（见[运维手册](operations.md)）。本站不设 `default_server`，不更改同机其他站点。
 
 首次部署使用 `db:bootstrap`，不运行开发 `db:seed`。已有生产实例不能重新运行初始卷创建或 `journal:init` 来代替更新。
 
