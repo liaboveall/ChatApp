@@ -90,9 +90,12 @@ test.describe('appearance', () => {
     browser,
   }) => {
     const person = await createVerifiedMember('look')
+    await page.emulateMedia({ colorScheme: 'light' })
     await signIn(page, person.email, person.password)
     await openSettings(page, 'appearance')
     const dialog = page.getByRole('dialog')
+    await expect(dialog.getByRole('radio', { name: '深色' })).toBeChecked()
+    expect(await html(page, 'data-theme')).toBe('dark')
 
     await dialog.getByRole('radio', { name: '深色' }).click()
     await dialog.getByRole('radio', { name: '紫' }).click()
@@ -130,7 +133,7 @@ test.describe('appearance', () => {
     await openSettings(page, 'appearance')
     await expect(page.getByRole('radio', { name: '深色' })).toBeChecked()
     await page.getByRole('button', { name: '恢复默认外观' }).click()
-    expect(await html(page, 'data-theme')).toBeNull()
+    expect(await html(page, 'data-theme')).toBe('dark')
     expect(await html(page, 'data-accent')).toBeNull()
     expect(await html(page, 'data-glass')).toBeNull()
   })
@@ -138,14 +141,17 @@ test.describe('appearance', () => {
   test('following the system, the page switches with the operating system', async ({ page }) => {
     const person = await createVerifiedMember('system')
     await signIn(page, person.email, person.password)
+    await openSettings(page, 'appearance')
+    await page.getByRole('radio', { name: '跟随系统' }).click()
     await page.emulateMedia({ colorScheme: 'dark' })
     const background = () => page.evaluate(() => getComputedStyle(document.body).backgroundColor)
     const dark = await background()
     await page.emulateMedia({ colorScheme: 'light' })
     const light = await background()
     expect(dark).not.toBe(light)
-    expect(dark).toBe('rgb(0, 0, 0)')
-    expect(light).toBe('rgb(242, 242, 247)')
+    // The page is the window's own surface (tokens.ts `bg-content`), which the conversation lies on edge to edge.
+    expect(dark).toBe('rgb(14, 14, 16)')
+    expect(light).toBe('rgb(250, 247, 241)')
   })
 
   test('the interface can be switched to English and back', async ({ page }) => {
@@ -226,26 +232,30 @@ test.describe('sidebar', () => {
     await signIn(page, person.email, person.password)
     const nav = page.getByRole('navigation', { name: '会话' })
     const row = (name: string) => nav.getByRole('link', { name })
-    // What the row looks like: the tinted fill and the bar on its left edge (docs/02 section 3: not colour alone).
+    // What the row looks like: a pane of the accent with its words in the colour written on it (docs/02 section 3: a
+    // filled shape and inverted text, not a hue alone). The tokens give both colours of the default dark theme.
     const drawn = (name: string) =>
       row(name).evaluate((element) => ({
         fill: getComputedStyle(element).backgroundColor,
-        bar: getComputedStyle(element, '::before').content,
+        text: getComputedStyle(element).color,
       }))
     const clear = 'rgba(0, 0, 0, 0)'
+    const pane = { fill: 'rgb(65, 103, 173)', text: 'rgb(255, 255, 255)' }
 
     await row(first).click()
     await expect(row(first)).toHaveAttribute('aria-current', 'page')
-    await expect.poll(async () => (await drawn(first)).fill).not.toBe(clear)
-    expect((await drawn(first)).bar).not.toBe('none')
-    // The other row was never under the pointer: it has neither.
-    expect(await drawn(second)).toEqual({ fill: clear, bar: 'none' })
+    await expect.poll(() => drawn(first)).toEqual(pane)
+    // The other row was never under the pointer: no fill, and the ordinary text colour.
+    const other = await drawn(second)
+    expect(other.fill).toBe(clear)
+    expect(other.text).not.toBe(pane.text)
 
     await row(second).click()
     await expect(row(second)).toHaveAttribute('aria-current', 'page')
     await expect(row(first)).not.toHaveAttribute('aria-current')
-    expect((await drawn(second)).bar).not.toBe('none')
-    expect((await drawn(first)).bar).toBe('none')
+    await expect.poll(() => drawn(second)).toEqual(pane)
+    await page.mouse.move(0, 0)
+    await expect.poll(async () => (await drawn(first)).fill).toBe(clear)
   })
 })
 
@@ -399,19 +409,19 @@ test.describe('layout', () => {
     await page.setViewportSize({ width: 1440, height: 800 })
     await signIn(page, person.email, person.password)
     const splitter = page.getByRole('separator', { name: /调整侧栏宽度/ })
-    await expect(splitter).toHaveAttribute('aria-valuenow', '280')
+    await expect(splitter).toHaveAttribute('aria-valuenow', '304')
     await splitter.focus()
     await page.keyboard.press('ArrowRight')
     await page.keyboard.press('ArrowRight')
-    await expect(splitter).toHaveAttribute('aria-valuenow', '304')
+    await expect(splitter).toHaveAttribute('aria-valuenow', '328')
     await page.keyboard.press('End')
-    await expect(splitter).toHaveAttribute('aria-valuenow', '360')
+    await expect(splitter).toHaveAttribute('aria-valuenow', '400')
     await page.keyboard.press('ArrowRight')
-    await expect(splitter).toHaveAttribute('aria-valuenow', '360') // never past the maximum
+    await expect(splitter).toHaveAttribute('aria-valuenow', '400') // never past the maximum
     await page.reload()
     await expect(page.getByRole('separator', { name: /调整侧栏宽度/ })).toHaveAttribute(
       'aria-valuenow',
-      '360',
+      '400',
     )
   })
 })

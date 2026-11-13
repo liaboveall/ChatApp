@@ -3,7 +3,7 @@ import { type KeyboardEvent, useMemo, useState } from 'react'
 import { usePresenceWatch } from '@/app/presence.ts'
 import { engine } from '@/app/sync.ts'
 import { Button } from '@/components/ui/button.tsx'
-import { EmptyState } from '@/components/ui/feedback.tsx'
+import { EmptyState, Skeleton } from '@/components/ui/feedback.tsx'
 import { Icon } from '@/components/ui/icon.tsx'
 import { useShell } from '@/lib/shell-state.ts'
 import { useSidebarGroups, useUsers } from '@/lib/sync/hooks.ts'
@@ -91,9 +91,19 @@ export function SidebarList({ meId, currentId }: { meId: string; currentId: stri
         </Button>
       </EmptyState>
     ) : (
-      <p className="sidebar__loading" role="status">
-        {m.common_loading()}
-      </p>
+      // The list is on its way: the shape of a few rows, and the words for those who do not see them.
+      <div className="sidebar__loading" role="status">
+        <span className="sr-only">{m.common_loading()}</span>
+        {[72, 56, 64, 48].map((width) => (
+          <div className="s-skeleton" key={width} aria-hidden="true">
+            <Skeleton width={40} height={40} className="s-skeleton__disc" />
+            <span>
+              <Skeleton width={`${width}%`} height={12} />
+              <Skeleton width={`${width + 20}%`} height={10} />
+            </span>
+          </div>
+        ))}
+      </div>
     )
   }
 
@@ -134,6 +144,7 @@ export function SidebarList({ meId, currentId }: { meId: string; currentId: stri
                       previewHidden={item.previewHidden}
                       users={users}
                       meId={meId}
+                      current={item.conversation.id === currentId}
                       tabStop={item.conversation.id === tabStopId}
                       onFocus={() => setRoving(item.conversation.id)}
                       onMenu={setMenu}

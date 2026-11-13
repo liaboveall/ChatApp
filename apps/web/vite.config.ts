@@ -36,9 +36,9 @@ const pwa = (): Plugin[] =>
       // Chromium browsers draw the page into the title bar of the installed window when asked; the rest use `standalone`.
       display_override: ['window-controls-overlay', 'standalone'],
       orientation: 'any',
-      // The app background of the light theme (tokens.ts); the page's `theme-color` follows the theme in use (index.html).
-      background_color: neutral['bg-app'][0],
-      theme_color: neutral['bg-app'][0],
+      // The dark default's launch background; the page's `theme-color` follows the chosen theme (index.html).
+      background_color: neutral['bg-content'][1],
+      theme_color: neutral['bg-content'][1],
       categories: ['social', 'productivity'],
       icons: [
         { src: '/icons/icon-192.png', sizes: '192x192', type: 'image/png', purpose: 'any' },

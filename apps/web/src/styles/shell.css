@@ -1,5 +1,6 @@
-/* App shell (spec 3): wallpaper, floating panels, sidebar, toolbar, inspector.
-   Breakpoints are container queries on .window, the full-viewport root of the app. */
+/* App shell (spec 3). The window is one solid surface and the open conversation lies on it edge to edge; the sidebar, the
+   toolbar's two capsules, the composer and the inspector float above it as glass. Breakpoints are container queries on
+   .window, the full-viewport root of the app. */
 
 .window {
   position: relative;
@@ -8,16 +9,21 @@
   overflow: hidden;
   container: win / inline-size;
   isolation: isolate;
-  background: var(--bg-app);
+  background: var(--bg-content);
   color: var(--label);
-  --toolbar-h: 56px;
-  --sidebar-w: 280px;
+  /* The band at the top of the main area that the floating toolbar takes. */
+  --toolbar-h: 64px;
+  --sidebar-w: 300px;
+  /* How far a floating panel stands from the edge of the window, and from its neighbour. */
+  --gap: 8px;
   --presence-ring: var(--bg-content);
 }
 
 /* ---- Wallpaper: what the sidebar glass has to show ----
-   Every layer stays at or under --wallpaper-tint (tokens.ts wallpaper.maxTint). The contrast check assumes exactly
-   that, so do not raise it without rerunning `bun run design:contrast`. */
+   A wash of the backdrop colour with soft lights of the accent in it, under the sidebar only: it fades out before the
+   conversation begins, so nothing in the main area is ever read against it. Every layer stays at or under
+   --wallpaper-tint (tokens.ts wallpaper.maxTint). The contrast check assumes exactly that, so do not raise it without
+   rerunning `bun run design:contrast`. */
 
 .wallpaper {
   position: absolute;
@@ -26,6 +32,12 @@
   overflow: hidden;
   background: var(--bg-app);
   pointer-events: none;
+}
+.wallpaper--side {
+  right: auto;
+  width: calc(var(--sidebar-w) + var(--gap) * 2);
+  -webkit-mask-image: linear-gradient(to right, #000 calc(100% - 72px), transparent);
+  mask-image: linear-gradient(to right, #000 calc(100% - 72px), transparent);
 }
 .orb {
   position: absolute;
@@ -44,17 +56,17 @@
   }
 }
 .orb--a {
-  width: 560px;
-  height: 560px;
-  left: -200px;
-  top: -190px;
+  width: 460px;
+  height: 460px;
+  left: -190px;
+  top: -200px;
   --orb: color-mix(in srgb, var(--accent) var(--wallpaper-tint), transparent);
 }
 .orb--b {
-  width: 420px;
-  height: 420px;
-  left: 20px;
-  bottom: 14%;
+  width: 380px;
+  height: 380px;
+  left: 60px;
+  top: 34%;
   --orb: color-mix(
     in srgb,
     oklch(from var(--accent) l c calc(h + 70)) var(--wallpaper-tint),
@@ -64,18 +76,22 @@
   animation-direction: alternate-reverse;
 }
 .orb--c {
-  width: 480px;
-  height: 480px;
-  left: -150px;
+  width: 440px;
+  height: 440px;
+  left: -170px;
   bottom: -210px;
+  /* Light theme: a warm light whatever the accent, so the off-white keeps its temperature. Dark: a neighbour of the
+     accent. */
   --orb: color-mix(
     in srgb,
-    oklch(from var(--accent) l c calc(h - 55)) var(--wallpaper-tint),
+    light-dark(var(--wallpaper-warm), oklch(from var(--accent) l c calc(h - 55)))
+      var(--wallpaper-tint),
     transparent
   );
   animation-duration: 55s;
 }
 .orb--d {
+  display: none;
   width: 640px;
   height: 640px;
   right: -240px;
@@ -87,7 +103,20 @@
   );
   animation-duration: 70s;
 }
-/* Auth pages: fewer, larger blobs in the corners around the centred card. */
+/* Sign-in pages: the whole frame is wallpaper, with larger lights in its corners. The one pane on it is the
+   text-bearing kind (never under the opacity floor), so the lights may be stronger than under the sidebar. */
+.wallpaper--auth {
+  --wallpaper-tint: 40%;
+}
+/* `light-dark()` only takes colours, so the dark value is set the way the tokens switch theme. */
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) .wallpaper--auth {
+    --wallpaper-tint: 58%;
+  }
+}
+:root[data-theme="dark"] .wallpaper--auth {
+  --wallpaper-tint: 58%;
+}
 .wallpaper--auth .orb--a {
   left: -160px;
   top: -220px;
@@ -105,6 +134,7 @@
   height: 700px;
 }
 .wallpaper--auth .orb--d {
+  display: block;
   left: auto;
   right: 6%;
   top: -6%;
@@ -113,7 +143,7 @@
 }
 @keyframes drift {
   to {
-    transform: translate3d(36px, 28px, 0);
+    transform: translate3d(28px, 24px, 0);
   }
 }
 
@@ -124,56 +154,57 @@
   inset: 0;
   z-index: 1;
   display: grid;
-  grid-template-columns: var(--sidebar-w) minmax(0, 1fr) auto;
-  gap: 8px;
-  padding: 8px;
+  grid-template-columns: calc(var(--sidebar-w) + var(--gap)) minmax(0, 1fr) auto;
 }
 
+/* The main area has no frame of its own: it is the window. */
 .main {
   position: relative;
   grid-column: 2;
   min-width: 0;
   min-height: 0;
-  border-radius: var(--radius-window);
-  background: var(--bg-content);
   overflow: hidden;
-  box-shadow:
-    0 0 0 1px var(--separator),
-    var(--elev-1);
 }
 
 /* ---- Sidebar ---- */
 
 .sidebar {
   position: relative;
-  /* Above the main panel, so the splitter on its right edge is not covered by the panel it reaches into. */
+  /* Above the main area, so the splitter on its right edge is not covered by what it reaches into. */
   z-index: 5;
   grid-column: 1;
   display: flex;
   flex-direction: column;
   min-width: 0;
   min-height: 0;
+  margin: var(--gap) 0 var(--gap) var(--gap);
   border-radius: var(--radius-window);
   --presence-ring: color-mix(in srgb, var(--glass-base) 82%, transparent);
 }
 .sidebar__top {
   display: flex;
   align-items: center;
-  gap: 6px;
-  padding: 10px 10px 6px;
+  gap: 8px;
+  padding: 12px 12px 8px;
 }
 .sidebar__top .search {
   flex: 1;
   min-width: 0;
 }
+.sidebar__top .icon-btn {
+  width: 36px;
+  height: 36px;
+  color: var(--label);
+}
 .sidebar__scroll {
   flex: 1;
   min-height: 0;
-  padding: 4px 6px 10px;
+  padding: 2px 6px 10px;
+  border-radius: 0 0 4px 4px;
 }
 
 .s-section {
-  margin-top: 6px;
+  margin-top: 8px;
 }
 .s-section:first-child {
   margin-top: 0;
@@ -192,15 +223,15 @@
   align-items: center;
   gap: 4px;
   min-height: 28px;
-  padding-inline: 2px 6px;
-  border-radius: 8px;
+  padding-inline: 4px 8px;
+  border-radius: 999px;
   font-size: var(--fs-footnote);
   line-height: var(--lh-footnote);
   font-weight: 600;
   letter-spacing: 0.03em;
   color: var(--label-secondary);
   text-align: left;
-  transition: color 0.15s;
+  transition: color 0.16s;
 }
 .s-section__toggle:hover {
   color: var(--label);
@@ -214,70 +245,106 @@
   rotate: -90deg;
 }
 
+.s-list {
+  display: grid;
+  gap: 2px;
+}
 .s-item {
   position: relative;
   display: grid;
-  grid-template-columns: 36px minmax(0, 1fr) auto;
+  grid-template-columns: 40px minmax(0, 1fr) auto;
   align-items: center;
-  column-gap: 10px;
+  column-gap: 11px;
   width: 100%;
-  min-height: 54px;
-  padding: 7px 10px 7px 8px;
-  border-radius: 12px;
+  min-height: 60px;
+  padding: 9px 12px 9px 10px;
+  border-radius: 16px;
   text-align: left;
   color: var(--label);
-  transition: background-color 0.15s;
+  transition:
+    background-color 0.16s,
+    scale var(--dur-snappy) var(--spring-snappy);
+}
+/* The rows are links (they navigate), but they are drawn like the rest of the list: no underline, normal text colour. */
+.s-item,
+.s-item:hover {
+  text-decoration: none;
+  color: var(--label);
 }
 .s-item:hover {
   background: color-mix(in srgb, var(--fill) 70%, transparent);
 }
-/* The open conversation: the link the router marks aria-current="page" (the rule used to wait for "true", which nothing
-   writes, so no row was ever marked). */
-.s-item[aria-current="page"] {
-  /* --sel-tint is checked against label and secondary text on every glass level (contrast.ts). */
-  background: color-mix(in srgb, var(--accent-solid) var(--sel-tint), transparent);
+.s-item:active {
+  scale: 0.985;
 }
-/* Not colour alone: the open conversation also gets a bar on the left edge. */
-.s-item[aria-current="page"]::before {
-  content: "";
-  position: absolute;
-  left: 0;
-  top: 15px;
-  bottom: 15px;
-  width: 3px;
-  border-radius: 0 3px 3px 0;
-  background: var(--accent-solid);
+/* The open conversation: the link the router marks aria-current="page". A pane of the accent with the text in the
+   colour that is checked on it (the pair of the bubbles); the fill and its shape say it, not a hue alone. */
+.s-item[aria-current="page"],
+.s-item[aria-current="page"]:hover {
+  background-color: var(--accent-solid);
+  background-image: linear-gradient(
+    to bottom,
+    transparent 30%,
+    color-mix(in srgb, var(--accent-shade) 8%, transparent)
+  );
+  color: var(--on-accent);
+  box-shadow:
+    inset 0 1px 0 var(--btn-sheen),
+    0 6px 16px -8px color-mix(in srgb, var(--accent-solid) 40%, transparent);
+  --presence-ring: var(--accent-solid);
+}
+.s-item[aria-current="page"] :is(.s-item__preview, .s-item__time) {
+  color: var(--on-accent);
+}
+.s-item[aria-current="page"] .badge {
+  background: var(--on-accent);
+  color: var(--accent-solid);
+}
+.s-item[aria-current="page"] .avatar--tile {
+  background: color-mix(in srgb, var(--on-accent) 22%, transparent);
+  color: var(--on-accent);
+  box-shadow: none;
+}
+.s-item[aria-current="page"]:focus-visible {
+  outline-offset: 3px;
 }
 .s-item__body {
   min-width: 0;
   display: grid;
-  gap: 1px;
+  gap: 2px;
 }
 .s-item__title {
   display: flex;
   align-items: center;
   gap: 4px;
   min-width: 0;
-  font-size: var(--fs-headline);
+  font-size: var(--fs-body);
   line-height: var(--lh-headline);
   font-weight: 600;
+  letter-spacing: -0.003em;
 }
 .s-item[data-unread="true"] .s-item__title {
   font-weight: 700;
 }
 .s-item__preview {
-  font-size: var(--fs-subheadline);
-  line-height: var(--lh-subheadline);
+  font-size: var(--fs-callout);
+  line-height: var(--lh-callout);
   color: var(--label-secondary);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+/* A draft waiting in this conversation: the word stands out, what was written follows it. */
+.s-item__draft {
+  margin-right: 5px;
+  color: var(--danger-text);
+  font-weight: 600;
+}
 .s-item__meta {
   display: grid;
   justify-items: end;
   align-content: center;
-  gap: 3px;
+  gap: 4px;
 }
 .s-item__time {
   display: flex;
@@ -298,22 +365,45 @@
   gap: 4px;
 }
 .sidebar[data-compact="true"] .s-item {
-  min-height: 40px;
-  padding-block: 4px;
+  min-height: 42px;
+  padding-block: 5px;
   grid-template-columns: 30px minmax(0, 1fr) auto;
+  border-radius: 13px;
 }
 .sidebar[data-compact="true"] .s-item__preview {
   display: none;
 }
+/* The picture's size is set on the element (it is a prop of the component): the compact list overrides it from here. */
 .sidebar[data-compact="true"] .s-item .avatar {
-  --size: 28px;
+  --size: 30px !important;
+}
+.sidebar__loading {
+  display: grid;
+  gap: 2px;
+  padding-top: 30px;
+}
+.s-skeleton {
+  display: grid;
+  grid-template-columns: 40px minmax(0, 1fr);
+  align-items: center;
+  column-gap: 11px;
+  min-height: 60px;
+  padding: 9px 12px 9px 10px;
+}
+.s-skeleton > span {
+  display: grid;
+  gap: 8px;
+}
+.s-skeleton__disc {
+  border-radius: 999px;
 }
 
 .sidebar__user {
   display: flex;
   align-items: center;
   gap: 2px;
-  padding: 8px;
+  margin: 0 6px;
+  padding: 6px 4px 6px 0;
   border-top: 1px solid var(--separator);
 }
 .sidebar__user-main {
@@ -322,11 +412,11 @@
   display: flex;
   align-items: center;
   gap: 10px;
-  margin-right: 4px;
-  padding: 4px 8px 4px 4px;
-  border-radius: 12px;
+  margin-right: 2px;
+  padding: 5px 10px 5px 5px;
+  border-radius: 999px;
   text-align: left;
-  transition: background-color 0.15s;
+  transition: background-color 0.16s;
 }
 .sidebar__user-main:hover {
   background: color-mix(in srgb, var(--fill) 70%, transparent);
@@ -354,35 +444,44 @@
 /* Draggable divider on the sidebar's right edge (keyboard: arrow keys). It lives inside the sidebar landmark. */
 .splitter {
   position: absolute;
-  top: 0;
-  bottom: 0;
-  left: 100%;
+  top: var(--radius-window);
+  bottom: var(--radius-window);
+  left: calc(100% - 6px);
   z-index: 30;
-  width: 28px;
+  width: 20px;
   cursor: col-resize;
-  border-radius: 4px;
+  border-radius: 6px;
   touch-action: none;
 }
 .splitter::after {
   content: "";
   position: absolute;
-  left: 3px;
+  left: 8.5px;
   top: 50%;
-  width: 2px;
-  height: 36px;
-  margin-top: -18px;
-  border-radius: 2px;
+  width: 3px;
+  height: 40px;
+  margin-top: -20px;
+  border-radius: 3px;
   background: var(--control-border);
   opacity: 0;
-  transition: opacity 0.15s;
+  transition:
+    opacity 0.16s,
+    height var(--dur-snappy) var(--spring-snappy),
+    margin-top var(--dur-snappy) var(--spring-snappy);
 }
 .splitter:hover::after,
 .splitter:focus-visible::after,
 .splitter[data-dragging="true"]::after {
   opacity: 1;
 }
+.splitter[data-dragging="true"]::after {
+  height: 64px;
+  margin-top: -32px;
+}
 
-/* ---- Toolbar ---- */
+/* ---- Toolbar: two capsules that float over the content ----
+   The strip itself is not a surface: what scrolls under it fades into the window (the scroll edge), and only the title
+   and the tools are glass. The title carries words, so it is the frosted kind; the tools are icons, so they are clear. */
 
 .toolbar {
   position: absolute;
@@ -390,22 +489,67 @@
   z-index: 20;
   display: flex;
   align-items: center;
-  gap: 12px;
+  justify-content: space-between;
+  gap: 8px;
   height: var(--toolbar-h);
-  padding: 0 10px 0 16px;
-  background: var(--glass-fill-text);
-  -webkit-backdrop-filter: var(--glass-filter);
-  backdrop-filter: var(--glass-filter);
-  box-shadow: 0 1px 0 var(--separator);
+  padding: 2px 12px 0;
+  pointer-events: none;
+}
+.toolbar > * {
+  pointer-events: auto;
+}
+.toolbar::before {
+  content: "";
+  position: absolute;
+  inset: 0 0 -20px;
+  z-index: -1;
+  background: linear-gradient(
+    to bottom,
+    var(--bg-content) 8%,
+    color-mix(in srgb, var(--bg-content) 82%, transparent) 46%,
+    color-mix(in srgb, var(--bg-content) 40%, transparent) 76%,
+    transparent
+  );
+  pointer-events: none;
 }
 .toolbar__who {
   display: flex;
   align-items: center;
   gap: 10px;
   min-width: 0;
-  flex: 1;
-  border-radius: var(--radius-control);
+  min-height: 46px;
+  max-width: min(100%, 460px);
+  padding: 5px 16px 5px 6px;
+  border-radius: 999px;
+  color: var(--label);
   text-align: left;
+  box-shadow: var(--glass-ring), var(--glass-drop-sm);
+  --presence-ring: var(--glass-base);
+}
+button.toolbar__who {
+  padding-right: 10px;
+  transition:
+    background-color 0.16s,
+    scale var(--dur-snappy) var(--spring-snappy);
+}
+button.toolbar__who:hover {
+  background: color-mix(in srgb, var(--glass-fill-text), var(--fill));
+}
+button.toolbar__who:active {
+  scale: 0.97;
+}
+button.toolbar__who[aria-pressed="true"] .toolbar__chevron {
+  rotate: 90deg;
+  color: var(--accent-text);
+}
+.toolbar__chevron {
+  flex: none;
+  color: var(--label-secondary);
+  transition: rotate var(--dur-snappy) var(--spring-snappy);
+}
+.toolbar__text {
+  display: grid;
+  min-width: 0;
 }
 .toolbar__title {
   display: flex;
@@ -415,7 +559,7 @@
   font-size: var(--fs-title-3);
   line-height: var(--lh-title-3);
   font-weight: 600;
-  letter-spacing: -0.005em;
+  letter-spacing: -0.008em;
 }
 .toolbar__sub {
   font-size: var(--fs-subheadline);
@@ -427,11 +571,26 @@
 }
 .toolbar__actions {
   display: flex;
+  flex: none;
   align-items: center;
   gap: 2px;
+  margin-left: auto;
+  padding: 5px;
+  border-radius: 999px;
+}
+.toolbar__actions .icon-btn {
+  width: 36px;
+  height: 36px;
+  color: var(--label);
+}
+.toolbar__actions .icon-btn:is([aria-pressed="true"], [aria-expanded="true"], [data-popup-open]) {
+  background: color-mix(in srgb, var(--accent-solid) 16%, transparent);
+  color: var(--accent-text);
 }
 .toolbar__menu-btn {
   display: none;
+  width: 46px;
+  height: 46px;
 }
 
 /* ---- Content slot under the toolbar ---- */
@@ -443,27 +602,24 @@
   overflow: auto;
 }
 
-/* ---- Inspector ---- */
+/* ---- Inspector: a pane of glass at the far edge ---- */
 
 .inspector {
   position: relative;
   grid-column: 3;
   display: flex;
   flex-direction: column;
-  width: 320px;
+  width: 340px;
   min-height: 0;
+  margin: var(--gap) var(--gap) var(--gap) 0;
   border-radius: var(--radius-window);
-  background: var(--bg-content);
   overflow: hidden;
-  box-shadow:
-    0 0 0 1px var(--separator),
-    var(--elev-1);
+  --presence-ring: var(--glass-base);
 }
 .inspector__head {
   display: grid;
   gap: 10px;
-  padding: 12px 12px 10px;
-  border-bottom: 1px solid var(--separator);
+  padding: 12px 12px 8px;
 }
 .inspector__head-row {
   display: flex;
@@ -482,14 +638,11 @@
   flex: 1;
   min-height: 0;
   min-width: 0;
-  padding: 14px 14px 16px;
+  padding: 8px 16px 18px;
 }
 
 .app:not([data-inspector="open"]) .inspector {
   display: none;
-}
-.app:not([data-inspector="open"]) {
-  grid-template-columns: var(--sidebar-w) minmax(0, 1fr);
 }
 
 /* ---- Width tiers ----
@@ -510,33 +663,25 @@
     right: 0;
     bottom: 0;
     z-index: 40;
-    width: min(340px, 100%);
-    background: var(--glass-fill-text);
-    -webkit-backdrop-filter: var(--glass-filter);
-    backdrop-filter: var(--glass-filter);
-    box-shadow:
-      0 0 0 1px var(--glass-edge),
-      inset 0 1px 0 var(--glass-highlight),
-      0 18px 50px var(--glass-shadow-color);
+    width: min(340px, calc(100% - var(--gap) * 2));
+    box-shadow: var(--glass-ring), var(--glass-drop-lg);
     animation: inspector-in var(--dur-smooth) var(--spring-smooth) both;
-  }
-  .app[data-inspector="open"] {
-    grid-template-columns: var(--sidebar-w) minmax(0, 1fr);
   }
 }
 @keyframes inspector-in {
   from {
     opacity: 0;
-    transform: translateX(24px);
+    transform: translateX(28px) scale(0.98);
   }
 }
 
 /* Rail: 768-1023. Only avatars and unread dots, the full list opens as a drawer from the toolbar. */
 @container win (min-width: 768px) and (max-width: 1023px) {
+  /* The width the person dragged to is for the full sidebar; the rail has its own. (A container cannot restyle itself,
+     so the value is set on what reads it.) */
   .app,
-  .app[data-inspector="open"],
-  .app:not([data-inspector="open"]) {
-    grid-template-columns: 68px minmax(0, 1fr);
+  .wallpaper--side {
+    --sidebar-w: 68px;
   }
   .splitter,
   .app:not([data-drawer="open"]) .sidebar .search kbd,
@@ -551,27 +696,37 @@
   .app:not([data-drawer="open"]) .sidebar .sidebar__empty-text {
     display: none;
   }
-  .app:not([data-drawer="open"]) .sidebar .search {
+  .app:not([data-drawer="open"]) .sidebar__top {
     justify-content: center;
+    padding-inline: 0;
+  }
+  .app:not([data-drawer="open"]) .sidebar .search {
+    flex: none;
+    justify-content: center;
+    width: 44px;
+    min-height: 44px;
     padding: 0;
-    min-height: 36px;
   }
   .app:not([data-drawer="open"]) .sidebar .s-item {
     grid-template-columns: 1fr;
     justify-items: center;
     padding: 6px 0;
-    min-height: 48px;
+    min-height: 52px;
   }
   .app:not([data-drawer="open"]) .sidebar .s-item[data-unread="true"]::after {
     content: "";
     position: absolute;
-    top: 6px;
-    right: 8px;
+    top: 5px;
+    right: 6px;
     width: 10px;
     height: 10px;
     border-radius: 999px;
     background: var(--accent-solid);
     box-shadow: 0 0 0 2px var(--glass-base);
+  }
+  .app:not([data-drawer="open"]) .sidebar .s-item[aria-current="page"][data-unread="true"]::after {
+    background: var(--on-accent);
+    box-shadow: 0 0 0 2px var(--accent-solid);
   }
   /* A section's heading has no room for its name here, and a chevron on its own reads as a stray glyph: the toggle is
      drawn as a short rule between the groups of avatars. The chevron comes back when the pointer or the keyboard is
@@ -614,35 +769,40 @@
     flex-direction: column;
     justify-content: center;
     gap: 4px;
-    padding: 10px 0;
+    margin: 0 4px;
+    padding: 8px 0;
+  }
+  .app:not([data-drawer="open"]) .sidebar__user-main {
+    flex: none;
+    margin: 0;
+    padding: 4px;
   }
 }
 
 /* Drawer: under 768 there is one column and the full sidebar slides over it. */
 @container win (max-width: 767px) {
-  .toolbar__menu-btn {
-    display: inline-grid;
+  .app {
+    --toolbar-h: 62px;
+  }
+  .wallpaper--side {
+    display: none;
   }
   .app,
   .app[data-inspector="open"],
   .app:not([data-inspector="open"]) {
     grid-template-columns: minmax(0, 1fr);
-    gap: 0;
-    padding: 0;
   }
   .main {
     grid-column: 1;
-    border-radius: 0;
-    box-shadow: none;
   }
   .sidebar {
     position: absolute;
-    left: 8px;
-    top: 8px;
-    bottom: 8px;
+    left: 0;
+    top: 0;
+    bottom: 0;
     z-index: 70;
-    width: min(320px, calc(100% - 16px));
-    transform: translateX(calc(-100% - 16px));
+    width: min(340px, calc(100% - var(--gap) * 2));
+    transform: translateX(calc(-100% - 24px));
     visibility: hidden;
     transition:
       transform var(--dur-smooth) var(--spring-smooth),
@@ -656,22 +816,30 @@
   /* Here the sidebar is only ever a drawer over the conversation: the text-bearing fill, also while it slides away. */
   .sidebar.glass {
     background: var(--glass-fill-text);
+    box-shadow: var(--glass-ring), var(--glass-drop-lg);
     --presence-ring: var(--glass-base);
   }
   .splitter {
     display: none;
   }
   .toolbar {
-    padding: 0 8px;
+    padding-inline: 8px;
     gap: 6px;
+  }
+  .toolbar__who {
+    min-height: 44px;
+    padding-right: 12px;
+  }
+  .toolbar__menu-btn {
+    width: 44px;
+    height: 44px;
   }
   .toolbar__sub {
     display: none;
   }
   .inspector {
     inset: 0;
-    width: 100%;
-    border-radius: 0;
+    width: auto;
   }
 }
 
@@ -680,6 +848,9 @@
   display: none;
 }
 @container win (max-width: 1023px) {
+  .toolbar__menu-btn {
+    display: inline-grid;
+  }
   .app[data-drawer="open"] > .drawer-scrim {
     display: block;
     position: absolute;
@@ -687,6 +858,24 @@
     z-index: 60;
     background: var(--scrim);
     animation: fade-in var(--dur-fade) ease both;
+  }
+  .app[data-drawer="open"] .sidebar {
+    position: absolute;
+    left: 0;
+    top: 0;
+    bottom: 0;
+    z-index: 70;
+    width: min(340px, calc(100% - var(--gap) * 2));
+    transform: none;
+    visibility: visible;
+  }
+  /* As a drawer the sidebar no longer sits on the wallpaper but over the conversation, whose bubbles would show
+     through as coloured bands behind the names. It takes the text-bearing fill (never under the opacity floor, never
+     tinted), like every other layer that floats over content (spec 2). */
+  .app[data-drawer="open"] .sidebar.glass {
+    background: var(--glass-fill-text);
+    box-shadow: var(--glass-ring), var(--glass-drop-lg);
+    --presence-ring: var(--glass-base);
   }
 }
 
@@ -703,54 +892,55 @@
 }
 .notice-bell__count {
   position: absolute;
-  top: -4px;
-  right: -6px;
+  top: -3px;
+  right: -5px;
   min-width: 18px;
   height: 18px;
   padding: 0 5px;
   font-size: 10px;
   line-height: 18px;
   pointer-events: none;
+  box-shadow: 0 0 0 2px var(--presence-ring);
 }
 .panel {
   z-index: 1200;
   color: var(--label);
-  border-radius: 14px;
+  border-radius: var(--radius-window);
   transform-origin: var(--transform-origin, bottom left);
   transition:
-    opacity var(--dur-snappy) ease,
+    opacity 0.14s ease-out,
     transform var(--dur-snappy) var(--spring-snappy);
 }
 .panel[data-starting-style],
 .panel[data-ending-style] {
   opacity: 0;
-  transform: scale(0.96);
+  transform: scale(0.92);
 }
 .notices {
-  width: min(380px, calc(100vw - 24px));
+  width: min(388px, calc(100vw - 24px));
   padding: 0;
+  overflow: hidden;
 }
 .notices__panel {
   display: flex;
   flex-direction: column;
-  max-height: min(520px, 70vh);
+  max-height: min(540px, 70vh);
 }
 .notices__head {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 8px;
-  padding: 12px 12px 8px 16px;
-  border-bottom: 1px solid var(--separator);
+  padding: 14px 12px 8px 18px;
 }
 .notices__title {
-  font-size: var(--fs-headline);
-  line-height: var(--lh-headline);
-  font-weight: 600;
+  font-size: var(--fs-title-3);
+  line-height: var(--lh-title-3);
+  font-weight: 650;
 }
 .notices__body {
   overflow-y: auto;
-  padding: 6px;
+  padding: 2px 6px 6px;
 }
 .notices__list {
   display: flex;
@@ -760,13 +950,14 @@
 .notice {
   position: relative;
   display: grid;
-  grid-template-columns: 28px minmax(0, 1fr) auto;
+  grid-template-columns: 32px minmax(0, 1fr) auto;
   align-items: start;
   gap: 4px 10px;
   width: 100%;
-  padding: 8px 18px 8px 8px;
-  border-radius: 10px;
+  padding: 9px 20px 9px 9px;
+  border-radius: 14px;
   text-align: left;
+  transition: background-color 0.16s;
 }
 .notice:hover {
   background: var(--fill-hover);
@@ -774,8 +965,8 @@
 .notice__glyph {
   display: grid;
   place-items: center;
-  width: 28px;
-  height: 28px;
+  width: 32px;
+  height: 32px;
   border-radius: 999px;
   background: var(--fill);
   color: var(--label-secondary);
@@ -817,8 +1008,8 @@
 }
 .notice__dot {
   position: absolute;
-  top: 14px;
-  right: 6px;
+  top: 16px;
+  right: 7px;
   width: 8px;
   height: 8px;
   border-radius: 999px;
@@ -829,7 +1020,7 @@
   display: flex;
   flex-direction: column;
   gap: 10px;
-  padding: 18px 14px;
+  padding: 22px 16px;
 }
 .notices__empty {
   align-items: center;
@@ -889,7 +1080,7 @@
     text-overflow: ellipsis;
   }
   .window .app {
-    padding-top: max(8px, var(--titlebar-h));
+    padding-top: var(--titlebar-h);
   }
   .window .auth {
     padding-top: max(24px, var(--titlebar-h));
@@ -904,43 +1095,4 @@
     -webkit-app-region: no-drag;
     app-region: no-drag;
   }
-  @container win (max-width: 767px) {
-    .window .app {
-      padding-top: var(--titlebar-h);
-    }
-    .window .sidebar {
-      top: calc(8px + var(--titlebar-h));
-    }
-  }
-}
-
-@container win (max-width: 1023px) {
-  .toolbar__menu-btn {
-    display: inline-grid;
-  }
-  .app[data-drawer="open"] .sidebar {
-    position: absolute;
-    left: 8px;
-    top: 8px;
-    bottom: 8px;
-    z-index: 70;
-    width: min(320px, calc(100% - 16px));
-    transform: none;
-    visibility: visible;
-  }
-  /* As a drawer the sidebar no longer sits on the wallpaper but over the conversation, whose bubbles would show
-     through as coloured bands behind the names. It takes the text-bearing fill (never under the opacity floor, never
-     tinted), like every other layer that floats over content (spec 2). */
-  .app[data-drawer="open"] .sidebar.glass {
-    background: var(--glass-fill-text);
-    --presence-ring: var(--glass-base);
-  }
-}
-.palette__search-status {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px;
-  padding: 8px 16px;
-  border-top: 1px solid var(--separator);
 }

@@ -212,12 +212,18 @@ test('M4 trial fixes: English controls fit the inspector and the disclosure has 
     await expect
       .poll(() => panel.evaluate((element) => element.scrollWidth - element.clientWidth))
       .toBeLessThanOrEqual(1)
-    const limits = await page.locator('.convo').evaluate((element) => {
-      const timeline = element.querySelector('.timeline')?.getBoundingClientRect()
-      const dock = element.querySelector('.composer-dock')?.getBoundingClientRect()
-      return { bottom: timeline?.bottom ?? Infinity, top: dock?.top ?? -Infinity }
-    })
-    expect(limits.bottom).toBeLessThanOrEqual(limits.top)
+    // The composer floats over the foot of the list: what must stay clear of it is the newest message, which ends above
+    // the dock at every width (the dock's height is measured into the list's last spacer).
+    await expect
+      .poll(() =>
+        page.locator('.convo').evaluate((element) => {
+          const rows = element.querySelectorAll('.timeline article')
+          const last = rows[rows.length - 1]?.getBoundingClientRect()
+          const dock = element.querySelector('.composer-dock')?.getBoundingClientRect()
+          return (last?.bottom ?? Infinity) - (dock?.top ?? -Infinity)
+        }),
+      )
+      .toBeLessThanOrEqual(0)
   }
   await panel.getByRole('button', { name: 'Draft reply', exact: true }).click()
   await expect(panel.getByRole('button', { name: 'Insert into composer' })).toBeVisible()

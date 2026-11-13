@@ -36,6 +36,7 @@ import { deleteAsModerator, hideMessage } from '../message-actions/actions.ts'
 import { actionsFor } from '../message-actions/eligibility.ts'
 import { type MenuTarget, MessageMenu } from '../message-actions/message-menu.tsx'
 import { useMessageCommands } from '../message-actions/use-message-commands.ts'
+import { ProfileCard, type ProfileTarget } from '../profile/profile-card.tsx'
 import { ReportDialog } from '../reports/report-dialog.tsx'
 import { MessageAnnouncer } from './announcer.tsx'
 import { buildItems, type TimelineItem } from './items.ts'
@@ -48,7 +49,7 @@ const AT_BOTTOM_PX = 8
 /** How far from an end the list starts loading the next page. */
 const LOAD_NEAR_PX = 600
 /** The toolbar and a little air: a row shown "at the top" is placed this far down so it is not under the glass. */
-const TOP_CLEARANCE_PX = 72
+const TOP_CLEARANCE_PX = 80
 
 /** Room kept free under the composer when a row is brought into view (the composer floats over the list). */
 const COMPOSER_CLEARANCE_PX = 24
@@ -99,6 +100,7 @@ export function Timeline({ conversation, window: win, users, meId, handleRef }: 
   const [focusedId, setFocusedId] = useState<string | null>(null)
   const [flashId, setFlashId] = useState<string | null>(null)
   const [menu, setMenu] = useState<MenuTarget | null>(null)
+  const [profile, setProfile] = useState<ProfileTarget | null>(null)
   const [report, setReport] = useState<import('@chatapp/contracts').Message | null>(null)
   const commands = useMessageCommands(id)
   const { data: account } = useQuery(meQuery)
@@ -222,6 +224,8 @@ export function Timeline({ conversation, window: win, users, meId, handleRef }: 
       !latest.current.win.hasMoreAfter &&
       offset + list.viewportSize >= list.scrollSize - AT_BOTTOM_PX
     stick.current = bottom
+    // A person's card is anchored to a picture in the list: once the list moves, it would point at nothing.
+    setProfile((open) => (open === null ? open : null))
     setAtBottom((was) => {
       if (was && !bottom) setLeftAt(latest.current.newest?.seq ?? 0)
       return bottom
@@ -507,6 +511,7 @@ export function Timeline({ conversation, window: win, users, meId, handleRef }: 
       setMenu({ message, actions, anchor })
     },
     onReply: commands.reply,
+    onProfile: (user, anchor) => setProfile({ user, anchor }),
   }
 
   // The current row (the one with the tab stop, and the one a jump is heading for) and the row that has the focus: the focus
@@ -621,6 +626,7 @@ export function Timeline({ conversation, window: win, users, meId, handleRef }: 
         onAdminDelete={commands.askDelete}
         onReport={setReport}
       />
+      <ProfileCard target={profile} meId={meId} onClose={() => setProfile(null)} />
       {report ? <ReportDialog message={report} onClose={() => setReport(null)} /> : null}
       <ConfirmDialog
         open={commands.confirm?.kind === 'hide'}

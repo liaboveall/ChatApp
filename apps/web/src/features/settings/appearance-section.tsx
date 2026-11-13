@@ -41,7 +41,7 @@ export function useIsDark(): boolean {
 function Preview() {
   return (
     <div className="preview" aria-hidden="true">
-      <Wallpaper />
+      <Wallpaper variant="full" />
       <div className="preview__side glass squircle">
         <b>{m.settings_preview_title()}</b>
         <span className="text-label-secondary">{m.settings_preview_line()}</span>
@@ -63,6 +63,7 @@ const ACCENT_NAMES: Record<AccentKey, () => string> = {
   orange: () => m.accent_orange(),
   yellow: () => m.accent_yellow(),
   green: () => m.accent_green(),
+  teal: () => m.accent_teal(),
   graphite: () => m.accent_graphite(),
 }
 

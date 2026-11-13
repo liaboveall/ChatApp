@@ -41,6 +41,7 @@ function Row({
       previewHidden={false}
       users={users}
       meId={ME}
+      current={false}
       tabStop={false}
       onFocus={noop}
       onMenu={noop}

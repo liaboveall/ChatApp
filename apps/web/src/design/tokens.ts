@@ -10,26 +10,35 @@
 
 export type Pair = readonly [light: string, dark: string]
 
+/**
+ * The light theme is a warm one (2026-11-13): the window is the off-white of unbleached paper, not pure white, and every
+ * neutral beside it (bubbles, fills, hairlines, the grays of text) leans the same warm way, so nothing reads as a cold
+ * gray patch on it. Each value keeps the luminance of the cool gray it replaced, or is darker: the contrast margins are
+ * the ones that were checked before.
+ */
 export const neutral = {
-  'bg-app': ['#F2F2F7', '#000000'],
-  'bg-content': ['#FFFFFF', '#1C1C1E'],
-  'bg-elevated': ['#FFFFFF', '#2C2C2E'],
-  'bubble-in': ['#E9E9EB', '#3A3A3C'],
-  label: ['rgb(0 0 0 / 0.88)', 'rgb(255 255 255 / 0.92)'],
-  'label-secondary': ['#575762', '#B6B6C2'],
-  'label-tertiary': ['#62626C', '#A9A9B5'],
-  'label-disabled': ['rgb(60 60 67 / 0.30)', 'rgb(235 235 245 / 0.30)'],
-  separator: ['rgb(60 60 67 / 0.18)', 'rgb(84 84 88 / 0.60)'],
-  fill: ['rgb(120 120 128 / 0.12)', 'rgb(120 120 128 / 0.24)'],
-  'fill-hover': ['rgb(120 120 128 / 0.18)', 'rgb(120 120 128 / 0.32)'],
-  'fill-pressed': ['rgb(120 120 128 / 0.26)', 'rgb(120 120 128 / 0.42)'],
+  // The backdrop under the floating glass (the wallpaper's base).
+  'bg-app': ['#F3EFE7', '#000000'],
+  // The window itself: the conversation lies directly on it, edge to edge, and every glass layer floats above it. In the
+  // dark theme it is deeper than the glass, so a floating layer reads as lifted, never as a hole.
+  'bg-content': ['#FAF7F1', '#0E0E10'],
+  'bg-elevated': ['#FFFDF9', '#1C1C1F'],
+  'bubble-in': ['#EEE9DF', '#28282C'],
+  label: ['rgb(28 22 12 / 0.9)', 'rgb(255 255 255 / 0.92)'],
+  'label-secondary': ['#5B564D', '#B6B6C2'],
+  'label-tertiary': ['#66615A', '#A9A9B5'],
+  'label-disabled': ['rgb(72 62 46 / 0.30)', 'rgb(235 235 245 / 0.30)'],
+  separator: ['rgb(72 62 46 / 0.16)', 'rgb(84 84 88 / 0.60)'],
+  fill: ['rgb(128 114 92 / 0.12)', 'rgb(120 120 128 / 0.24)'],
+  'fill-hover': ['rgb(128 114 92 / 0.18)', 'rgb(120 120 128 / 0.32)'],
+  'fill-pressed': ['rgb(128 114 92 / 0.26)', 'rgb(120 120 128 / 0.42)'],
   // 1px outlines of inputs, checkboxes and switch tracks. At least 3:1 on every surface and on `fill`.
-  'control-border': ['#828288', '#8C8C92'],
-  // Tooltip and toast, switch/segmented thumb, modal scrim.
-  'toast-bg': ['#2C2C2E', '#E5E5EA'],
-  'toast-fg': ['#FFFFFF', '#1C1C1E'],
-  'seg-thumb': ['#FFFFFF', '#636366'],
-  scrim: ['rgb(0 0 0 / 0.30)', 'rgb(0 0 0 / 0.50)'],
+  'control-border': ['#878178', '#8C8C92'],
+  // Tooltip and toast (a dark heads-up plate in both themes), switch/segmented thumb, modal scrim.
+  'toast-bg': ['#2C2C2E', '#3A3A3E'],
+  'toast-fg': ['#FFFFFF', '#FFFFFF'],
+  'seg-thumb': ['#FFFDF9', '#5C5C62'],
+  scrim: ['rgb(0 0 0 / 0.28)', 'rgb(0 0 0 / 0.56)'],
 } as const satisfies Record<string, Pair>
 
 /**
@@ -37,8 +46,8 @@ export const neutral = {
  * `bg`. Inside bubbles the block keeps its own background.
  */
 export const code = {
-  bg: ['#F4F4F8', '#141416'],
-  fg: ['#24242B', '#E6E6EE'],
+  bg: ['#F5F1E9', '#141416'],
+  fg: ['#27241F', '#E6E6EE'],
   keyword: ['#8A1FA3', '#D8A4FF'],
   string: ['#0A6B3A', '#7BE3A0'],
   comment: ['#686873', '#9A9AA8'],
@@ -52,66 +61,85 @@ export type AccentEntry = {
   name: string
   /** The vivid colour for gradients, glows and tints, never for text. */
   deco: Pair
-  /** Readable pair for bubbles, filled buttons and badges (with `ACCENT_ON`). */
+  /** Fill of bubbles, filled buttons and badges: deep enough for `ACCENT_ON` (white) at 4.5:1 in both themes. */
   solid: Pair
   /** Accent-coloured text, links, icons and focus rings: at least 4.7:1 on every surface. */
   text: Pair
 }
 
+/**
+ * The accents are one family of pigments, not of signal colours (2026-11-13). Every hue is made by the same rule in
+ * OKLCH, so they differ in hue and not in loudness: the fill sits near a lightness of 0.5 (deep enough for white
+ * text) at a chroma of roughly half of what sRGB can show for that hue, the decorative colour is one step lighter and
+ * a quarter more chromatic, the text colour is the fill darkened in the light theme and a pale tint in the dark one.
+ * At full chroma a bubble or the open conversation's row was the loudest thing on the screen in both themes, and on
+ * the warm off-white it also clashed in temperature. Hues with a narrow gamut (teal, yellow, green) are close to their
+ * limit and still quiet; the wide ones (blue, purple, pink, red) are held back to match them.
+ */
 export const accents = {
+  // The default (the maintainer's choice among the nine, 2026-11-13): an ink blue, not a signal blue.
   blue: {
     name: '蓝',
-    deco: ['#007AFF', '#0A84FF'],
-    solid: ['#0066CC', '#0A84FF'],
-    text: ['#0056AE', '#8BBDFE'],
+    deco: ['#4C7DD9', '#5E8FED'],
+    solid: ['#3C61A7', '#4167AD'],
+    text: ['#2C4F94', '#9EBEF8'],
   },
   purple: {
     name: '紫',
-    deco: ['#9B4FD8', '#B278F0'],
-    solid: ['#7030A0', '#BF8AFF'],
-    text: ['#7030A0', '#D4B6FE'],
+    deco: ['#836DCE', '#9580E2'],
+    solid: ['#604F98', '#6B5BA5'],
+    text: ['#503E86', '#BEB4F1'],
   },
   pink: {
     name: '粉',
-    deco: ['#E83E8C', '#FF6FB0'],
-    solid: ['#B0246B', '#FF7ABB'],
-    text: ['#A41461', '#FFAACF'],
+    deco: ['#C2567D', '#D7688F'],
+    solid: ['#964360', '#A04C69'],
+    text: ['#833250', '#EDA7BB'],
   },
   red: {
     name: '红',
-    deco: ['#F0443A', '#FF6259'],
-    solid: ['#B42318', '#FF7369'],
-    text: ['#AB170D', '#FFABA1'],
+    deco: ['#D24E45', '#E76157'],
+    solid: ['#9F3A34', '#A9443C'],
+    text: ['#8B2823', '#F8A49A'],
   },
   orange: {
     name: '橙',
-    deco: ['#F59A23', '#FFA64D'],
-    solid: ['#9C4800', '#FFA352'],
-    text: ['#8E4203', '#FEBA82'],
+    deco: ['#BF6427', '#D4763C'],
+    solid: ['#944E21', '#9D562B'],
+    text: ['#813C0B', '#EAAF8E'],
   },
   yellow: {
     name: '黄',
-    deco: ['#F2C500', '#FFD740'],
-    solid: ['#725700', '#FFD65A'],
-    text: ['#6E5404', '#FFD65A'],
+    deco: ['#A17911', '#B48B2D'],
+    solid: ['#775809', '#806118'],
+    text: ['#634804', '#D4BA89'],
   },
   green: {
     name: '绿',
-    deco: ['#2FBF5B', '#4CD97B'],
-    solid: ['#19703D', '#59D889'],
-    text: ['#066634', '#63E192'],
+    deco: ['#3C9467', '#50A678'],
+    solid: ['#266A47', '#307250'],
+    text: ['#115837', '#9ACBAE'],
+  },
+  // The blue-green of mineral pigment on warm silk. A hue nothing else in the interface claims (blue is information,
+  // green is success and presence, red danger, orange warning, purple the assistant).
+  teal: {
+    name: '青',
+    deco: ['#19919C', '#36A3AE'],
+    solid: ['#106A72', '#1A7078'],
+    text: ['#05585F', '#91C9D0'],
   },
   graphite: {
     name: '石墨',
     deco: ['#8A8A94', '#9A9AA4'],
-    solid: ['#50505A', '#A8A8B3'],
+    solid: ['#50505A', '#6C6C78'],
     text: ['#50505A', '#C4C4D0'],
   },
 } as const satisfies Record<string, AccentEntry>
 
 export type AccentKey = keyof typeof accents
 export const ACCENT_KEYS = Object.keys(accents) as [AccentKey, ...AccentKey[]]
-export const ACCENT_ON: Pair = ['#FFFFFF', '#000000']
+/** What is written on an accent or status fill: white in both themes, so the fills are deep enough to carry it. */
+export const ACCENT_ON: Pair = ['#FFFFFF', '#FFFFFF']
 export const DEFAULT_ACCENT: AccentKey = 'blue'
 
 export type StatusEntry = {
@@ -129,25 +157,26 @@ export const status = {
     name: '危险',
     deco: ['#FF3B30', '#FF453A'],
     text: ['#CF0317', '#FE8D82'],
-    solid: ['#E02326', '#FF7369'],
+    solid: ['#E02326', '#D4362F'],
   },
   warning: {
     name: '警告',
     deco: ['#FF9500', '#FF9F0A'],
     text: ['#975603', '#FB9416'],
-    solid: ['#AB6100', '#FFA352'],
+    solid: ['#AB6100', '#B35900'],
   },
   success: {
     name: '成功',
     deco: ['#34C759', '#30D158'],
     text: ['#017634', '#1CC760'],
-    solid: ['#02853C', '#59D889'],
+    solid: ['#02853C', '#1C8246'],
   },
+  // The same ink blue as the default accent.
   info: {
     name: '提示',
-    deco: ['#007AFF', '#0A84FF'],
-    text: ['#0365C4', '#71AFFF'],
-    solid: ['#0172DC', '#0A84FF'],
+    deco: ['#4C7DD9', '#5E8FED'],
+    text: ['#2F559D', '#91B5F4'],
+    solid: ['#3E66B3', '#4167AD'],
   },
 } as const satisfies Record<string, StatusEntry>
 
@@ -166,37 +195,53 @@ export type GlassLevel = {
  * from the worst backdrops, black and white (D-109).
  */
 export const glass = {
-  base: ['#FFFFFF', '#1E1E22'] as Pair,
-  floor: [0.9, 0.88] as readonly [number, number],
+  base: ['#FFFDF9', '#232328'] as Pair,
+  floor: [0.9, 0.9] as readonly [number, number],
+  /**
+   * The lowest alpha of clear glass: controls that carry icons only (the toolbar's buttons, the tools beside a message,
+   * "jump to latest"). An icon in the label colour needs 3:1, not the 4.5:1 of text, so this glass may let far more of
+   * what is behind it through. `contrast.ts` derives it the same way as `floor`, over black and white.
+   */
+  iconFloor: [0.44, 0.56] as readonly [number, number],
   levels: {
-    clear: { name: '清透', alpha: 0.45, blur: 20, saturate: 1.7, tint: 0 },
-    standard: { name: '标准', alpha: 0.62, blur: 24, saturate: 1.8, tint: 0 },
-    tinted: { name: '着色', alpha: 0.8, blur: 28, saturate: 1.8, tint: 0.14 },
+    clear: { name: '清透', alpha: 0.45, blur: 22, saturate: 1.9, tint: 0 },
+    standard: { name: '标准', alpha: 0.62, blur: 28, saturate: 1.9, tint: 0 },
+    tinted: { name: '着色', alpha: 0.8, blur: 32, saturate: 1.8, tint: 0.14 },
     opaque: { name: '不透明', alpha: 1, blur: 0, saturate: 1, tint: 0 },
   } satisfies Record<GlassLevelKey, GlassLevel>,
-  maxBackdropFilters: 4,
+  /**
+   * Blurred layers that may be on screen at once: the sidebar, the title and the tools of the toolbar, the composer and
+   * its attach button, and one popup. The small ones cost little; a modal layer takes the blur off everything behind it.
+   */
+  maxBackdropFilters: 6,
 }
 export const GLASS_KEYS = Object.keys(glass.levels) as [GlassLevelKey, ...GlassLevelKey[]]
 export const DEFAULT_GLASS: GlassLevelKey = 'standard'
-
-/** Tint of the open conversation's row in the sidebar. The check covers label and secondary text on it. */
-export const SELECTED_TINT = 0.08
 
 /**
  * Wallpaper under the sidebar. The sidebar glass is checked against these stops, and against the accent blob at
  * `maxTint`: no wallpaper layer may be more opaque than that (see shell.css).
  */
 export const wallpaper = {
-  maxTint: [0.3, 0.34] as readonly [number, number],
-  light: ['#F2F2F7', '#DCE6FF', '#F3DDF0', '#DDF2E8'],
+  // The light theme's lights are gentler: on the warm off-white a strong cool tint reads as a stain, not as light.
+  maxTint: [0.24, 0.34] as readonly [number, number],
+  // The light theme's lower light is this warm one whatever the accent, so the paper keeps its temperature; the dark
+  // theme's is a neighbour of the accent (shell.css).
+  warmLight: '#F2A468',
+  light: ['#F3EFE7', '#DCE6FF', '#F3DDF0', '#F6E3CF'],
   dark: ['#000000', '#0B1A3A', '#2A1238', '#0A2A24'],
 }
 
+/**
+ * Corners are concentric: an outer radius is the inner one plus the gap between them. A floating panel (22) holds rows
+ * (16) six pixels in; a sheet (26) holds cards (16) ten pixels in. Buttons and other controls one presses are capsules.
+ */
 export const radius = {
-  window: 16,
-  card: 14,
-  control: 10,
-  bubble: 18,
+  sheet: 26,
+  window: 22,
+  card: 16,
+  control: 12,
+  bubble: 20,
   'bubble-join': 6,
   pill: 999,
 } as const

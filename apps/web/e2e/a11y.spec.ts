@@ -49,6 +49,13 @@ async function expectAccessible(
 for (const scheme of ['light', 'dark'] as const) {
   test.describe(`axe, ${scheme}`, () => {
     test.use({ colorScheme: scheme })
+    // The theme is dark unless a member chooses otherwise (appearance.ts), whatever the system prefers: the scheme
+    // under test is chosen the way a member chooses it, or the light pass would look at the dark theme again.
+    test.beforeEach(async ({ page }) => {
+      await page.addInitScript((theme) => {
+        localStorage.setItem('chatapp.appearance', JSON.stringify({ theme }))
+      }, scheme)
+    })
 
     test('pages before sign-in', async ({ page }) => {
       for (const path of [

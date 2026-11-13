@@ -13,7 +13,7 @@ import { Wallpaper } from '../src/components/layout/wallpaper.tsx'
 import { Toasts } from '../src/components/ui/toasts.tsx'
 import { TooltipProvider } from '../src/components/ui/tooltip.tsx'
 import '../src/lib/zod-config.ts'
-import { ACCENT_KEYS, GLASS_KEYS } from '../src/design/tokens.ts'
+import { ACCENT_KEYS, DEFAULT_ACCENT, GLASS_KEYS } from '../src/design/tokens.ts'
 import { useRealtime } from '../src/lib/realtime.ts'
 import { installMockApi, type MockApi, restoreFetch } from './mock-api.ts'
 import '../src/styles/app.css'
@@ -52,7 +52,7 @@ function Appearance({
       else root.removeAttribute(name)
     }
     set('data-theme', globals.theme, 'system')
-    set('data-accent', globals.accent, 'blue')
+    set('data-accent', globals.accent, DEFAULT_ACCENT)
     set('data-glass', globals.glass, 'standard')
     root.setAttribute('data-no-anim', 'true')
   }, [globals.theme, globals.accent, globals.glass])
@@ -79,7 +79,7 @@ const preview: Preview = {
       toolbar: { title: 'Glass', icon: 'transfer', items: [...GLASS_KEYS], dynamicTitle: true },
     },
   },
-  initialGlobals: { theme: 'light', accent: 'blue', glass: 'standard' },
+  initialGlobals: { theme: 'light', accent: DEFAULT_ACCENT, glass: 'standard' },
   decorators: [
     (Story, context) => {
       const {
@@ -136,7 +136,7 @@ const preview: Preview = {
                 height: '100%',
               }}
             >
-              <Wallpaper />
+              <Wallpaper variant="full" />
               <div style={{ position: 'relative', zIndex: 1, padding: 24 }}>{content}</div>
             </div>
           ) : surface === 'plain' ? (

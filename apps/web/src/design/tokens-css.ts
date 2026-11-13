@@ -20,7 +20,6 @@ import {
   neutral,
   type Pair,
   radius,
-  SELECTED_TINT,
   springEasing,
   springs,
   status,
@@ -67,8 +66,9 @@ function runtimeCss(): string {
   add('glass-saturate', String(level.saturate))
   add('glass-tint', `${level.tint * 100}%`)
   add('glass-floor', `${glass.floor[0] * 100}%`)
+  add('glass-icon-floor', `${glass.iconFloor[0] * 100}%`)
   add('wallpaper-tint', `${wallpaper.maxTint[0] * 100}%`)
-  add('sel-tint', `${SELECTED_TINT * 100}%`)
+  add('wallpaper-warm', wallpaper.warmLight)
 
   add('type-scale', '1')
   for (const [key, [size, line, weight]] of Object.entries(type)) {
@@ -90,12 +90,14 @@ function runtimeCss(): string {
   :root:not([data-theme="light"]) {
     color-scheme: dark;
     --glass-floor: ${glass.floor[1] * 100}%;
+    --glass-icon-floor: ${glass.iconFloor[1] * 100}%;
     --wallpaper-tint: ${wallpaper.maxTint[1] * 100}%;
   }
 }
 :root[data-theme="dark"] {
   color-scheme: dark;
   --glass-floor: ${glass.floor[1] * 100}%;
+  --glass-icon-floor: ${glass.iconFloor[1] * 100}%;
   --wallpaper-tint: ${wallpaper.maxTint[1] * 100}%;
 }
 :root[data-theme="light"] {

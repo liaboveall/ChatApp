@@ -1,15 +1,17 @@
 import {
+  ChevronRight,
   Command,
   Ellipsis,
   Keyboard,
   Menu as MenuIcon,
   Settings,
   Sparkles,
-  Users,
 } from 'lucide-react'
 import type { ReactNode } from 'react'
 import { IconButton } from '@/components/ui/button.tsx'
+import { Icon } from '@/components/ui/icon.tsx'
 import { Menu, MenuItem } from '@/components/ui/menu.tsx'
+import { Tooltip } from '@/components/ui/tooltip.tsx'
 import { keyLabel } from '@/lib/platform.ts'
 import { m } from '@/paraglide/messages.js'
 
@@ -29,7 +31,11 @@ type ToolbarProps = {
   onOpenShortcuts: () => void
 }
 
-/** Top glass bar of the main panel: title on the left, the assistant-panel toggle and the more menu on the right. */
+/**
+ * What floats at the top of the main area (docs/02 section 3): a capsule with the open conversation's picture and name,
+ * and a capsule of tools. The strip between them is not a surface. The name is the way into the conversation's details:
+ * the whole capsule is the button, named for what it opens, and its chevron turns while the details are open.
+ */
 export function Toolbar({
   title,
   subtitle,
@@ -44,32 +50,45 @@ export function Toolbar({
   onOpenShortcuts,
 }: ToolbarProps) {
   const mod = keyLabel('mod')
+  const who = (
+    <>
+      {avatar}
+      <span className="toolbar__text">
+        <span className="toolbar__title">
+          <span className="truncate">{title}</span>
+        </span>
+        {subtitle ? <span className="toolbar__sub">{subtitle}</span> : null}
+      </span>
+    </>
+  )
   return (
     <header className="toolbar">
       <IconButton
         label={m.shell_open_menu()}
         icon={MenuIcon}
+        variant="plate"
         className="toolbar__menu-btn"
         onClick={onOpenDrawer}
       />
-      <div className="toolbar__who">
-        {avatar}
-        <span className="grid min-w-0">
-          <span className="toolbar__title">
-            <span className="truncate">{title}</span>
-          </span>
-          {subtitle ? <span className="toolbar__sub">{subtitle}</span> : null}
-        </span>
-      </div>
-      <div className="toolbar__actions">
-        {onToggleDetails ? (
-          <IconButton
-            label={m.toolbar_members()}
-            icon={Users}
+      {onToggleDetails ? (
+        <Tooltip content={m.toolbar_members()}>
+          <button
+            type="button"
+            className="toolbar__who glass-text"
+            aria-label={m.toolbar_members()}
+            // The button is named for what it opens; which conversation it is about is its description.
+            aria-description={subtitle ? `${title}, ${subtitle}` : title}
             aria-pressed={detailsOpen === true}
             onClick={onToggleDetails}
-          />
-        ) : null}
+          >
+            {who}
+            <Icon icon={ChevronRight} size={16} className="toolbar__chevron" />
+          </button>
+        </Tooltip>
+      ) : (
+        <div className="toolbar__who glass-text">{who}</div>
+      )}
+      <div className="toolbar__actions glass-clear">
         <IconButton
           label={m.shell_assistant_panel()}
           icon={Sparkles}

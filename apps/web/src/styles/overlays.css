@@ -1,6 +1,6 @@
 /* Overlays: command palette, settings sheet, shortcuts help. */
 
-/* ---- Command palette ---- */
+/* ---- Command palette: one field and what it finds ---- */
 
 /* Above the scrim (z-index 1000): a host without a z-index would be painted under it and dimmed. */
 .palette-host {
@@ -10,55 +10,60 @@
   display: flex;
   justify-content: center;
   align-items: flex-start;
-  padding: min(12vh, 96px) 16px 16px;
+  padding: min(13vh, 104px) 16px 16px;
   pointer-events: none;
 }
 .palette {
   display: grid;
   grid-template-rows: auto minmax(0, 1fr) auto;
-  width: min(640px, 100%);
-  max-height: min(520px, 100%);
-  border-radius: 20px;
+  width: min(660px, 100%);
+  max-height: min(540px, 100%);
+  border-radius: var(--radius-sheet);
   overflow: hidden;
+  box-shadow: var(--glass-ring), var(--glass-drop-lg);
   pointer-events: auto;
   transform-origin: top center;
   transition:
-    opacity var(--dur-snappy) ease,
+    opacity 0.16s ease-out,
     transform var(--dur-bouncy) var(--spring-bouncy);
 }
 .palette[data-starting-style],
 .palette[data-ending-style] {
   opacity: 0;
-  transform: scale(0.94);
+  transform: scale(0.94) translateY(-8px);
+}
+.palette[data-ending-style] {
+  transition-duration: 0.12s;
 }
 .palette__head {
   display: flex;
   align-items: center;
   gap: 12px;
-  padding: 0 18px;
-  min-height: 56px;
+  padding: 0 20px;
+  min-height: 60px;
   border-bottom: 1px solid var(--separator);
   color: var(--label-secondary);
 }
 .palette__head input {
   flex: 1;
   min-width: 0;
-  height: 40px;
+  height: 44px;
   border: 0;
   background: transparent;
   color: var(--label);
   font-size: var(--fs-title-2);
+  letter-spacing: -0.01em;
 }
 .palette__head input:focus-visible {
   outline: none;
 }
 .palette__list {
-  padding: 6px;
+  padding: 6px 8px 8px;
   min-height: 120px;
   overflow: auto;
 }
 .palette__group {
-  padding: 10px 10px 4px;
+  padding: 12px 12px 5px;
   font-size: var(--fs-footnote);
   line-height: var(--lh-footnote);
   font-weight: 600;
@@ -68,32 +73,37 @@
 .palette__row {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: 12px;
   width: 100%;
-  min-height: 40px;
-  padding: 5px 10px;
-  border-radius: 10px;
+  min-height: 44px;
+  padding: 6px 12px 6px 8px;
+  border-radius: 14px;
   color: var(--label);
   text-align: left;
-  cursor: pointer;
+  cursor: default;
   /* The list scrolls to the active row: leave it clear of the list's own padding. */
-  scroll-margin-block: 6px;
+  scroll-margin-block: 8px;
 }
+/* The row the keyboard is on: the gray of everything that is passed over; the accent is kept for the icon. */
 .palette__row[data-active="true"] {
-  background: var(--accent-solid);
-  color: var(--on-accent);
+  background: var(--fill-hover);
 }
 .palette__icon {
   display: grid;
   place-items: center;
   flex: none;
-  width: 28px;
+  width: 30px;
+  height: 30px;
+  border-radius: 9px;
+  background: var(--fill);
   color: var(--label-secondary);
+  transition:
+    background-color 0.12s,
+    color 0.12s;
 }
-.palette__row[data-active="true"] .palette__icon,
-.palette__row[data-active="true"] .palette__sub,
-.palette__row[data-active="true"] .palette__hint {
-  color: inherit;
+.palette__row[data-active="true"] .palette__icon {
+  background: var(--accent-solid);
+  color: var(--on-accent);
 }
 .palette__main {
   flex: 1;
@@ -111,6 +121,8 @@
   color: var(--label-secondary);
 }
 .palette__hint {
+  display: flex;
+  gap: 3px;
   font-size: var(--fs-subheadline);
   color: var(--label-secondary);
 }
@@ -121,8 +133,14 @@
   color: inherit;
   font-weight: 700;
 }
-.palette__row[data-active="true"] .hl {
-  background: color-mix(in srgb, var(--on-accent) 22%, transparent);
+.palette__search-status {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 8px 18px;
+  border-top: 1px solid var(--separator);
+  color: var(--label-secondary);
 }
 .palette__foot {
   display: flex;
@@ -130,7 +148,7 @@
   align-items: center;
   justify-content: space-between;
   gap: 8px;
-  padding: 8px 16px;
+  padding: 9px 18px;
   border-top: 1px solid var(--separator);
   font-size: var(--fs-subheadline);
   line-height: var(--lh-subheadline);
@@ -140,7 +158,7 @@
   margin-inline: 2px;
 }
 
-/* ---- Settings sheet ---- */
+/* ---- Settings sheet: a pane with its sections in a pane of their own ---- */
 
 .sheet-host {
   position: fixed;
@@ -153,62 +171,102 @@
 }
 .sheet {
   display: grid;
-  grid-template-columns: 208px minmax(0, 1fr);
-  width: min(860px, 100%);
-  height: min(660px, 100%);
-  border-radius: 22px;
+  grid-template-columns: 232px minmax(0, 1fr);
+  width: min(920px, 100%);
+  height: min(700px, 100%);
+  border-radius: var(--radius-sheet);
   overflow: hidden;
+  box-shadow: var(--glass-ring), var(--glass-drop-lg);
   pointer-events: auto;
   transition:
-    opacity var(--dur-snappy) ease,
+    opacity 0.16s ease-out,
     transform var(--dur-smooth) var(--spring-smooth);
 }
 .sheet[data-starting-style],
 .sheet[data-ending-style] {
   opacity: 0;
-  transform: scale(0.94);
+  transform: scale(0.95) translateY(10px);
+}
+.sheet[data-ending-style] {
+  transition-duration: 0.14s;
 }
 .sheet__nav {
   display: flex;
   flex-direction: column;
   gap: 2px;
   min-height: 0;
-  padding: 16px 10px 10px;
-  border-right: 1px solid var(--separator);
-  background: color-mix(in srgb, var(--fill) 60%, transparent);
+  margin: 10px 0 10px 10px;
+  padding: 14px 8px 8px;
+  border-radius: 16px;
+  background: var(--group-bg);
+  box-shadow: inset 0 0 0 1px var(--group-edge);
 }
 .sheet__nav h2 {
   padding: 4px 10px 12px;
   font-size: var(--fs-title-1);
   line-height: var(--lh-title-1);
   font-weight: 700;
-  letter-spacing: -0.01em;
+  letter-spacing: -0.015em;
 }
 .sheet__tab {
   display: flex;
   align-items: center;
   gap: 10px;
-  min-height: 36px;
-  padding: 0 10px;
-  border-radius: 10px;
+  min-height: 38px;
+  padding: 0 10px 0 6px;
+  border-radius: 12px;
   text-align: left;
   color: var(--label);
   font-size: var(--fs-body);
+  font-weight: 500;
   text-decoration: none;
-  transition: background-color 0.15s;
+  transition: background-color 0.16s;
 }
+/* Each section's glyph sits on a small tile of its own colour, white on a fill deep enough for it in both themes. The
+   tiles are pigments like the accents (tokens.ts), not signal colours. */
 .sheet__tab .icon {
-  color: var(--label-secondary);
+  box-sizing: border-box;
+  width: 26px;
+  height: 26px;
+  padding: 5px;
+  border-radius: 8px;
+  background: linear-gradient(
+    to bottom,
+    oklch(0.6 0.14 var(--tile, 262)),
+    oklch(0.5 0.15 var(--tile, 262))
+  );
+  color: #fff;
+  box-shadow: inset 0 1px 0 rgb(255 255 255 / 0.28);
+}
+.sheet__tab:nth-child(2) {
+  --tile: 25;
+}
+.sheet__tab:nth-child(3) {
+  --tile: 195;
+}
+.sheet__tab:nth-child(4) {
+  --tile: 305;
+}
+.sheet__tab:nth-child(5) {
+  --tile: 150;
 }
 .sheet__tab:hover {
   background: var(--fill);
+  text-decoration: none;
 }
+/* The open section: chosen, so it takes the accent (what the pointer merely passes over stays gray). */
 .sheet__tab[aria-current="page"] {
-  background: color-mix(in srgb, var(--accent-solid) 16%, transparent);
+  background-color: var(--accent-solid);
+  background-image: linear-gradient(
+    to bottom,
+    transparent 30%,
+    color-mix(in srgb, var(--accent-shade) 8%, transparent)
+  );
+  color: var(--on-accent);
   font-weight: 600;
-}
-.sheet__tab[aria-current="page"] .icon {
-  color: var(--accent-text);
+  box-shadow:
+    inset 0 1px 0 var(--btn-sheen),
+    0 4px 12px -6px color-mix(in srgb, var(--accent-solid) 40%, transparent);
 }
 /* The foot of the navigation: where settings are explained, and (for an administrator) the console. Quieter than tabs. */
 .sheet__nav-foot {
@@ -219,9 +277,20 @@
   border-top: 1px solid var(--separator);
 }
 .sheet__nav-foot .sheet__tab {
-  min-height: 32px;
+  min-height: 34px;
+  padding-left: 10px;
   color: var(--label-secondary);
   font-size: var(--fs-callout);
+  font-weight: 400;
+}
+.sheet__nav-foot .sheet__tab .icon {
+  width: 18px;
+  height: 18px;
+  padding: 0;
+  border-radius: 0;
+  background: none;
+  color: inherit;
+  box-shadow: none;
 }
 .sheet__nav-foot .sheet__tab:hover {
   color: var(--label);
@@ -242,12 +311,26 @@
   align-items: center;
   justify-content: space-between;
   gap: 12px;
-  padding: 16px 14px 12px 24px;
+  padding: 18px 16px 12px 28px;
+}
+.sheet__head h2 {
+  font-size: var(--fs-title-1);
+  line-height: var(--lh-title-1);
+  font-weight: 700;
+  letter-spacing: -0.015em;
+}
+.sheet__head .icon-btn {
+  background: var(--fill);
+  color: var(--label-secondary);
+}
+.sheet__head .icon-btn:hover {
+  background: var(--fill-hover);
+  color: var(--label);
 }
 .sheet__body {
   flex: 1;
   min-height: 0;
-  padding: 4px 24px 24px;
+  padding: 4px 28px 28px;
   display: grid;
   align-content: start;
   gap: 24px;
@@ -262,33 +345,44 @@
   min-width: 0;
 }
 .group__title {
-  padding-inline: 4px;
+  padding-inline: 14px;
   font-size: var(--fs-subheadline);
   line-height: var(--lh-subheadline);
   font-weight: 600;
   color: var(--label-secondary);
 }
 .group__box {
-  padding: 2px 14px;
+  padding: 2px 16px;
   border-radius: var(--radius-card);
-  background: var(--bg-elevated);
-  box-shadow: 0 0 0 1px var(--separator);
+  background: var(--group-bg);
+  box-shadow: inset 0 0 0 1px var(--group-edge);
 }
 .swatches {
   display: flex;
   flex-wrap: wrap;
-  gap: 10px;
+  gap: 14px;
+  padding: 4px;
 }
 .swatch {
   position: relative;
   display: grid;
   place-items: center;
-  width: 34px;
-  height: 34px;
+  width: 32px;
+  height: 32px;
   border-radius: 999px;
-  background: var(--sw);
+  background-color: var(--sw);
+  background-image: linear-gradient(to bottom, transparent 30%, rgb(0 0 0 / 0.1));
   color: var(--sw-on);
-  box-shadow: inset 0 0 0 1px rgb(0 0 0 / 0.12);
+  box-shadow:
+    inset 0 1px 0 rgb(255 255 255 / 0.3),
+    inset 0 0 0 1px rgb(0 0 0 / 0.1);
+  transition: scale var(--dur-snappy) var(--spring-snappy);
+}
+.swatch:hover {
+  scale: 1.08;
+}
+.swatch:active {
+  scale: 0.94;
 }
 .swatch[data-checked]::before {
   content: "";
@@ -305,47 +399,51 @@
   display: none;
 }
 
+/* A picture of the window as the choices above draw it: the wallpaper under a pane of sidebar glass, and two bubbles on
+   the surface beside it. */
 .preview {
   position: relative;
-  height: 132px;
+  height: 148px;
   border-radius: var(--radius-card);
   overflow: hidden;
-  background: var(--bg-app);
-  box-shadow: 0 0 0 1px var(--separator);
+  background: var(--bg-content);
+  box-shadow: inset 0 0 0 1px var(--group-edge);
 }
 .preview .wallpaper {
+  right: auto;
+  width: calc(36% + 28px);
   border-radius: inherit;
+  -webkit-mask-image: linear-gradient(to right, #000 calc(100% - 40px), transparent);
+  mask-image: linear-gradient(to right, #000 calc(100% - 40px), transparent);
 }
 .preview__side {
   position: absolute;
-  left: 10px;
-  top: 10px;
-  bottom: 10px;
-  width: 34%;
-  padding: 10px;
+  left: 8px;
+  top: 8px;
+  bottom: 8px;
+  width: 36%;
+  padding: 12px;
   border-radius: 14px;
   display: grid;
   align-content: start;
   gap: 6px;
   font-size: var(--fs-subheadline);
+  box-shadow: var(--glass-ring), var(--glass-drop-sm);
 }
 .preview__main {
   position: absolute;
-  left: calc(34% + 18px);
-  right: 10px;
-  top: 10px;
-  bottom: 10px;
-  padding: 10px;
-  border-radius: 14px;
-  background: var(--bg-content);
+  left: calc(36% + 20px);
+  right: 12px;
+  top: 12px;
+  bottom: 12px;
   display: grid;
   align-content: end;
   gap: 5px;
 }
 .preview__bubble {
   justify-self: start;
-  padding: 3px 10px;
-  border-radius: 12px;
+  padding: 4px 11px;
+  border-radius: 14px;
   background: var(--bubble-in);
   font-size: var(--fs-subheadline);
 }
@@ -366,7 +464,7 @@
   display: flex;
   align-items: center;
   gap: 12px;
-  padding: 10px 0;
+  padding: 11px 0;
 }
 .device + .device {
   border-top: 1px solid var(--separator);
@@ -374,9 +472,10 @@
 .device__icon {
   display: grid;
   place-items: center;
+  flex: none;
   width: 38px;
   height: 38px;
-  border-radius: 10px;
+  border-radius: 11px;
   background: var(--fill);
   color: var(--label-secondary);
 }
@@ -400,6 +499,7 @@
 .meter__bar > i {
   display: block;
   height: 100%;
+  min-width: 6px;
   width: var(--v, 0%);
   border-radius: inherit;
   background: var(--accent-solid);
@@ -409,14 +509,14 @@
 
 .keys-list {
   display: grid;
-  gap: 2px;
+  gap: 0;
 }
 .keys-row {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 16px;
-  padding: 7px 0;
+  padding: 8px 0;
   border-bottom: 1px solid var(--separator);
   font-size: var(--fs-callout);
 }
@@ -453,11 +553,14 @@
 }
 
 @media (max-width: 767px) {
+  .sheet-host {
+    padding: 8px;
+  }
   .sheet {
     grid-template-columns: minmax(0, 1fr);
     grid-template-rows: auto minmax(0, 1fr);
     height: 100%;
-    border-radius: 16px;
+    border-radius: var(--radius-window);
   }
   /* The sections become one row that scrolls sideways: seven entries do not fit a phone, in any language. A tab the
      page moves to is brought clear of the edge (the sheet scrolls it into view; the padding is how far clear). The
@@ -466,12 +569,16 @@
   .sheet__nav {
     --sheet-nav-fade: 28px;
     flex-direction: row;
+    gap: 4px;
     overflow-x: auto;
+    margin: 0;
     padding: 8px;
     scroll-padding-inline: var(--sheet-nav-fade);
     scrollbar-width: thin;
     scrollbar-color: color-mix(in srgb, var(--label) 30%, transparent) transparent;
-    border-right: 0;
+    border-radius: 0;
+    background: none;
+    box-shadow: none;
     border-bottom: 1px solid var(--separator);
   }
   /* What the scrollbar does not say at a glance: that there is more to either side. The row fades out at that edge,
@@ -501,6 +608,14 @@
   }
   .sheet__tab {
     flex: none;
+    min-height: 36px;
+    padding-right: 14px;
+    border-radius: 999px;
+  }
+  .sheet__tab .icon {
+    width: 24px;
+    height: 24px;
+    border-radius: 999px;
   }
   .sheet__nav-foot {
     display: flex;
@@ -509,6 +624,9 @@
     padding: 0 0 0 8px;
     border-top: 0;
     border-left: 1px solid var(--separator);
+  }
+  .sheet__head {
+    padding: 12px 10px 8px 18px;
   }
   .sheet__body {
     padding: 0 14px 18px;

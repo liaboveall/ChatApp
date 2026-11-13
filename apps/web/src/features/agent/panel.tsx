@@ -248,7 +248,12 @@ function PanelSession({
         {shown?.messages
           .filter((msg) => msg.kind !== 'system')
           .map((msg) => (
-            <div key={msg.id} className="agent-panel__message" data-kind={msg.kind}>
+            <div
+              key={msg.id}
+              className="agent-panel__message"
+              data-kind={msg.kind}
+              data-streaming={msg.status === 'streaming' ? 'true' : undefined}
+            >
               <b className="agent-panel__speaker">
                 {msg.kind === 'agent' ? (
                   <>

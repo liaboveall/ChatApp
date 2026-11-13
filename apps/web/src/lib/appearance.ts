@@ -24,7 +24,7 @@ export const THEMES = ['system', 'light', 'dark'] as const
 export type Theme = (typeof THEMES)[number]
 
 export const appearanceSchema = z.object({
-  theme: z.enum(THEMES).catch('system'),
+  theme: z.enum(THEMES).catch('dark'),
   accent: z.enum(ACCENT_KEYS).catch(DEFAULT_ACCENT),
   glass: z.enum(GLASS_KEYS).catch(DEFAULT_GLASS),
   typeSize: z.number().int().min(-1).max(3).catch(0),
@@ -36,7 +36,7 @@ export const appearanceSchema = z.object({
 export type Appearance = z.infer<typeof appearanceSchema>
 
 export const DEFAULT_APPEARANCE: Appearance = {
-  theme: 'system',
+  theme: 'dark',
   accent: DEFAULT_ACCENT,
   glass: DEFAULT_GLASS,
   typeSize: 0,
@@ -55,7 +55,7 @@ export function loadAppearance(): Appearance {
   }
 }
 
-/** Sets the attributes the stylesheet reads. Defaults leave the attribute off so the CSS defaults apply. */
+/** Sets the attributes the stylesheet reads; only an explicit system theme follows the OS. */
 export function applyToRoot(
   appearance: Appearance,
   root: HTMLElement = document.documentElement,
@@ -65,13 +65,16 @@ export function applyToRoot(
     else root.setAttribute(name, value)
   }
   set('data-theme', appearance.theme === 'system' ? null : appearance.theme)
+  root.ownerDocument
+    .querySelector('meta[name="color-scheme"]')
+    ?.setAttribute('content', appearance.theme === 'system' ? 'light dark' : appearance.theme)
   set('data-accent', appearance.accent === DEFAULT_ACCENT ? null : appearance.accent)
   set('data-glass', appearance.glass === DEFAULT_GLASS ? null : appearance.glass)
   set('data-type-size', appearance.typeSize === 0 ? null : String(appearance.typeSize))
   set('data-reduce-motion', appearance.reduceMotion ? 'true' : null)
-  // The installed app's title bar (index.html): each `theme-color` keeps its own scheme's colour while the theme follows the
-  // system, and takes the chosen theme's otherwise.
-  const [light, dark] = neutral['bg-app']
+  // The installed app's title bar (index.html) is the colour of the window it tops: each `theme-color` keeps its own
+  // scheme's colour while the theme follows the system, and takes the chosen theme's otherwise.
+  const [light, dark] = neutral['bg-content']
   for (const meta of root.ownerDocument.querySelectorAll<HTMLMetaElement>(
     'meta[name="theme-color"]',
   )) {

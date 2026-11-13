@@ -35,7 +35,10 @@ export function ConfirmDialog({
       <AlertDialog.Portal>
         <AlertDialog.Backdrop className="scrim" />
         <AlertDialog.Viewport className="dialog-host">
-          <AlertDialog.Popup className="dialog glass-text squircle" initialFocus={cancel}>
+          <AlertDialog.Popup
+            className="dialog dialog--alert glass-text squircle"
+            initialFocus={cancel}
+          >
             <AlertDialog.Title className="dialog__title">{title}</AlertDialog.Title>
             <AlertDialog.Description className="dialog__body">
               {description}

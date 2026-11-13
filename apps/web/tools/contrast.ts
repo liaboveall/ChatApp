@@ -16,7 +16,6 @@ import {
   glass,
   neutral,
   type Pair,
-  SELECTED_TINT,
   status,
   wallpaper,
 } from '../src/design/tokens.ts'
@@ -160,10 +159,18 @@ for (const [i, theme] of THEMES.entries()) {
       // Focus ring and active indicators.
       check('焦点环', `${key}: focus ring / ${name}`, theme, text, bg, NON_TEXT)
     }
+    // The open conversation's row in the sidebar is a pane of the accent with everything on it in on-accent (the pair
+    // above). The hash sign of a channel on that row: a plate of on-accent at 22% over the accent.
+    check(
+      '气泡与实底',
+      `${key}: on-accent glyph / plate on selected row`,
+      theme,
+      on,
+      over({ ...on, a: 0.22 }, solid),
+      NON_TEXT,
+    )
     // Quote block inside an own bubble: an inset that moves the bubble colour away from the text colour.
-    const insetColor: Rgba =
-      i === 0 ? { r: 0, g: 0, b: 0, a: 0.16 } : { r: 255, g: 255, b: 255, a: 0.16 }
-    const inset = over(insetColor, solid)
+    const inset = over({ r: 0, g: 0, b: 0, a: 0.16 }, solid)
     check('气泡与实底', `${key}: on-accent / quote inset`, theme, on, inset, TEXT)
   }
 
@@ -200,10 +207,37 @@ function glassFloor(i: number, baseColor: Rgba): number {
   return 1
 }
 
-const derivedFloors: { theme: Theme; plain: number }[] = []
+/**
+ * Lowest alpha of clear glass, which carries icons only: an icon in the label colour reaches 3:1 over both black and
+ * white. Derived with the same kind of margin as the text floor.
+ */
+function iconFloor(i: number, baseColor: Rgba): number {
+  const backdrops = [color('#000000'), color('#FFFFFF')]
+  for (let alpha = 0.2; alpha <= 1.0001; alpha += 0.01) {
+    const ok = backdrops.every((backdrop) => {
+      const comp = over({ ...baseColor, a: alpha }, backdrop)
+      return ratio(over(token(neutral, 'label', i), comp), comp) >= NON_TEXT + 0.1
+    })
+    if (ok) return Math.round(alpha * 100) / 100
+  }
+  return 1
+}
+
+const derivedFloors: { theme: Theme; plain: number; icon: number }[] = []
 for (const [i, theme] of THEMES.entries()) {
   const plain = glassFloor(i, color(pairAt(glass.base, i)))
-  derivedFloors.push({ theme, plain })
+  const icon = iconFloor(i, color(pairAt(glass.base, i)))
+  derivedFloors.push({ theme, plain, icon })
+  results.push({
+    group: '玻璃下限',
+    name: `icon floor token ≥ derived (${theme})`,
+    theme,
+    value: glass.iconFloor[i] ?? 0,
+    min: icon,
+    pass: (glass.iconFloor[i] ?? 0) >= icon,
+    fg: '',
+    bg: '',
+  })
   // The token must be at least the derived value.
   results.push({
     group: '玻璃下限',
@@ -247,6 +281,15 @@ function checkFloorGlass(i: number, theme: Theme): void {
       comp,
       TEXT,
     )
+    // Clear glass: icons in the label colour, never text.
+    check(
+      '图标玻璃',
+      `label icon / clear glass over ${backdropName}`,
+      theme,
+      token(neutral, 'label', i),
+      over({ ...base, a: glass.iconFloor[i] ?? 1 }, backdrop),
+      NON_TEXT,
+    )
   }
 }
 
@@ -264,7 +307,13 @@ function checkSidebar(i: number, theme: Theme): void {
         { ...color(pairAt(accent.deco, i)), a: wallpaper.maxTint[i] ?? 0 },
         color(firstWall),
       )
-      const backdrops = [...walls.map(color), blob]
+      // The light theme's lower light is the warm one, whatever the accent.
+      const warm = over(
+        { ...color(wallpaper.warmLight), a: wallpaper.maxTint[i] ?? 0 },
+        color(firstWall),
+      )
+      const backdrops =
+        theme === 'light' ? [...walls.map(color), blob, warm] : [...walls.map(color), blob]
       for (const backdrop of backdrops) {
         const comp = over({ ...base, a: level.alpha }, backdrop)
         for (const key of ['label', 'label-secondary']) {
@@ -296,17 +345,6 @@ function checkSidebar(i: number, theme: Theme): void {
             theme,
             token(neutral, key, i),
             over(hoverFill, comp),
-            TEXT,
-          )
-        }
-        // The open conversation's row: the selected tint on top of the glass, with its secondary text (preview, time).
-        for (const key of ['label', 'label-secondary']) {
-          check(
-            '侧栏玻璃',
-            `${key} / selected row ${levelKey} ${accentKey} @${toHex(backdrop)}`,
-            theme,
-            token(neutral, key, i),
-            over({ ...color(pairAt(accent.solid, i)), a: SELECTED_TINT }, comp),
             TEXT,
           )
         }
@@ -378,6 +416,12 @@ if (args.has('--md')) {
   console.log('\nglass floors (derived at 4.6:1 over black and white):')
   for (const f of derivedFloors) {
     console.log(`  ${f.theme}: derived ${f.plain}, token ${glass.floor[THEMES.indexOf(f.theme)]}`)
+  }
+  console.log('\nclear glass floors (icons, derived at 3.1:1 over black and white):')
+  for (const f of derivedFloors) {
+    console.log(
+      `  ${f.theme}: derived ${f.icon}, token ${glass.iconFloor[THEMES.indexOf(f.theme)]}`,
+    )
   }
 }
 

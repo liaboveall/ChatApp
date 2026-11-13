@@ -76,6 +76,8 @@ export function Sidebar({
               ref={newMenu?.ref}
               label={m.sidebar_new()}
               icon={Plus}
+              variant="plate"
+              iconSize={20}
               aria-haspopup="menu"
               shortcut={isInstalledApp() ? ['mod', 'N'] : undefined}
             />

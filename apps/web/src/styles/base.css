@@ -12,7 +12,7 @@ html {
 
 body {
   margin: 0;
-  background: var(--bg-app);
+  background: var(--bg-content);
   color: var(--label);
   font-family: var(--font-sans);
   font-size: var(--fs-body);
@@ -38,9 +38,18 @@ a {
   text-underline-offset: 2px;
   text-decoration-thickness: 1px;
 }
+a:hover {
+  text-decoration-thickness: 2px;
+}
 
 ::selection {
   background: color-mix(in srgb, var(--accent-solid) 30%, transparent);
+}
+
+/* Browser-drawn controls (the file button, native pickers, the caret) take the accent as well. */
+:root {
+  accent-color: var(--accent-solid);
+  caret-color: var(--accent-text);
 }
 
 ::placeholder {
@@ -71,11 +80,13 @@ a {
   left: 12px;
   top: -48px;
   z-index: 1000;
-  padding: 8px 14px;
-  border-radius: var(--radius-control);
+  padding: 8px 16px;
+  border-radius: 999px;
   background: var(--bg-elevated);
   color: var(--label);
-  box-shadow: 0 0 0 1px var(--control-border);
+  box-shadow:
+    0 0 0 1px var(--control-border),
+    var(--elev-2);
 }
 
 .skip-link:focus {
@@ -86,22 +97,23 @@ kbd {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  min-width: 1.5em;
-  padding: 0 0.4em;
-  height: 1.55em;
+  min-width: 1.6em;
+  padding: 0 0.45em;
+  height: 1.6em;
   border-radius: 6px;
-  border: 1px solid var(--separator);
   background: var(--fill);
   color: var(--label-secondary);
   font: 600 0.78em / 1 var(--font-sans);
   white-space: nowrap;
+  box-shadow: inset 0 0 0 1px var(--separator);
 }
 
-/* Thin overlay-style scrollbars. */
+/* Slim scrollbars: every scrolling region here is also reachable by the keyboard and the wheel (the lists, the feed with
+   its own keys and its page-by-page mode), so the narrow thumb is never the only way to move. */
 .scroll {
   overflow: auto;
   scrollbar-width: thin;
-  scrollbar-color: color-mix(in srgb, var(--label) 30%, transparent) transparent;
+  scrollbar-color: color-mix(in srgb, var(--label) 28%, transparent) transparent;
   overscroll-behavior: contain;
 }
 

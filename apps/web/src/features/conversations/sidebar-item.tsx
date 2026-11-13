@@ -5,6 +5,8 @@ import { usePresenceOf } from '@/app/presence.ts'
 import { Avatar } from '@/components/ui/avatar.tsx'
 import { Badge } from '@/components/ui/badge.tsx'
 import { Icon } from '@/components/ui/icon.tsx'
+import { messageText } from '@/lib/message-text.ts'
+import { draftOf, useDrafts } from '@/lib/sync/drafts.ts'
 import { displayName } from '@/lib/sync/selectors.ts'
 import type { UsersByid } from '@/lib/sync/types.ts'
 import { listTime } from '@/lib/time-format.ts'
@@ -20,6 +22,8 @@ type SidebarItemProps = {
   previewHidden: boolean
   users: UsersByid
   meId: string
+  /** The conversation on screen: what is being written there is in its composer, not announced in its row. */
+  current: boolean
   /** The roving tab stop: only one row of the list is reachable with Tab. */
   tabStop: boolean
   onFocus: () => void
@@ -43,6 +47,7 @@ export function SidebarItem({
   previewHidden,
   users,
   meId,
+  current,
   tabStop,
   onFocus,
   onMenu,
@@ -53,6 +58,9 @@ export function SidebarItem({
   const presence = usePresenceOf(peer?.id)
   const muted = isMuted(conversation, now())
   const pinned = conversation.me?.pinnedAt != null
+  // Something written here and not sent: the row says so until it is sent or cleared, as a reminder to come back.
+  const draft = useDrafts((state) => draftOf(state, conversation.id)).trim()
+  const draftShown = draft !== '' && !current && !previewHidden
   const preview = previewHidden
     ? ''
     : previewLine(conversation, users, meId, {
@@ -77,6 +85,7 @@ export function SidebarItem({
     unread > 0 ? m.sidebar_item_unread({ count: unread }) : null,
     pinned ? m.sidebar_item_pinned() : null,
     muted ? m.sidebar_item_muted() : null,
+    draftShown ? m.sidebar_item_draft() : null,
   ]
     .filter((part): part is string => part !== null)
     .join(', ')
@@ -113,7 +122,7 @@ export function SidebarItem({
         name={name}
         src={peer?.avatarUrl ?? conversation.avatarUrl}
         seed={peer?.id ?? conversation.id}
-        size={36}
+        size={40}
         glyph={conversation.kind === 'channel' ? 'hash' : undefined}
         bot={peer?.isBot === true}
         status={presence?.status}
@@ -123,7 +132,16 @@ export function SidebarItem({
         <span className="s-item__title">
           <span className="truncate">{name}</span>
         </span>
-        <span className="s-item__preview">{preview}</span>
+        <span className="s-item__preview">
+          {draftShown ? (
+            <>
+              <b className="s-item__draft">{m.sidebar_draft()}</b>
+              {messageText(draft, users)}
+            </>
+          ) : (
+            preview
+          )}
+        </span>
       </span>
       <span className="s-item__meta">
         <span className="s-item__time">

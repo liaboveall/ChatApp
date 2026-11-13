@@ -68,9 +68,11 @@ describe('the generated stylesheet', () => {
 
 describe('token data', () => {
   test('eight accents, four glass levels, and the floors of docs/02 section 2', () => {
-    expect(ACCENT_KEYS).toHaveLength(8)
+    expect(ACCENT_KEYS).toHaveLength(9)
     expect(Object.keys(glass.levels)).toEqual(['clear', 'standard', 'tinted', 'opaque'])
-    expect(glass.floor).toEqual([0.9, 0.88])
+    expect(glass.floor).toEqual([0.9, 0.9])
+    // Clear glass carries icons only (3:1), so its floor is far below the one for text.
+    expect(glass.iconFloor).toEqual([0.44, 0.56])
     for (const accent of Object.values(accents)) {
       expect(accent.solid).toHaveLength(2)
       expect(accent.text).toHaveLength(2)

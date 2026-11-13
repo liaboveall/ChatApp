@@ -6,9 +6,9 @@
 import { create } from 'zustand'
 import { local } from './storage.ts'
 
-export const SIDEBAR_MIN = 240
-export const SIDEBAR_MAX = 360
-export const SIDEBAR_DEFAULT = 280
+export const SIDEBAR_MIN = 260
+export const SIDEBAR_MAX = 400
+export const SIDEBAR_DEFAULT = 304
 const LAYOUT_KEY = 'chatapp.layout'
 
 export type InspectorTab = 'details' | 'assistant'

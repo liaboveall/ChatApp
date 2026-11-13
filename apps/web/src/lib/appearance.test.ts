@@ -1,6 +1,6 @@
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
-import { beforeEach, describe, expect, test } from 'vitest'
+import { beforeEach, describe, expect, test, vi } from 'vitest'
 import { neutral } from '../design/tokens.ts'
 import {
   APPEARANCE_STORAGE_KEY,
@@ -36,11 +36,19 @@ const attributes = (): Record<string, string | null> =>
 
 describe('loadAppearance', () => {
   test('nothing stored, garbage and wrong shapes all fall back to the defaults', () => {
+    expect(DEFAULT_APPEARANCE.theme).toBe('dark')
     expect(loadAppearance()).toEqual(DEFAULT_APPEARANCE)
     localStorage.setItem(APPEARANCE_STORAGE_KEY, '{not json')
     expect(loadAppearance()).toEqual(DEFAULT_APPEARANCE)
     localStorage.setItem(APPEARANCE_STORAGE_KEY, '[1,2]')
     expect(loadAppearance()).toEqual(DEFAULT_APPEARANCE)
+  })
+
+  test('keeps explicit light and system choices, defaulting missing or invalid themes to dark', () => {
+    for (const theme of ['light', 'system', 'dark', undefined, 'invalid']) {
+      localStorage.setItem(APPEARANCE_STORAGE_KEY, JSON.stringify({ theme }))
+      expect(loadAppearance().theme).toBe(theme === 'light' || theme === 'system' ? theme : 'dark')
+    }
   })
 
   test('each bad field falls back on its own and the good ones are kept', () => {
@@ -63,10 +71,10 @@ describe('loadAppearance', () => {
 })
 
 describe('applyToRoot', () => {
-  test('defaults leave every attribute off, so the stylesheet defaults apply', () => {
+  test('defaults force dark mode and leave other attributes off', () => {
     applyToRoot(DEFAULT_APPEARANCE)
     expect(attributes()).toEqual({
-      'data-theme': null,
+      'data-theme': 'dark',
       'data-accent': null,
       'data-glass': null,
       'data-type-size': null,
@@ -106,13 +114,14 @@ describe('the store', () => {
     })
     useAppearance.getState().reset()
     expect(document.documentElement.getAttribute('data-accent')).toBeNull()
+    expect(document.documentElement.getAttribute('data-theme')).toBe('dark')
     stop()
   })
 })
 
 describe('public/theme-init.js', () => {
   /** Runs the pre-paint script against a stored value and returns the attributes it set. */
-  function runScript(stored: unknown): Record<string, string | null> {
+  function runScript(stored?: unknown): Record<string, string | null> {
     for (const name of [
       'data-theme',
       'data-accent',
@@ -121,17 +130,20 @@ describe('public/theme-init.js', () => {
       'data-reduce-motion',
     ])
       document.documentElement.removeAttribute(name)
-    localStorage.setItem(
-      APPEARANCE_STORAGE_KEY,
-      typeof stored === 'string' ? stored : JSON.stringify(stored),
-    )
+    document.documentElement.setAttribute('data-theme', 'dark')
+    if (stored === undefined) localStorage.removeItem(APPEARANCE_STORAGE_KEY)
+    else
+      localStorage.setItem(
+        APPEARANCE_STORAGE_KEY,
+        typeof stored === 'string' ? stored : JSON.stringify(stored),
+      )
     new Function(themeInit)()
     return attributes()
   }
 
   test('applies exactly what applyToRoot applies, for every combination of choices', () => {
     for (const theme of ['system', 'light', 'dark'] as const)
-      for (const accent of ['blue', 'purple', 'graphite'] as const)
+      for (const accent of ['teal', 'blue', 'purple', 'graphite'] as const)
         for (const glass of ['clear', 'standard', 'tinted', 'opaque'] as const)
           for (const typeSize of [-1, 0, 1, 3])
             for (const reduceMotion of [false, true]) {
@@ -142,9 +154,9 @@ describe('public/theme-init.js', () => {
             }
   })
 
-  test('survives unreadable and hostile storage without setting anything', () => {
+  test('survives unreadable and hostile storage with the dark default', () => {
     expect(runScript('{broken')).toEqual({
-      'data-theme': null,
+      'data-theme': 'dark',
       'data-accent': null,
       'data-glass': null,
       'data-type-size': null,
@@ -157,16 +169,44 @@ describe('public/theme-init.js', () => {
       typeSize: '2',
       reduceMotion: 'true',
     })
-    expect(Object.values(hostile).every((value) => value === null)).toBe(true)
+    expect(hostile['data-theme']).toBe('dark')
+    expect(
+      Object.entries(hostile).every(([key, value]) => key === 'data-theme' || value === null),
+    ).toBe(true)
+  })
+
+  test('missing and invalid storage use dark before the first paint', () => {
+    for (const value of [undefined, 'null', '[1,2]', '42', '{}']) {
+      const fromScript = runScript(value)
+      applyToRoot(DEFAULT_APPEARANCE)
+      expect(fromScript, String(value)).toEqual(attributes())
+    }
+  })
+
+  test('blocked storage still applies the dark default', () => {
+    const get = vi.spyOn(Storage.prototype, 'getItem').mockImplementation(() => {
+      throw new Error('Storage blocked')
+    })
+    try {
+      new Function(themeInit)()
+      expect(document.documentElement.getAttribute('data-theme')).toBe('dark')
+    } finally {
+      get.mockRestore()
+    }
   })
 })
 
 describe("the installed app's title bar colour (theme-color)", () => {
   const indexHtml = readFileSync(join(process.cwd(), 'index.html'), 'utf8')
-  const [light, dark] = neutral['bg-app']
+  const [light, dark] = neutral['bg-content']
 
   /** The two metas of index.html, put into the test document as the page has them. */
   function installMetas(): HTMLMetaElement[] {
+    document.head.querySelector('meta[name="color-scheme"]')?.remove()
+    const scheme = document.createElement('meta')
+    scheme.name = 'color-scheme'
+    scheme.content = 'dark'
+    document.head.append(scheme)
     for (const old of document.head.querySelectorAll('meta[name="theme-color"]')) old.remove()
     const metas = [...indexHtml.matchAll(/<meta name="theme-color"[^>]*>/g)].map((match) => {
       const parsed = new DOMParser().parseFromString(match[0], 'text/html')
@@ -183,10 +223,13 @@ describe("the installed app's title bar colour (theme-color)", () => {
       ),
     )
 
-  test('index.html says the app background of each scheme, the colour the tokens give it', () => {
+  test('index.html starts with the dark theme and a matching title bar', () => {
     installMetas()
+    const initial = new DOMParser().parseFromString(indexHtml, 'text/html')
+    expect(initial.documentElement.getAttribute('data-theme')).toBe('dark')
+    expect(initial.querySelector('meta[name="color-scheme"]')?.getAttribute('content')).toBe('dark')
     expect(contents()).toEqual({
-      '(prefers-color-scheme: light)': light,
+      '(prefers-color-scheme: light)': dark,
       '(prefers-color-scheme: dark)': dark,
     })
   })
@@ -210,9 +253,16 @@ describe("the installed app's title bar colour (theme-color)", () => {
       localStorage.setItem(APPEARANCE_STORAGE_KEY, JSON.stringify({ ...DEFAULT_APPEARANCE, theme }))
       new Function(themeInit)()
       const fromScript = contents()
+      const schemeFromScript = document.head
+        .querySelector('meta[name="color-scheme"]')
+        ?.getAttribute('content')
       installMetas()
       applyToRoot({ ...DEFAULT_APPEARANCE, theme })
       expect(fromScript, theme).toEqual(contents())
+      expect(schemeFromScript).toBe(theme === 'system' ? 'light dark' : theme)
+      expect(
+        document.head.querySelector('meta[name="color-scheme"]')?.getAttribute('content'),
+      ).toBe(schemeFromScript)
     }
   })
 })

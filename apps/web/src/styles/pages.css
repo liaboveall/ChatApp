@@ -1,4 +1,7 @@
-/* Pages: authentication and the welcome (no conversation selected) state. */
+/* Pages: authentication, the welcome state, the lists of the main area (discovery, archived), site administration and
+   the privacy document. */
+
+/* ---- Authentication: one pane of glass on the wallpaper ---- */
 
 .auth {
   position: absolute;
@@ -10,13 +13,17 @@
   padding: 24px 16px;
 }
 .auth__inner {
-  width: min(440px, 100%);
+  width: min(432px, 100%);
+}
+.auth__inner:focus-visible {
+  outline: none;
 }
 .auth-card {
   display: grid;
   gap: 22px;
-  padding: 30px 28px 24px;
-  border-radius: 28px;
+  padding: 36px 32px 26px;
+  border-radius: 32px;
+  box-shadow: var(--glass-ring), var(--glass-drop-lg);
 }
 .auth-head {
   display: grid;
@@ -24,22 +31,29 @@
   gap: 10px;
   text-align: center;
 }
+.auth-head h1 {
+  margin-top: 4px;
+  letter-spacing: -0.02em;
+}
 .auth-head__icon {
   display: grid;
   place-items: center;
-  width: 56px;
-  height: 56px;
-  border-radius: 16px;
+  width: 60px;
+  height: 60px;
+  border-radius: 20px;
   background: color-mix(in srgb, var(--accent-solid) 12%, transparent);
   color: var(--accent-text);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent-solid) 10%, transparent);
 }
 .auth-head__icon--ok {
   background: color-mix(in srgb, var(--success-solid) 13%, transparent);
   color: var(--success-text);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--success-solid) 10%, transparent);
 }
 .auth-head__icon--bad {
   background: color-mix(in srgb, var(--danger-solid) 11%, transparent);
   color: var(--danger-text);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--danger-solid) 10%, transparent);
 }
 .auth-form {
   display: grid;
@@ -48,13 +62,14 @@
 .auth-links {
   display: flex;
   justify-content: flex-end;
+  margin-top: -4px;
   font-size: var(--fs-callout);
   line-height: var(--lh-callout);
 }
 .auth-or {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: 12px;
   color: var(--label-secondary);
   font-size: var(--fs-subheadline);
 }
@@ -75,19 +90,25 @@
   margin-left: 4px;
 }
 
+/* ---- Welcome: nothing is open yet ---- */
+
 .welcome {
   display: grid;
   justify-items: center;
   align-content: center;
   gap: 14px;
   min-height: 100%;
-  padding: 48px 24px;
+  padding: 32px 24px 64px;
   text-align: center;
+}
+.welcome h1 {
+  margin-top: 6px;
+  letter-spacing: -0.02em;
 }
 .welcome__keys {
   display: grid;
   gap: 8px;
-  margin-top: 8px;
+  margin-top: 10px;
   width: min(420px, 100%);
   text-align: left;
 }
@@ -96,6 +117,7 @@
   flex-wrap: wrap;
   justify-content: center;
   gap: 10px;
+  margin-top: 6px;
 }
 /* The shortcuts open in place; the marker is a chevron that turns, as in the assistant's tool steps. */
 .welcome__keys summary {
@@ -104,9 +126,9 @@
   justify-content: center;
   gap: 6px;
   width: fit-content;
-  min-height: 28px;
+  min-height: 30px;
   margin: 0 auto 8px;
-  padding: 0 10px;
+  padding: 0 12px;
   border-radius: 999px;
   color: var(--label-secondary);
   font-size: var(--fs-callout);
@@ -114,8 +136,8 @@
   list-style: none;
   user-select: none;
   transition:
-    background-color 0.15s,
-    color 0.15s;
+    background-color 0.16s,
+    color 0.16s;
 }
 .welcome__keys summary::-webkit-details-marker {
   display: none;
@@ -138,13 +160,410 @@
   background: var(--fill);
   color: var(--label);
 }
+.welcome__keys[open] > :not(summary) {
+  padding: 6px 16px;
+  border-radius: var(--radius-card);
+  background: var(--group-bg);
+  box-shadow: inset 0 0 0 1px var(--group-edge);
+}
 .welcome__keys .keys-row {
-  border-bottom: 0;
-  padding: 4px 0;
+  padding: 7px 0;
 }
 
 @container win (max-width: 767px) {
   .auth-card {
-    padding: 24px 18px 20px;
+    padding: 28px 20px 22px;
+    border-radius: 28px;
+  }
+}
+
+/* ---- Pages inside the main area (discovery, archived) ---- */
+
+.page {
+  display: grid;
+  align-content: start;
+  gap: 16px;
+  max-width: 720px;
+  margin: 0 auto;
+  padding: 16px 20px 48px;
+}
+.page__head {
+  display: grid;
+  gap: 12px;
+}
+.page__head h1 {
+  letter-spacing: -0.02em;
+}
+.page__lead {
+  color: var(--label-secondary);
+  font-size: var(--fs-callout);
+  line-height: var(--lh-callout);
+}
+.page__state,
+.page__more {
+  display: grid;
+  place-items: center;
+  padding: 16px;
+}
+/* A list of places: one group, its rows parted by a hairline that starts under the text, not under the picture. */
+.list-rows {
+  display: grid;
+  padding: 4px;
+  border-radius: 20px;
+  background: var(--group-bg);
+  box-shadow: inset 0 0 0 1px var(--group-edge);
+}
+.list-row {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px;
+  border-radius: 16px;
+  transition: background-color 0.16s;
+}
+.list-row + .list-row::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  left: 64px;
+  right: 12px;
+  height: 1px;
+  background: var(--separator);
+}
+/* A row whose name is a link opens from anywhere on it: the link is stretched over the row, so there is still one link
+   for the keyboard and for a screen reader, and the row's own controls stay above it. The row answers the link, not the
+   pointer: it lights up and takes the focus ring when a press or Enter would open it, so a row that only carries a
+   button (an archived conversation) does not pretend to be one. */
+a.list-row__title::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: 16px;
+}
+.list-row:has(a.list-row__title) :is(button, a:not(.list-row__title), input, select) {
+  position: relative;
+  z-index: 1;
+}
+.list-row:has(a.list-row__title:hover) {
+  background: var(--fill-hover);
+}
+.list-row:has(a.list-row__title:hover)::before,
+.list-row:has(a.list-row__title:hover) + .list-row::before {
+  opacity: 0;
+}
+a.list-row__title:focus-visible {
+  outline: none;
+}
+.list-row:has(a.list-row__title:focus-visible) {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: -2px;
+}
+.list-row__body {
+  flex: 1;
+  min-width: 0;
+  display: grid;
+  gap: 1px;
+}
+.list-row__title {
+  font-size: var(--fs-body);
+  line-height: var(--lh-body);
+  font-weight: 600;
+  color: var(--label);
+  text-decoration: none;
+}
+.list-row__text {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--label-secondary);
+  font-size: var(--fs-callout);
+  line-height: var(--lh-callout);
+}
+.list-row__text:empty {
+  display: none;
+}
+.list-row__meta {
+  color: var(--label-secondary);
+  font-size: var(--fs-subheadline);
+  line-height: var(--lh-subheadline);
+}
+
+.join-preview {
+  display: grid;
+  justify-items: center;
+  gap: 6px;
+  padding: 8px 0 4px;
+  text-align: center;
+}
+.join-preview__text {
+  max-width: 44ch;
+  color: var(--label);
+  font-size: var(--fs-callout);
+  line-height: var(--lh-callout);
+}
+.join-preview__meta {
+  color: var(--label-secondary);
+  font-size: var(--fs-subheadline);
+  line-height: var(--lh-subheadline);
+}
+
+/* ---- Site administration ---- */
+
+/* A page of records to scan: one column of a comfortable width, centred in the main area. */
+.admin-page {
+  min-width: 0;
+  height: 100%;
+  padding: 12px 20px 48px;
+}
+.admin-page > * {
+  max-width: 880px;
+  margin-inline: auto;
+}
+.admin-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+.admin-head h1 {
+  letter-spacing: -0.02em;
+}
+/* The sections: a row of pills that wraps, so every section stays in sight at any width. */
+.admin-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-block: 14px 18px;
+}
+/* A filter: its field, then its button on the input's own line. The button starts where the input starts (past the
+   label and the field's gap) and is as tall, so the two read as one control whatever comes and goes under the input. */
+.admin-search {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  margin-bottom: 16px;
+}
+.admin-search .field {
+  flex: 1;
+  min-width: 0;
+}
+.admin-search > .btn {
+  flex: none;
+  min-height: 36px;
+  margin-top: calc(var(--lh-callout) + 6px);
+}
+/* The audit filters are four fields: as many to a line as fit, and the button on a line of its own under them. */
+.admin-audit-filters {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 180px), 1fr));
+  gap: 12px;
+}
+.admin-audit-filters > .btn {
+  grid-column: 1 / -1;
+  justify-self: end;
+  margin-top: 0;
+}
+.admin-list,
+.admin-form {
+  display: grid;
+  gap: 12px;
+}
+/* The records of a section: one group with its rows parted by hairlines, the grouped list of the settings sheet (not a
+   pile of cards with a shadow each). */
+.admin-rows {
+  padding: 2px 16px;
+  border-radius: var(--radius-card);
+  background: var(--group-bg);
+  box-shadow: inset 0 0 0 1px var(--group-edge);
+}
+.admin-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 12px;
+  padding: 12px 0;
+}
+.admin-row + .admin-row,
+.admin-line + .admin-line {
+  border-top: 1px solid var(--separator);
+}
+/* The picture keeps to the first line of a row that runs to three or four. */
+.admin-row > .avatar {
+  align-self: flex-start;
+  margin-top: 2px;
+}
+.admin-row__main {
+  flex: 1 1 200px;
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.admin-row strong {
+  font-size: var(--fs-body);
+  line-height: var(--lh-body);
+  font-weight: 600;
+}
+.admin-row p {
+  color: var(--label-secondary);
+  font-size: var(--fs-subheadline);
+  line-height: var(--lh-subheadline);
+  overflow-wrap: anywhere;
+}
+/* What a person wrote (a note on an invitation, the details of a report) reads as text, not as a caption. */
+.admin-row p.admin-row__text {
+  color: var(--label);
+  font-size: var(--fs-callout);
+  line-height: var(--lh-callout);
+}
+/* States as tags: who is an administrator, banned or unverified shows down a list without reading every line. */
+.admin-row__tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 4px;
+}
+.admin-row__tags .badge {
+  height: 20px;
+  padding: 0 8px;
+  font-size: var(--fs-footnote);
+  line-height: 20px;
+}
+.admin-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px;
+}
+/* The actions keep to the far edge, also when a narrow row puts them on a line of their own. */
+.admin-row > .admin-actions,
+.admin-row > .btn {
+  flex: none;
+  margin-inline-start: auto;
+}
+.admin-line {
+  padding: 10px 0;
+  font-size: var(--fs-callout);
+  line-height: var(--lh-callout);
+  font-variant-numeric: tabular-nums;
+}
+.admin-pager {
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+/* The site settings: some twenty limits, shown under what they are about, two to a line where there is room. */
+.admin-policy {
+  gap: 18px;
+}
+.admin-policy__models {
+  margin-top: -8px;
+  padding-inline: 4px;
+  color: var(--label-secondary);
+  font-size: var(--fs-subheadline);
+  line-height: var(--lh-subheadline);
+  overflow-wrap: anywhere;
+}
+/* A fieldset asks for the width of its content unless told otherwise, which would push a narrow page sideways. */
+.admin-fieldset {
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+.admin-fieldset > legend {
+  padding: 0 14px 8px;
+  font-size: var(--fs-subheadline);
+  line-height: var(--lh-subheadline);
+  font-weight: 600;
+  color: var(--label-secondary);
+}
+.admin-fieldset__box {
+  padding: 16px;
+  border-radius: var(--radius-card);
+  background: var(--group-bg);
+  box-shadow: inset 0 0 0 1px var(--group-edge);
+}
+.admin-fields {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 300px), 1fr));
+  align-items: start;
+  gap: 14px 16px;
+}
+.admin-fieldset__row {
+  margin-top: 14px;
+  padding-bottom: 0;
+  border-top: 1px solid var(--separator);
+}
+.admin-form__actions {
+  display: flex;
+  justify-content: flex-end;
+}
+.admin-context {
+  max-height: 55dvh;
+  display: grid;
+  gap: 12px;
+}
+.admin-context p,
+.admin-context pre {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.admin-context time {
+  display: block;
+  font-size: var(--fs-callout);
+}
+.admin-context__reported {
+  border-inline-start: 3px solid var(--accent-solid);
+  padding-inline-start: 12px;
+}
+
+/* ---- The privacy document: a page to read ----
+   A wider card than the sign-in forms, lines kept to a comfortable length. */
+.auth__inner:has(> .privacy-page) {
+  width: min(720px, 100%);
+}
+.privacy-page {
+  width: 100%;
+  max-height: calc(100dvh - 48px);
+  padding: 34px 38px 28px;
+  border-radius: 32px;
+  font-size: var(--fs-body);
+  line-height: 1.7;
+  box-shadow: var(--glass-ring), var(--glass-drop-lg);
+}
+.privacy-page h1 {
+  margin-bottom: 4px;
+  letter-spacing: -0.02em;
+}
+.privacy-page section {
+  max-width: 64ch;
+  margin-block: 22px;
+}
+.privacy-page h2 {
+  margin-bottom: 4px;
+}
+.privacy-page p {
+  text-wrap: pretty;
+}
+.privacy-page p + p,
+.privacy-page p + .banner {
+  margin-top: 8px;
+}
+.privacy-page nav {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 20px;
+  margin-top: 28px;
+  padding-top: 16px;
+  border-top: 1px solid var(--separator);
+  font-size: var(--fs-callout);
+}
+@container win (max-width: 767px) {
+  .privacy-page {
+    padding: 24px 20px 20px;
+    border-radius: 28px;
   }
 }

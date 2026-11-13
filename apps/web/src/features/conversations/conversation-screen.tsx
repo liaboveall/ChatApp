@@ -221,7 +221,10 @@ export function ConversationScreen({ id, meId }: { id: string; meId: string }) {
   )
 }
 
-/** The list fills the space above the dock; floating timeline controls also use the measured dock height. */
+/**
+ * The list fills the whole screen and the dock floats over its foot: the dock's height is measured into `--composer-h`,
+ * which the list's last spacer and the floating timeline controls read, so the newest message always ends above it.
+ */
 function ConvoFrame({ children }: { children: React.ReactNode[] }) {
   const frame = useRef<HTMLDivElement>(null)
   const dock = useRef<HTMLDivElement>(null)

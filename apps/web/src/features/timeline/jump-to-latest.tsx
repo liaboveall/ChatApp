@@ -8,7 +8,7 @@ export function JumpToLatest({ count, onClick }: { count: number; onClick: () =>
   return (
     <button
       type="button"
-      className="jump glass-lite"
+      className="jump glass-clear"
       aria-label={m.timeline_jump_to_latest({ count })}
       onClick={onClick}
     >

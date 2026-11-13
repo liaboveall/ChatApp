@@ -56,6 +56,7 @@ const context = (kind: 'group' | 'dm'): RowContext => ({
   actionsOf: () => noActions,
   onMenu: noop,
   onReply: noop,
+  onProfile: noop,
 })
 
 const msg = (

@@ -11,9 +11,17 @@
   gap: 2px;
   margin-left: auto;
 }
-/* Above the composer of an assistant chat: how hard the next reply thinks, and the chat's own actions. */
+/* Above the composer of an assistant chat: how hard the next reply thinks, and the chat's own actions. The row floats
+   over the conversation like the composer under it, so it is a pane of the same glass. */
 .composer-stack > .agent-controls {
-  padding: 0 6px 0 12px;
+  justify-self: start;
+  max-width: 100%;
+  padding: 4px 6px 4px 14px;
+  border-radius: 999px;
+  background: var(--glass-fill-text);
+  -webkit-backdrop-filter: var(--glass-filter);
+  backdrop-filter: var(--glass-filter);
+  box-shadow: var(--glass-ring), var(--glass-drop-sm);
 }
 .composer-stack > .agent-controls .seg__item {
   min-height: 24px;
@@ -21,7 +29,7 @@
   font-size: var(--fs-subheadline);
 }
 .composer-stack > .agent-key-source {
-  padding: 0 12px;
+  padding: 4px 6px 4px 14px;
 }
 /* Where the request goes when the assistant is asked: small print, always there where the assistant can be called. */
 .agent-disclosure {
@@ -103,8 +111,8 @@
   max-height: 220px;
   max-width: 100%;
   margin: 0;
-  padding: 8px 10px;
-  border-radius: 8px;
+  padding: 8px 12px;
+  border-radius: 10px;
   background: var(--code-bg);
   color: var(--code-fg);
   font-family: var(--font-mono);
@@ -159,10 +167,11 @@
   margin-right: 4px;
   padding-block: 4px;
   border-color: transparent;
+  border-radius: 999px;
   background-color: transparent;
   box-shadow: none;
-  font-size: var(--fs-headline);
-  line-height: var(--lh-headline);
+  font-size: var(--fs-title-3);
+  line-height: var(--lh-title-3);
   font-weight: 600;
 }
 .agent-panel__session:hover:not([disabled]) {
@@ -192,7 +201,7 @@
 .agent-panel__message[data-kind="user"] {
   align-self: flex-end;
   max-width: 88%;
-  padding: 7px 12px;
+  padding: 8px 14px;
   border-radius: var(--radius-bubble);
   border-bottom-right-radius: var(--radius-bubble-join);
   background: color-mix(in srgb, var(--accent-solid) 14%, transparent);
@@ -269,13 +278,15 @@
 .agent-panel__empty-icon {
   display: grid;
   place-items: center;
-  width: 48px;
-  height: 48px;
-  margin-bottom: 6px;
-  border-radius: 16px;
+  width: 56px;
+  height: 56px;
+  margin-bottom: 8px;
+  border-radius: 18px;
   background: linear-gradient(145deg, oklch(0.5 0.2 285), oklch(0.46 0.2 330));
   color: #fff;
-  box-shadow: inset 0 1px 0 rgb(255 255 255 / 0.22);
+  box-shadow:
+    inset 0 1px 0 rgb(255 255 255 / 0.26),
+    0 12px 26px -10px oklch(0.5 0.2 300 / 0.7);
 }
 .agent-panel__empty-icon .icon {
   fill: currentColor;
@@ -290,10 +301,12 @@
   display: grid;
   grid-template-columns: auto minmax(0, 1fr);
   align-items: center;
-  gap: 6px 10px;
+  gap: 8px 10px;
   min-width: 0;
-  padding-top: 10px;
-  border-top: 1px solid var(--separator);
+  padding: 10px 12px;
+  border-radius: var(--radius-card);
+  background: var(--group-bg);
+  box-shadow: inset 0 0 0 1px var(--group-edge);
 }
 /* Each option is a row of the same two columns: its name, then its control. */
 .agent-option {
@@ -356,25 +369,26 @@
 .agent-chip {
   min-height: 28px;
   max-width: 100%;
-  padding: 3px 11px;
+  padding: 3px 12px;
   border-radius: 999px;
-  background: var(--fill);
-  color: var(--label);
+  background: color-mix(in srgb, var(--accent-solid) 12%, transparent);
+  color: var(--accent-text);
   font-size: var(--fs-subheadline);
   line-height: 1.3;
-  font-weight: 500;
+  font-weight: 600;
   overflow-wrap: anywhere;
   transition:
     background-color 0.15s,
     scale var(--dur-snappy) var(--spring-snappy);
 }
 .agent-chip:hover {
-  background: var(--fill-hover);
+  background: color-mix(in srgb, var(--accent-solid) 16%, transparent);
 }
 .agent-chip:active {
   scale: 0.96;
 }
 .agent-chip[aria-disabled="true"] {
+  background: var(--fill);
   color: var(--label-disabled);
   cursor: progress;
   scale: none;
@@ -388,7 +402,7 @@
   min-width: 0;
   padding: 4px;
   border: 1px solid var(--control-border);
-  border-radius: 20px;
+  border-radius: 22px;
   background: var(--field-bg);
   box-shadow: inset 0 1px 1px var(--field-inset);
   transition:
@@ -399,7 +413,7 @@
   outline: 2px solid var(--focus-ring);
   outline-offset: -1px;
   border-color: var(--focus-ring);
-  box-shadow: 0 0 0 4px color-mix(in srgb, var(--accent-solid) 18%, transparent);
+  box-shadow: 0 0 0 5px color-mix(in srgb, var(--accent-solid) 18%, transparent);
 }
 .agent-panel__composer .agent-prompt {
   flex: 1;
@@ -444,7 +458,7 @@
 .agent-usage__box {
   display: grid;
   gap: 14px;
-  padding: 14px;
+  padding: 16px;
 }
 .agent-usage .meter {
   gap: 6px;
@@ -484,8 +498,8 @@
 .approval {
   display: grid;
   gap: 8px;
-  padding: 12px;
-  border-radius: var(--radius-card);
+  padding: 14px;
+  border-radius: 18px;
   color: var(--label);
   font-size: var(--fs-subheadline);
   line-height: var(--lh-subheadline);
@@ -525,7 +539,7 @@
   margin: 0;
   padding: 8px 12px;
   border-left: 3px solid color-mix(in srgb, var(--accent-solid) 55%, transparent);
-  background: var(--bg-content);
+  background: var(--fill);
   border-radius: 4px var(--radius-control) var(--radius-control) 4px;
   max-height: 240px;
   overflow: auto;
@@ -604,6 +618,7 @@
   grid-template-columns: repeat(auto-fit, minmax(110px, 1fr));
   gap: 2px;
   width: 100%;
+  border-radius: 18px;
 }
 .task-filters .seg__item {
   min-width: 0;
@@ -619,4 +634,51 @@
   font-size: var(--fs-callout);
   line-height: var(--lh-callout);
   font-weight: 600;
+}
+
+/* ---- A reply that is still being written (docs/02 section 6) ----
+   The edge of the assistant's bubble is a band of light that turns while the words arrive, and is gone when the reply
+   is whole. The border takes its 1.5px from the padding, so the bubble does not change size when it ends. With reduced
+   motion the band is there and does not turn. */
+@property --stream-angle {
+  syntax: "<angle>";
+  inherits: false;
+  initial-value: 0deg;
+}
+.bubble--in.bubble--streaming {
+  padding: 6.5px 12.5px;
+  border: 1.5px solid transparent;
+  background:
+    linear-gradient(var(--bubble-in), var(--bubble-in)) padding-box,
+    conic-gradient(
+      from var(--stream-angle),
+      oklch(0.78 0.16 70),
+      oklch(0.7 0.21 5),
+      oklch(0.64 0.23 300),
+      oklch(0.7 0.16 240),
+      oklch(0.78 0.16 70)
+    )
+    border-box;
+  box-shadow: 0 0 22px -8px oklch(0.66 0.22 300 / 0.7);
+  animation: stream-turn 3s linear infinite;
+}
+@keyframes stream-turn {
+  to {
+    --stream-angle: 360deg;
+  }
+}
+/* The tail is placed from the padding box: move it out by the band's width, so it still starts at the bubble's edge. */
+.msg[data-who="in"] .bubble--streaming.bubble--tail::before {
+  left: -8.5px;
+  bottom: -1.5px;
+}
+/* In the panel the answer is plain text under the assistant's name: there the name's glyph breathes instead. */
+.agent-panel__message[data-streaming="true"] .agent-panel__speaker .icon {
+  animation: stream-breathe 1.4s ease-in-out infinite;
+}
+@keyframes stream-breathe {
+  50% {
+    opacity: 0.35;
+    scale: 0.86;
+  }
 }

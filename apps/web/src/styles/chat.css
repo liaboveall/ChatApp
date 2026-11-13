@@ -1,11 +1,10 @@
-/* Chat (docs/02 section 5): the timeline is solid; only the toolbar and the composer float above it as glass. Values come
-   from the prototype confirmed at D4 (design/prototype/src/styles/40-chat.css); the structure is the app's own. */
+/* Chat (docs/02 section 5): the timeline lies on the window itself, edge to edge; the toolbar's capsules and the
+   composer float above it as glass, and what scrolls under either fades into the surface (the scroll edge). */
 
 .window {
-  --inset: color-mix(in srgb, var(--shade) 16%, transparent);
+  --inset: color-mix(in srgb, var(--accent-shade) 16%, transparent);
 }
 
-/* The toolbar floats above the list. The dock reserves room for its controls, previews and disclosure. */
 .content[data-layout="fill"] {
   overflow: hidden;
   padding-top: 0;
@@ -13,36 +12,36 @@
 .convo {
   position: absolute;
   inset: 0;
-  display: flex;
-  flex-direction: column;
   /* The rows ask how wide the conversation is (not the window: a docked inspector narrows it). */
   container: convo / inline-size;
+  /* The height of the dock, measured by the screen: the last row ends above it. */
   --composer-h: 76px;
 }
 .timeline {
-  position: relative;
-  flex: 1;
-  min-height: 0;
+  position: absolute;
+  inset: 0;
   overflow-y: auto;
   /* Rows never scroll sideways (code and tables scroll inside their own box): what hangs beside a bubble on hover must
      not be able to bring a horizontal scrollbar with it. */
   overflow-x: hidden;
   overscroll-behavior: contain;
+  scrollbar-width: thin;
+  scrollbar-color: color-mix(in srgb, var(--label) 22%, transparent) transparent;
 }
 .timeline:focus-visible {
   outline: none;
 }
 .timeline__inner {
-  max-width: 860px;
+  max-width: 820px;
   margin: 0 auto;
-  padding: 0 16px;
+  padding: 0 20px;
 }
-/* Spacers under the glass bars: the first row starts below the toolbar, the last ends above the composer. */
+/* Spacers under the glass: the first row starts below the toolbar, the last ends above the composer. */
 .t-pad-top {
-  height: calc(var(--toolbar-h) + 8px);
+  height: calc(var(--toolbar-h) + 4px);
 }
 .t-pad-bottom {
-  height: 12px;
+  height: calc(var(--composer-h) + 4px);
 }
 
 /* The "load earlier" control sits outside the feed (an ARIA feed may only contain articles). */
@@ -56,9 +55,9 @@
 /* In the page-by-page mode the "load newer" control sits just above the composer. */
 .timeline-newer {
   position: absolute;
-  bottom: calc(var(--composer-h) + 16px);
+  bottom: calc(var(--composer-h) + 12px);
   left: 50%;
-  z-index: 8;
+  z-index: 16;
   transform: translateX(-50%);
 }
 
@@ -67,7 +66,7 @@
 .date-sep {
   display: flex;
   justify-content: center;
-  margin: 20px 0 6px;
+  margin: 22px 0 8px;
 }
 /* A quiet line of text, as in a letter: the day is a heading for what follows, not a control. */
 .date-sep span {
@@ -82,8 +81,8 @@
 .unread-div {
   display: flex;
   align-items: center;
-  gap: 10px;
-  margin: 16px 0 10px;
+  gap: 12px;
+  margin: 18px 0 10px;
   color: var(--accent-text);
   font-size: var(--fs-subheadline);
   line-height: var(--lh-subheadline);
@@ -94,10 +93,17 @@
   content: "";
   flex: 1;
   height: 1px;
-  background: color-mix(in srgb, var(--accent-solid) 55%, transparent);
+  background: linear-gradient(
+    to right,
+    transparent,
+    color-mix(in srgb, var(--accent-solid) 60%, transparent)
+  );
+}
+.unread-div::after {
+  scale: -1 1;
 }
 .sys {
-  margin: 10px 24px;
+  margin: 12px 24px;
   text-align: center;
   color: var(--label-secondary);
   font-size: var(--fs-subheadline);
@@ -117,7 +123,7 @@
   gap: 6px;
   width: fit-content;
   max-width: min(520px, 100%);
-  margin: 14px auto 10px;
+  margin: 18px auto 10px;
   color: var(--label-secondary);
   font-size: var(--fs-subheadline);
   line-height: var(--lh-subheadline);
@@ -129,7 +135,7 @@
 }
 .history-boundary[data-boundary="joined"] {
   gap: 10px;
-  padding: 10px 14px;
+  padding: 10px 16px;
   border-radius: var(--radius-card);
   background: var(--fill);
   color: var(--label);
@@ -149,16 +155,16 @@
 .msg-article {
   position: relative;
   min-width: 0;
-  border-radius: 14px;
+  border-radius: 16px;
 }
 .msg-article[data-first="true"] {
-  margin-top: 12px;
+  margin-top: 14px;
 }
 .msg-article:focus-visible {
   outline-offset: 4px;
 }
 .msg-sender {
-  margin: 0 0 3px 40px;
+  margin: 0 0 4px 52px;
   font-size: var(--fs-subheadline);
   line-height: var(--lh-subheadline);
   font-weight: 600;
@@ -170,11 +176,10 @@
   row-gap: 2px;
 }
 .msg {
-  --row-bg: var(--bg-content);
   position: relative;
   display: flex;
   align-items: flex-end;
-  gap: 12px;
+  gap: 8px;
   padding: 1px 0;
   margin-top: 2px;
   min-width: 0;
@@ -184,14 +189,35 @@
 }
 .msg__avatar {
   flex: none;
-  width: 28px;
+  width: 30px;
   align-self: flex-end;
+}
+.msg__avatar .avatar {
+  display: grid;
+}
+/* The picture is the way to the person's card. */
+.msg__who {
+  display: grid;
+  border-radius: 999px;
+  transition: scale var(--dur-snappy) var(--spring-snappy);
+}
+.msg__who:hover {
+  scale: 1.08;
+}
+.msg__who:active {
+  scale: 0.94;
+}
+.msg-sender .badge {
+  height: 16px;
+  padding: 0 6px;
+  font-size: 10px;
+  line-height: 16px;
 }
 .msg__col {
   position: relative;
   display: grid;
   gap: 2px;
-  max-width: 65%;
+  max-width: 68%;
   min-width: 0;
 }
 .msg[data-who="out"] .msg__col {
@@ -202,7 +228,7 @@
   position: absolute;
   inset: -4px -10px;
   z-index: 0;
-  border-radius: 14px;
+  border-radius: 16px;
   background: color-mix(in srgb, var(--accent-solid) 20%, transparent);
   animation: flash 1s ease-out both;
   pointer-events: none;
@@ -221,7 +247,7 @@
    neither takes width from the bubble; anchored near the first line, so a long message keeps them by its top. */
 .msg__side {
   position: absolute;
-  top: min(50%, 18px);
+  top: min(50%, 19px);
   z-index: 6;
   display: flex;
   align-items: center;
@@ -243,32 +269,32 @@
   color: var(--label-secondary);
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
-  transition: opacity 0.12s;
 }
+/* It fades in and leaves at once: text is never left half visible behind a menu that has just opened over the row. */
 .msg-article:hover .msg__time,
 .msg-article:focus-within .msg__time,
 .msg-article:focus-visible .msg__time {
   opacity: 1;
+  transition: opacity 0.14s;
 }
-/* The time needs room beside the tools: a narrow conversation (a small window, a docked inspector) goes without it.
-   It is still in the row's accessible name. */
-@container convo (max-width: 899px) {
-  .msg__time {
-    display: none;
-  }
+/* The time is a pointer's detail: it is always in the row's accessible name. */
+.msg__time {
+  pointer-events: auto;
+  cursor: default;
 }
 
 /* Hover tools: reply and more. They float over solid content, so they use the glass without blur: any number of
-   messages can be lit (one hovered, one focused) without adding backdrop layers. */
+   messages can be lit (one hovered, one focused) without adding backdrop layers. They also show while the focus is in
+   the row, and the same actions are in the row's menu (right click, long press, Enter on the row). */
 .msg__tools {
   display: flex;
   gap: 1px;
   padding: 2px;
   border-radius: 999px;
   opacity: 0;
-  scale: 0.94;
+  scale: 0.9;
   transition:
-    opacity 0.12s,
+    opacity 0.14s,
     scale var(--dur-snappy) var(--spring-snappy);
 }
 .msg[data-who="in"] .msg__tools {
@@ -284,14 +310,14 @@
   scale: 1;
 }
 .msg__tools .icon-btn {
-  border-radius: 999px;
+  color: var(--label);
 }
 
 /* ---- Bubble ---- */
 
 .bubble {
   position: relative;
-  padding: 7px 13px;
+  padding: 8px 14px;
   border-radius: var(--radius-bubble);
   font-size: var(--fs-message);
   line-height: var(--lh-message);
@@ -304,8 +330,14 @@
   background: var(--bubble-in);
   color: var(--label);
 }
+/* My own: the accent as a lit pane. The lower half moves away from the text colour, never towards it. */
 .bubble--out {
-  background: var(--bubble-out);
+  background-color: var(--bubble-out);
+  background-image: linear-gradient(
+    to bottom,
+    transparent 20%,
+    color-mix(in srgb, var(--accent-shade) 7%, transparent)
+  );
   color: var(--on-accent);
 }
 .msg[data-who="in"] .bubble--join-prev {
@@ -320,37 +352,34 @@
 .msg[data-who="out"] .bubble--join-next {
   border-bottom-right-radius: var(--radius-bubble-join);
 }
-/* Tail on the last bubble of a group. The carve-out takes the row background. */
-.bubble--tail::before,
-.bubble--tail::after {
+/* Tail on the last bubble of a group. The bubble's lower corner on that side is square, and outside it a wedge in the
+   bubble's colour, cut to shape: the space under a 10px circle, coming to a point 7px out. Nothing is painted in the
+   background's colour to carve it, so the tail never covers what is beside the bubble (the sender's picture is 8px
+   away) and does not need to know what the row lies on. The wedge reaches 2px into the bubble, so no seam can open
+   between the two at a fractional position. */
+.bubble--tail::before {
   content: "";
   position: absolute;
   bottom: 0;
-  height: 20px;
+  width: 9px;
+  height: 10px;
+}
+.msg[data-who="in"] .bubble--tail {
+  border-bottom-left-radius: 0;
 }
 .msg[data-who="in"] .bubble--tail::before {
   left: -7px;
-  width: 20px;
   background: var(--bubble-in);
-  border-bottom-right-radius: 16px 14px;
+  clip-path: path("M7 0H9V10H0V9.54A10 10 0 0 0 7 0Z");
 }
-.msg[data-who="in"] .bubble--tail::after {
-  left: -10px;
-  width: 10px;
-  background: var(--row-bg);
-  border-bottom-right-radius: 10px;
+.msg[data-who="out"] .bubble--tail {
+  border-bottom-right-radius: 0;
 }
+/* The colour the bubble's own gradient ends on. */
 .msg[data-who="out"] .bubble--tail::before {
   right: -7px;
-  width: 20px;
-  background: var(--bubble-out);
-  border-bottom-left-radius: 16px 14px;
-}
-.msg[data-who="out"] .bubble--tail::after {
-  right: -10px;
-  width: 10px;
-  background: var(--row-bg);
-  border-bottom-left-radius: 10px;
+  background: color-mix(in srgb, var(--bubble-out), var(--accent-shade) 7%);
+  clip-path: path("M2 0H0V10H9V9.54A10 10 0 0 1 2 0Z");
 }
 .bubble__edited {
   margin-left: 6px;
@@ -359,18 +388,32 @@
   opacity: 0.8;
   white-space: nowrap;
 }
+/* What a reply answers: a block set into the bubble, with a bar at its leading edge. */
 .bubble__quote {
+  position: relative;
   display: block;
-  width: calc(100% + 8px);
-  margin: -2px -4px 6px;
-  padding: 5px 9px;
-  border-radius: 10px;
+  width: calc(100% + 12px);
+  margin: -2px -6px 6px;
+  padding: 5px 10px 5px 13px;
+  border-radius: 12px;
   background: color-mix(in srgb, var(--label) 7%, transparent);
   color: var(--label-secondary);
   font-size: var(--fs-subheadline);
   line-height: var(--lh-subheadline);
   text-align: left;
   cursor: pointer;
+  overflow: hidden;
+  transition: background-color 0.16s;
+}
+.bubble__quote::before {
+  content: "";
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: 3px;
+  background: var(--accent-text);
+}
+button.bubble__quote:hover {
+  background: color-mix(in srgb, var(--label) 11%, transparent);
 }
 .bubble__quote b {
   display: block;
@@ -387,12 +430,30 @@
   background: var(--inset);
   color: var(--on-accent);
 }
+.bubble--out button.bubble__quote:hover {
+  background: color-mix(in srgb, var(--accent-shade) 22%, transparent);
+}
+.bubble--out .bubble__quote::before {
+  background: var(--on-accent);
+}
 .bubble--out .bubble__quote b {
   color: var(--on-accent);
 }
 .bubble__quote[data-hidden="true"] {
   cursor: default;
   font-style: italic;
+}
+/* A message the assistant sent for the person, and a delivered reminder. */
+.bubble__via,
+.bubble__reminder {
+  display: block;
+  font-size: var(--fs-footnote);
+  line-height: var(--lh-footnote);
+  opacity: 0.8;
+}
+.bubble__reminder {
+  font-weight: 600;
+  margin-bottom: 2px;
 }
 
 /* Sending is desaturated (never faded text); a failure shows a red mark next to the bubble. */
@@ -416,29 +477,54 @@
   width: 20px;
   height: 20px;
 }
+.msg__retry {
+  display: flex;
+  justify-content: flex-end;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-top: 2px;
+}
+/* Why a message was not sent, or what it is waiting for: said once, in words, beside the buttons. */
+.msg__note {
+  color: var(--label-secondary);
+  font-size: var(--fs-footnote);
+  text-align: end;
+}
 
-/* ---- Typing ---- */
+/* ---- Typing: a small pill above the composer, on glass of its own (it floats over the conversation) ---- */
 
 .typing {
   display: flex;
   align-items: center;
+  min-height: 26px;
+  padding: 0 4px;
+  pointer-events: none;
+}
+.typing__pill {
+  display: inline-flex;
+  align-items: center;
   gap: 8px;
-  padding: 0 4px 6px;
-  min-height: 28px;
+  height: 26px;
+  padding: 0 12px 0 4px;
+  border-radius: 999px;
+  background: var(--glass-fill-text);
+  box-shadow: var(--glass-ring), var(--elev-1);
+  animation: pop-in var(--dur-snappy) var(--spring-snappy) both;
 }
 .typing__dots {
   position: relative;
   display: inline-flex;
   align-items: center;
-  gap: 4px;
-  height: 26px;
-  padding: 0 12px;
-  border-radius: 14px;
+  gap: 3px;
+  height: 18px;
+  padding: 0 7px;
+  border-radius: 999px;
   background: var(--bubble-in);
 }
 .typing__dots i {
-  width: 6px;
-  height: 6px;
+  width: 5px;
+  height: 5px;
   border-radius: 999px;
   background: var(--label-secondary);
   animation: bounce 1.2s ease-in-out infinite;
@@ -457,7 +543,7 @@
     opacity: 0.55;
   }
   30% {
-    transform: translateY(-4px);
+    transform: translateY(-3px);
     opacity: 1;
   }
 }
@@ -467,20 +553,42 @@
   color: var(--label-secondary);
 }
 
-/* ---- Composer (floating glass capsule) ---- */
+/* ---- Composer: a disc and a capsule of glass floating over the conversation ---- */
 
 .composer-dock {
-  position: relative;
-  flex: none;
-  padding: 8px 16px 14px;
+  position: absolute;
+  inset: auto 0 0;
   z-index: 15;
+  padding: 0 16px 10px;
+  pointer-events: none;
+}
+/* The scroll edge under the composer: the conversation fades into the window on its way down, so the last lines never
+   stop at a hard cut and the small print under the capsule stands on the plain surface. */
+.composer-dock::before {
+  content: "";
+  position: absolute;
+  inset: -28px 0 0;
+  z-index: -1;
+  background: linear-gradient(
+    to bottom,
+    transparent,
+    color-mix(in srgb, var(--bg-content) 50%, transparent) 30%,
+    color-mix(in srgb, var(--bg-content) 84%, transparent) 62%,
+    var(--bg-content) calc(100% - 26px)
+  );
   pointer-events: none;
 }
 .composer-stack {
   display: grid;
-  gap: 8px;
-  max-width: 828px;
+  gap: 6px;
+  max-width: 780px;
   margin: 0 auto;
+}
+.composer-stack > * {
+  pointer-events: auto;
+}
+.composer-stack > .typing {
+  pointer-events: none;
 }
 .composer-dock .agent-disclosure {
   margin: 0 0 -4px;
@@ -488,30 +596,51 @@
   text-align: center;
   text-wrap: balance;
 }
-.composer-dock > * {
-  pointer-events: auto;
-}
 .composer {
+  display: flex;
+  align-items: flex-end;
+  gap: 8px;
   width: 100%;
-  max-width: 828px;
-  margin: 0 auto;
-  border-radius: 24px;
+  min-width: 0;
+}
+.composer__attach {
+  width: 44px;
+  height: 44px;
+}
+.composer__field {
+  flex: 1;
   display: grid;
-  transition: box-shadow 0.15s;
   /* Let long reply previews shrink within the capsule and show their ellipsis. */
   grid-template-columns: minmax(0, 1fr);
+  min-width: 0;
+  border-radius: 22px;
+  /* What opens inside the capsule (the emoji with their headings, the people to mention) keeps to its corners. */
+  overflow: clip;
+  box-shadow: var(--glass-ring), var(--glass-drop);
+  transition: box-shadow 0.16s;
+}
+/* Focus on the field shows on the capsule: the 2px ring of the spec, with a soft halo of the accent around it. */
+.composer__field:has(.composer__input:focus-visible) {
+  box-shadow:
+    0 0 0 2px var(--focus-ring),
+    0 0 0 6px color-mix(in srgb, var(--accent-solid) 16%, transparent),
+    var(--glass-drop);
 }
 .composer__ctx {
   display: flex;
   align-items: center;
-  gap: 8px;
-  padding: 10px 10px 0 18px;
+  gap: 10px;
+  margin: 6px 6px 0;
+  padding: 6px 6px 6px 12px;
+  border-radius: 16px;
+  background: var(--fill);
   font-size: var(--fs-subheadline);
   line-height: var(--lh-subheadline);
   color: var(--label-secondary);
+  animation: rise-in var(--dur-snappy) var(--spring-snappy) both;
 }
 .composer__ctx b {
-  color: var(--label);
+  color: var(--accent-text);
   font-weight: 600;
 }
 .composer__ctx-bar {
@@ -524,52 +653,37 @@
   flex: 1;
   min-width: 0;
 }
-.composer__row {
-  display: flex;
-  align-items: flex-end;
-  gap: 2px;
-  padding: 6px;
-}
-.composer__row .icon-btn {
-  width: 36px;
-  height: 36px;
-  border-radius: 999px;
-}
-.composer__preview {
-  flex: 1;
-  min-width: 0;
-  max-height: 32vh;
-  padding: 8px;
-  color: var(--label);
-  font-size: var(--fs-message);
-  line-height: var(--lh-message);
-  overflow: auto;
-  overflow-wrap: anywhere;
-}
-.composer__row .icon-btn {
-  flex: none;
-}
-.composer__ctx .icon-btn {
-  flex: none;
-}
 .composer__ctx-text span {
   display: block;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.msg__retry {
-  display: flex;
-  justify-content: flex-end;
-  align-items: center;
-  flex-wrap: wrap;
-  gap: 4px;
+.composer__ctx .icon-btn {
+  flex: none;
 }
-/* Why a message was not sent, or what it is waiting for: said once, in words, beside the buttons. */
-.msg__note {
-  color: var(--label-secondary);
-  font-size: var(--fs-footnote);
-  text-align: end;
+.composer__row {
+  display: flex;
+  align-items: flex-end;
+  gap: 2px;
+  min-height: 44px;
+  padding: 4px 4px 4px 8px;
+}
+.composer__row .icon-btn {
+  flex: none;
+  width: 36px;
+  height: 36px;
+}
+.composer__preview {
+  flex: 1;
+  min-width: 0;
+  max-height: 32vh;
+  padding: 7px 8px;
+  color: var(--label);
+  font-size: var(--fs-message);
+  line-height: var(--lh-message);
+  overflow: auto;
+  overflow-wrap: anywhere;
 }
 .composer__input {
   flex: 1;
@@ -585,29 +699,20 @@
   resize: none;
   overflow-y: auto;
   field-sizing: content;
+  scrollbar-width: thin;
 }
 .composer__input:focus-visible {
   outline: none;
 }
-/* Focus on the field shows on the capsule: the 2px ring of the spec, with a soft halo of the accent around it. */
-.composer:has(.composer__input:focus-visible) {
-  box-shadow:
-    0 0 0 2px var(--focus-ring),
-    0 0 0 6px color-mix(in srgb, var(--accent-solid) 16%, transparent),
-    inset 0 1px 0 var(--glass-highlight),
-    var(--glass-drop);
-}
-.composer__send {
-  align-self: flex-end;
-  margin: 2px;
-  transition:
-    background-color 0.15s,
-    color 0.15s,
-    scale var(--dur-snappy) var(--spring-snappy);
-}
 .composer__row .composer__send {
   width: 32px;
   height: 32px;
+  margin: 2px;
+  transition:
+    background-color 0.16s,
+    color 0.16s,
+    box-shadow 0.16s,
+    scale var(--dur-snappy) var(--spring-snappy);
 }
 .composer__hint {
   padding: 0 18px 8px;
@@ -623,39 +728,38 @@
   align-items: center;
   justify-content: center;
   gap: 10px;
-  min-height: 48px;
-  padding: 8px 16px;
+  min-height: 44px;
+  padding: 8px 18px;
   color: var(--label-secondary);
   font-size: var(--fs-callout);
   line-height: var(--lh-callout);
   text-align: center;
 }
-@container win (max-width: 767px) {
-  .composer__row {
-    flex-wrap: wrap;
-  }
-  /* The field takes the first line; under it the tools stay left and what ends the message (preview, send) goes right. */
-  .composer__toggle,
-  .composer__send {
-    margin-left: auto;
-  }
-  .composer__toggle + .composer__send {
-    margin-left: 2px;
-  }
-  .composer__input {
-    order: -1;
-    flex: 1 1 100%;
-  }
-  .composer__preview {
-    order: -1;
-    flex: 1 1 100%;
-  }
+/* The commands the assistant answers to, offered while only a slash has been typed. */
+.composer__commands {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  padding: 8px 8px 0;
+}
+/* Dropping files anywhere on the conversation: the capsule says where they will go. */
+.composer[data-drop="true"] .composer__field {
+  box-shadow:
+    0 0 0 2px var(--accent-solid),
+    0 0 0 7px color-mix(in srgb, var(--accent-solid) 18%, transparent),
+    var(--glass-drop);
 }
 
 @keyframes pop-in {
   from {
     opacity: 0;
-    transform: scale(0.94);
+    transform: scale(0.9);
+  }
+}
+@keyframes rise-in {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
   }
 }
 
@@ -664,12 +768,12 @@
 .jump {
   position: absolute;
   right: 20px;
-  bottom: calc(var(--composer-h) + 20px);
+  bottom: calc(var(--composer-h) + 10px);
   z-index: 25;
   display: grid;
   place-items: center;
-  width: 38px;
-  height: 38px;
+  width: 40px;
+  height: 40px;
   border-radius: 999px;
   color: var(--label);
   animation: pop-in var(--dur-bouncy) var(--spring-bouncy) both;
@@ -679,12 +783,13 @@
   scale: 1.06;
 }
 .jump:active {
-  scale: 0.94;
+  scale: 0.92;
 }
 .jump .badge {
   position: absolute;
-  top: -8px;
-  left: -8px;
+  top: -7px;
+  left: -7px;
+  z-index: 2;
   box-shadow: 0 0 0 2px var(--bg-content);
 }
 
@@ -705,7 +810,7 @@
   }
 }
 
-/* Narrow windows: bubbles may use more of the width than the 65% of the desktop layout. */
+/* Narrow windows: bubbles may use more of the width than on the desktop. */
 @container win (max-width: 767px) {
   .msg__time {
     display: none;
@@ -714,7 +819,10 @@
     max-width: 84%;
   }
   .timeline__inner {
-    padding: 0 10px;
+    padding: 0 12px;
+  }
+  .composer-dock {
+    padding: 0 8px 8px;
   }
   /* No room beside the bubble: the tools ride on its far top corner instead, clear of the sender's name. They sit above
      the first line (the bubble's padding is all they overlap), so they never cover the words of the message they act
@@ -742,77 +850,26 @@
   text-align: center;
   color: var(--label-secondary);
 }
-
-.sidebar__loading {
-  padding: 16px 12px;
-  color: var(--label-secondary);
-  font-size: var(--fs-subheadline);
-  line-height: var(--lh-subheadline);
-}
-.s-list {
-  display: grid;
-  gap: 1px;
-}
-/* The rows are links (they navigate), but they are drawn like the rest of the list: no underline, normal text colour. */
-.s-item,
-.s-item:hover {
-  text-decoration: none;
+.convo-state__text {
+  max-width: 52ch;
   color: var(--label);
+  font-size: var(--fs-body);
+  line-height: var(--lh-body);
+  text-wrap: balance;
 }
 
 /* The system's "reduce motion" and the setting turn every animation into a plain fade. */
 @media (prefers-reduced-motion: reduce) {
   .msg--new .bubble,
-  .jump {
+  .jump,
+  .typing__pill,
+  .composer__ctx {
     animation: none;
   }
 }
 
-/* ---- Search input and chips (pickers, discovery) ---- */
+/* ---- The person picker of the dialogs ---- */
 
-/* A search box that is typed into is a field like the others: the same well, hairline and focus halo. */
-.search--field {
-  background: var(--field-bg);
-  box-shadow:
-    0 0 0 1px var(--control-border),
-    inset 0 1px 1px var(--field-inset);
-  color: var(--label-secondary);
-  transition: box-shadow 0.15s;
-}
-.search--field:focus-within {
-  box-shadow:
-    0 0 0 2px var(--focus-ring),
-    0 0 0 6px color-mix(in srgb, var(--accent-solid) 18%, transparent);
-}
-.search__input {
-  flex: 1;
-  min-width: 0;
-  border: 0;
-  background: transparent;
-  color: var(--label);
-  font-size: var(--fs-callout);
-  line-height: var(--lh-callout);
-}
-.search__input:focus-visible {
-  outline: none;
-}
-.search__input::-webkit-search-cancel-button {
-  display: none;
-}
-
-/* ---- Dialog forms and the person picker ---- */
-
-.dialog--form {
-  width: min(480px, calc(100% - 32px));
-}
-.dialog-form {
-  display: grid;
-  gap: 14px;
-  margin-top: 12px;
-}
-.dialog-form .dialog__actions {
-  margin-top: 4px;
-}
 .picker {
   display: grid;
   gap: 8px;
@@ -822,31 +879,12 @@
   flex-wrap: wrap;
   gap: 6px;
 }
-.chip {
-  display: inline-flex;
-  align-items: center;
-  gap: 2px;
-  padding: 2px 4px 2px 10px;
-  border-radius: 999px;
-  background: color-mix(in srgb, var(--accent-solid) 14%, transparent);
-  color: var(--accent-text);
-  font-size: var(--fs-callout);
-  line-height: var(--lh-callout);
-  font-weight: 600;
-}
-.chip__remove {
-  display: grid;
-  place-items: center;
-  width: 24px;
-  height: 24px;
-  border-radius: 999px;
-}
-.chip__remove:hover {
-  background: color-mix(in srgb, var(--accent-solid) 18%, transparent);
-}
 .picker__results {
-  max-height: 220px;
+  max-height: 232px;
   overflow-y: auto;
+  margin-inline: -6px;
+  padding-inline: 6px;
+  scrollbar-width: thin;
 }
 .picker__note {
   padding: 8px 4px;
@@ -859,10 +897,11 @@
   align-items: center;
   gap: 10px;
   width: 100%;
-  min-height: 44px;
-  padding: 4px 8px;
-  border-radius: 8px;
+  min-height: 48px;
+  padding: 5px 10px 5px 6px;
+  border-radius: 14px;
   text-align: left;
+  transition: background-color 0.16s;
 }
 .person > span {
   display: grid;
@@ -883,148 +922,4 @@
 }
 .person[aria-pressed="true"] {
   background: color-mix(in srgb, var(--accent-solid) 12%, transparent);
-}
-
-/* ---- Pages inside the main panel (discovery, archived) ---- */
-
-.page {
-  display: grid;
-  align-content: start;
-  gap: 16px;
-  max-width: 760px;
-  margin: 0 auto;
-  padding: 24px 20px 40px;
-}
-.page__head {
-  display: grid;
-  gap: 12px;
-}
-.page__lead {
-  color: var(--label-secondary);
-  font-size: var(--fs-callout);
-  line-height: var(--lh-callout);
-}
-.page__state,
-.page__more {
-  display: grid;
-  place-items: center;
-  padding: 16px;
-}
-/* A list of places: rows parted by a hairline that starts under the text, not under the picture. */
-.list-rows {
-  display: grid;
-}
-.list-row {
-  position: relative;
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  padding: 12px 10px;
-  border-radius: 12px;
-}
-.list-row + .list-row::before {
-  content: "";
-  position: absolute;
-  top: 0;
-  left: 62px;
-  right: 10px;
-  height: 1px;
-  background: var(--separator);
-}
-/* A row whose name is a link opens from anywhere on it: the link is stretched over the row, so there is still one link
-   for the keyboard and for a screen reader, and the row's own controls stay above it. The row answers the link, not the
-   pointer: it lights up and takes the focus ring when a press or Enter would open it, so a row that only carries a
-   button (an archived conversation) does not pretend to be one. */
-a.list-row__title::after {
-  content: "";
-  position: absolute;
-  inset: 0;
-  border-radius: 12px;
-}
-.list-row:has(a.list-row__title) :is(button, a:not(.list-row__title), input, select) {
-  position: relative;
-  z-index: 1;
-}
-.list-row:has(a.list-row__title:hover) {
-  background: var(--fill-hover);
-}
-.list-row:has(a.list-row__title:hover)::before,
-.list-row:has(a.list-row__title:hover) + .list-row::before {
-  opacity: 0;
-}
-a.list-row__title:focus-visible {
-  outline: none;
-}
-.list-row:has(a.list-row__title:focus-visible) {
-  outline: 2px solid var(--focus-ring);
-  outline-offset: -2px;
-}
-.list-row__body {
-  flex: 1;
-  min-width: 0;
-  display: grid;
-  gap: 1px;
-}
-.list-row__title {
-  font-size: var(--fs-headline);
-  line-height: var(--lh-headline);
-  font-weight: 600;
-  color: var(--label);
-  text-decoration: none;
-}
-.list-row__text {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  color: var(--label-secondary);
-  font-size: var(--fs-callout);
-  line-height: var(--lh-callout);
-}
-.list-row__text:empty {
-  display: none;
-}
-.list-row__meta {
-  color: var(--label-secondary);
-  font-size: var(--fs-subheadline);
-  line-height: var(--lh-subheadline);
-}
-
-.convo-state__text {
-  max-width: 52ch;
-  color: var(--label);
-  font-size: var(--fs-body);
-  line-height: var(--lh-body);
-  text-wrap: balance;
-}
-
-.join-preview {
-  display: grid;
-  justify-items: center;
-  gap: 6px;
-  padding: 8px 0 4px;
-  text-align: center;
-}
-.join-preview__text {
-  max-width: 44ch;
-  color: var(--label);
-  font-size: var(--fs-callout);
-  line-height: var(--lh-callout);
-}
-.join-preview__meta {
-  color: var(--label-secondary);
-  font-size: var(--fs-subheadline);
-  line-height: var(--lh-subheadline);
-}
-
-/* M5a: a message the assistant sent for the person, and a delivered reminder. */
-.bubble__via,
-.bubble__reminder {
-  display: block;
-  font-size: var(--fs-footnote);
-  line-height: var(--lh-footnote);
-  opacity: 0.8;
-}
-.bubble__reminder {
-  font-weight: 600;
-  margin-bottom: 2px;
 }

@@ -17,8 +17,9 @@ type AppShellProps = {
 }
 
 /**
- * Wallpaper plus three floating panels: sidebar (glass), main (solid), inspector (solid, or glass when it floats).
- * Layout tiers are container queries on `.window` (shell.css). The window is the viewport.
+ * The window is one solid surface: the main area is that surface, edge to edge, and the sidebar and the inspector are
+ * panes of glass floating on it (the wallpaper lies under the sidebar only). Layout tiers are container queries on
+ * `.window` (shell.css). The window is the viewport.
  */
 export function AppShell({ sidebar, toolbar, inspector, fill, children }: AppShellProps) {
   const inspectorTab = useShell((state) => state.inspector)
@@ -86,7 +87,7 @@ export function AppShell({ sidebar, toolbar, inspector, fill, children }: AppShe
           {sidebar}
           <Splitter />
         </nav>
-        <main className="main squircle" id="main" tabIndex={-1} inert={drawerOpen || undefined}>
+        <main className="main" id="main" tabIndex={-1} inert={drawerOpen || undefined}>
           {toolbar}
           <div
             className={fill ? 'content' : 'content scroll'}
@@ -96,7 +97,7 @@ export function AppShell({ sidebar, toolbar, inspector, fill, children }: AppShe
           </div>
         </main>
         <aside
-          className="inspector squircle"
+          className="inspector glass-text squircle"
           aria-label={m.shell_inspector_label()}
           inert={drawerOpen || undefined}
         >

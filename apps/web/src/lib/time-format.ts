@@ -105,6 +105,10 @@ function clock(instant: number | string | Date, locale: string, timeZone?: strin
   }).format(new Date(instant))
 }
 
+/** Hours and minutes, as shown beside a bubble: the day is said by the separator above it. */
+export const clockTime = (instant: string, locale: string, timeZone?: string): string =>
+  clock(instant, locale, timeZone)
+
 export type DayWords = { yesterday: string }
 
 /**
@@ -159,7 +163,7 @@ export function listTime(
   }).format(new Date(instant))
 }
 
-/** The exact time shown beside a bubble on hover: date, hours, minutes and seconds. */
+/** The exact time of a message (its row's name, and the tooltip of the clock beside it): date, hours, minutes, seconds. */
 export function exactTime(instant: string, locale: string, timeZone?: string): string {
   return new Intl.DateTimeFormat(locale, {
     timeZone: usableTimeZone(timeZone),

@@ -27,6 +27,9 @@ const TYPING: { label: () => string; keys: string[] }[] = [
   { label: () => m.shortcut_send(), keys: ['Enter'] },
   { label: () => m.shortcut_newline(), keys: ['shift', 'Enter'] },
   { label: () => m.shortcut_edit_last(), keys: ['up'] },
+  { label: () => m.shortcut_bold(), keys: ['mod', 'B'] },
+  { label: () => m.shortcut_italic(), keys: ['mod', 'I'] },
+  { label: () => m.shortcut_strike(), keys: ['mod', 'shift', 'X'] },
 ]
 
 /** Rows for the help dialog and the welcome page: the shortcuts that exist, with platform-correct key labels. */

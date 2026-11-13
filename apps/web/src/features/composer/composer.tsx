@@ -1,8 +1,9 @@
 /**
- * The composer (docs/02 section 3, docs/01 section 4.5, D-154): a floating glass capsule with a growing text field. Enter
- * sends and Shift+Enter breaks the line, except while an input method is composing (the rule is `enter-key.ts`). What was
- * typed and not sent is kept per conversation in memory. Sending is optimistic: the message appears at once as "sending".
- * Up arrow in an empty field edits my last message; a reply or an edit shows a bar above the field and Escape ends it.
+ * The composer (docs/02 section 3, docs/01 section 4.5, D-154): a disc that attaches files and a capsule of glass with a
+ * growing text field, floating over the conversation. Enter sends and Shift+Enter breaks the line, except while an input
+ * method is composing (the rule is `enter-key.ts`). What was typed and not sent is kept per conversation in memory.
+ * Sending is optimistic: the message appears at once as "sending". Up arrow in an empty field edits my last message; a
+ * reply or an edit shows a bar above the field and Escape ends it. Files can be dropped anywhere on the conversation.
  */
 import {
   type Conversation,
@@ -12,7 +13,7 @@ import {
   okResponseSchema,
 } from '@chatapp/contracts'
 import { useQuery } from '@tanstack/react-query'
-import { ArrowUp, Eye, Paperclip, Pencil, Smile, X } from 'lucide-react'
+import { ArrowUp, Check, Eye, Pencil, Plus, Smile, X } from 'lucide-react'
 import {
   type ChangeEvent,
   type KeyboardEvent,
@@ -32,9 +33,11 @@ import { useSiteLimits } from '@/features/settings/site-limits.ts'
 import { api } from '@/lib/api.ts'
 import { describeError } from '@/lib/error-messages.ts'
 import { messageBodyPreview } from '@/lib/message-text.ts'
+import { isApplePlatform } from '@/lib/platform.ts'
 import { meQuery } from '@/lib/queries.ts'
 import { serverNow } from '@/lib/realtime.ts'
 import { useShell } from '@/lib/shell-state.ts'
+import { local, scopedKey } from '@/lib/storage.ts'
 import { endCompose, liveTarget, modeOf, useCompose } from '@/lib/sync/compose.ts'
 import { draftOf, setDraft, setDraftPreview, useDrafts } from '@/lib/sync/drafts.ts'
 import { useTimelineWindow, useUsers } from '@/lib/sync/hooks.ts'
@@ -57,7 +60,10 @@ import { saveEdit } from '../message-actions/actions.ts'
 import { lastEditable } from '../message-actions/eligibility.ts'
 import { useMessageCommands } from '../message-actions/use-message-commands.ts'
 import type { TimelineHandle } from '../timeline/timeline.tsx'
+import { parseRecentEmoji, withRecentEmoji } from './emoji.ts'
+import { EmojiPicker } from './emoji-picker.tsx'
 import { type CompositionState, initialComposition, shouldSend } from './enter-key.ts'
+import { formatMark, toggleMark } from './format-keys.ts'
 import { editMentionDraft, mentionDraft, rawDraftOffset } from './mention-draft.ts'
 import { MentionPicker } from './mention-picker.tsx'
 import { useTypingSignal } from './use-typing-signal.ts'
@@ -78,6 +84,7 @@ export function Composer({
   const uploads = useUploads((state) => uploadsOf(state, id))
   const picker = useRef<HTMLInputElement>(null)
   const [emoji, setEmoji] = useState(false)
+  const [dropping, setDropping] = useState(false)
   const [agentSending, setAgentSending] = useState(false)
   const [caret, setCaret] = useState(0)
   const listId = useId()
@@ -105,6 +112,13 @@ export function Composer({
   const { data: account } = useQuery(meQuery)
   const commands = useMessageCommands(id)
   const users = useUsers()
+  // The emoji this person used last, kept on this device under their own account (D-070).
+  const recentKey =
+    account == null ? null : scopedKey(account.id, account.authEpoch, 'emoji-recent')
+  const [recentEmoji, setRecentEmoji] = useState<string[]>([])
+  useEffect(() => {
+    setRecentEmoji(recentKey === null ? [] : parseRecentEmoji(local.get(recentKey)))
+  }, [recentKey])
   const view = mentionDraft(draft, (userId) =>
     users[userId]?.deleted ? m.user_deleted() : (users[userId]?.displayName ?? m.user_member()),
   )
@@ -210,6 +224,51 @@ export function Composer({
         )
     }
   }
+  // Files may be dropped anywhere on the conversation, not only on the capsule: the capsule lights up while they hover.
+  // Where nothing can be attached (an archived conversation, a silenced member, a message being edited) a drop is not
+  // taken at all, so the browser shows that it would do nothing.
+  const takesFiles =
+    conversation.archivedAt === null && me?.silencedUntil == null && mode?.type !== 'edit'
+  const drop = useRef({ add: addFiles, takes: takesFiles })
+  useLayoutEffect(() => {
+    drop.current = { add: addFiles, takes: takesFiles }
+  })
+  useEffect(() => {
+    const frame = root.current?.closest<HTMLElement>('.convo')
+    if (!frame) return
+    const wanted = (event: DragEvent): boolean =>
+      drop.current.takes && (event.dataTransfer?.types.includes('Files') ?? false)
+    const onEnter = (event: DragEvent): void => {
+      if (wanted(event)) setDropping(true)
+    }
+    const onOver = (event: DragEvent): void => {
+      if (wanted(event)) event.preventDefault()
+    }
+    // Leaving for somewhere outside the conversation (or the window: no related target) ends the hover; moving between
+    // the conversation's own parts does not.
+    const onLeave = (event: DragEvent): void => {
+      if (!(event.relatedTarget instanceof Node) || !frame.contains(event.relatedTarget)) {
+        setDropping(false)
+      }
+    }
+    const onDrop = (event: DragEvent): void => {
+      setDropping(false)
+      if (!wanted(event)) return
+      event.preventDefault()
+      drop.current.add([...(event.dataTransfer?.files ?? [])])
+    }
+    frame.addEventListener('dragenter', onEnter)
+    frame.addEventListener('dragover', onOver)
+    frame.addEventListener('dragleave', onLeave)
+    frame.addEventListener('drop', onDrop)
+    return () => {
+      frame.removeEventListener('dragenter', onEnter)
+      frame.removeEventListener('dragover', onOver)
+      frame.removeEventListener('dragleave', onLeave)
+      frame.removeEventListener('drop', onDrop)
+    }
+  }, [])
+
   const discardUpload = (entryId: string): void => {
     const entry = uploadsOf(useUploads.getState(), id).find((item) => item.id === entryId)
     removeUpload(id, entryId)
@@ -390,6 +449,28 @@ export function Composer({
       }
       return
     }
+    // Bold, italic and strikethrough from the keyboard: the Markdown marks go around the selection (or come off it).
+    // A selection that reaches into a mention is left alone: the marks would cut the name from the person it stands for.
+    const mark = native.isComposing || state.composing ? null : formatMark(event, isApplePlatform())
+    if (mark !== null) {
+      const element = event.currentTarget
+      const selection = { start: element.selectionStart, end: element.selectionEnd }
+      const cutsMention = view.mentions.some(
+        (item) => item.start < selection.end && selection.start < item.end,
+      )
+      event.preventDefault()
+      if (cutsMention) return
+      const next = toggleMark({ text: view.text, ...selection }, mark)
+      setDraft(id, editMentionDraft(draft, view, next.text))
+      setDismissedMention(null)
+      const ticket = engine.ticket(id)
+      requestAnimationFrame(() => {
+        if (!engine.isCurrent(ticket)) return
+        field.current?.setSelectionRange(next.start, next.end)
+        setCaret(next.start)
+      })
+      return
+    }
     if (
       shouldSend(
         {
@@ -414,10 +495,12 @@ export function Composer({
   const silenced = me?.silencedUntil != null
   if (archived || silenced) {
     return (
-      <div className="composer glass-text squircle">
-        <p className="composer__locked" role="status">
-          {archived ? m.composer_archived() : m.composer_silenced()}
-        </p>
+      <div ref={root} className="composer">
+        <div className="composer__field glass-text">
+          <p className="composer__locked" role="status">
+            {archived ? m.composer_archived() : m.composer_silenced()}
+          </p>
+        </div>
       </div>
     )
   }
@@ -431,18 +514,7 @@ export function Composer({
         : (users[shown.senderId ?? '']?.displayName ?? m.user_member())
       : ''
   return (
-    // biome-ignore lint/a11y/noStaticElementInteractions: file drop augments the keyboard-accessible attachment button
-    <div
-      ref={root}
-      className="composer glass-text squircle"
-      onDragOver={(event) => {
-        if (event.dataTransfer.types.includes('Files')) event.preventDefault()
-      }}
-      onDrop={(event) => {
-        event.preventDefault()
-        addFiles([...event.dataTransfer.files])
-      }}
-    >
+    <div ref={root} className="composer" data-drop={dropping ? 'true' : undefined}>
       <input
         ref={picker}
         type="file"
@@ -455,278 +527,207 @@ export function Composer({
           event.target.value = ''
         }}
       />
-      {uploads.length ? (
-        <div className="upload-drafts">
-          {uploads.map((entry) => (
-            <div className="upload-draft" key={entry.id}>
-              <span>{entry.file.name}</span>
-              {entry.status === 'uploading' ? (
-                <progress max={100} value={entry.percent} aria-label={entry.file.name} />
-              ) : null}
-              <small role="status">
-                {entry.status === 'uploading'
-                  ? m.media_uploading({ percent: entry.percent })
-                  : entry.status === 'processing'
-                    ? m.media_processing()
-                    : entry.status === 'failed'
-                      ? (entry.error ?? m.media_failed())
-                      : '✓'}
-              </small>
-              {entry.status === 'failed' ? (
-                <button
-                  type="button"
-                  onClick={() => {
-                    discardUpload(entry.id)
-                    addFiles([entry.file])
-                  }}
-                >
-                  {m.common_retry()}
-                </button>
-              ) : null}
-              <IconButton
-                small
-                icon={X}
-                label={m.common_cancel()}
-                onClick={() => discardUpload(entry.id)}
-              />
-            </div>
-          ))}
-        </div>
-      ) : null}
-      {draft === '/' ? (
-        <div className="agent-controls">
-          {[
-            ['/summary', m.agent_summary()],
-            ['/translate', m.agent_translate()],
-            ['/draft', m.agent_draft()],
-          ].map(([command, label]) => (
-            <button
-              key={command}
-              type="button"
-              className="btn btn--plain btn--sm"
-              onClick={() => setDraft(id, command ?? '')}
-            >
-              {label}
-            </button>
-          ))}
-        </div>
-      ) : null}
-      {!preview && mention && !insideMention && dismissedMention !== `${draft}:${caret}` ? (
-        <MentionPicker
-          conversationId={id}
-          membershipVersion={conversation.membershipVersion}
-          query={mention[1] ?? ''}
-          listId={listId}
-          active={setActiveMention}
-          dismiss={() => setDismissedMention(`${draft}:${caret}`)}
-          choose={(user) => {
-            engine.ingestUsers([user], engine.ticket(id))
-            insert(
-              `<@user:${user.id}> `,
-              caret - (mention[1]?.length ?? 0) - 1,
-              `@${user.displayName} `,
-            )
-          }}
-        />
-      ) : null}
-      {emoji ? (
-        <fieldset className="emoji-picker" aria-label={m.media_emoji()}>
-          {[
-            '😀',
-            '😂',
-            '🥰',
-            '😎',
-            '🤔',
-            '😢',
-            '🎉',
-            '❤️',
-            '👍',
-            '🙏',
-            '🔥',
-            '✅',
-            '👀',
-            '🚀',
-            '🍀',
-            '💡',
-            '😊',
-            '😍',
-            '😭',
-            '🤣',
-            '😅',
-            '🙃',
-            '🫠',
-            '🫡',
-            '🤩',
-            '🥳',
-            '😴',
-            '😤',
-            '💪',
-            '👏',
-            '🤝',
-            '👋',
-            '✌️',
-            '🙌',
-            '🤞',
-            '🫶',
-            '👎',
-            '💯',
-            '❌',
-            '⚠️',
-            '⭐',
-            '🌟',
-            '✨',
-            '🌈',
-            '☀️',
-            '🌙',
-            '🌸',
-            '🌻',
-            '🐱',
-            '🐶',
-            '🐼',
-            '🦊',
-            '🍎',
-            '🍕',
-            '🍰',
-            '☕',
-            '🍻',
-            '🎂',
-            '🎁',
-            '🎈',
-            '🏆',
-            '⚽',
-            '🎮',
-            '🎵',
-            '💻',
-            '📱',
-            '📷',
-            '📚',
-            '📝',
-            '📌',
-            '🔗',
-            '🔒',
-            '💬',
-            '💤',
-            '💔',
-            '🧡',
-          ].map((value) => (
-            <button
-              key={value}
-              type="button"
-              onClick={() => {
-                insert(value)
-                setEmoji(false)
-              }}
-            >
-              {value}
-            </button>
-          ))}
-        </fieldset>
-      ) : null}
-      {mode !== undefined ? (
-        <div className="composer__ctx">
-          <span className="composer__ctx-bar" aria-hidden="true" />
-          <span className="composer__ctx-text">
-            {mode.type === 'edit' ? (
-              <b>{m.composer_editing()}</b>
-            ) : (
-              <>
-                <b>{m.composer_replying()}</b>
-                <span>
-                  {contextName === '' ? '' : `${contextName}: `}
-                  {targetExcerpt}
-                </span>
-              </>
-            )}
-          </span>
-          <IconButton label={m.common_cancel()} icon={X} small onClick={leaveMode} />
-        </div>
-      ) : null}
-      <div className="composer__row">
-        <IconButton
-          label={m.media_attach()}
-          icon={Paperclip}
-          disabled={mode?.type === 'edit'}
-          onClick={() => picker.current?.click()}
-        />
-        <IconButton
-          label={m.media_emoji()}
-          icon={Smile}
-          aria-expanded={emoji}
-          onClick={() => setEmoji(!emoji)}
-        />
-        <textarea
-          ref={field}
-          className="composer__input"
-          aria-autocomplete="list"
-          aria-haspopup="listbox"
-          aria-controls={activeMention ? listId : undefined}
-          aria-activedescendant={activeMention}
-          rows={1}
-          hidden={preview}
-          value={view.text}
-          aria-label={m.composer_label({ name })}
-          placeholder={m.composer_placeholder({ name })}
-          onChange={(event: ChangeEvent<HTMLTextAreaElement>) => {
-            setDraft(id, editMentionDraft(draft, view, event.target.value))
-            setDismissedMention(null)
-            setCaret(event.target.selectionStart)
-          }}
-          onSelect={(event) => setCaret(event.currentTarget.selectionStart)}
-          onPaste={(event) => {
-            if (event.clipboardData.files.length) {
-              event.preventDefault()
-              addFiles([...event.clipboardData.files])
-            }
-          }}
-          onKeyDown={onKeyDown}
-          onCompositionStart={() => {
-            composition.current = { composing: true, endedAt: composition.current.endedAt }
-          }}
-          onCompositionEnd={() => {
-            composition.current = { composing: false, endedAt: performance.now() }
-          }}
-        />
-        {preview ? (
-          <section className="composer__preview scroll" aria-label={m.composer_preview()}>
-            <MentionContext
-              value={{
-                users,
-                meId: account?.id ?? '',
-                valid: view.mentions.map((item) => item.id),
-              }}
-            >
-              <MessageBody text={draft} />
-            </MentionContext>
-          </section>
+      <IconButton
+        label={m.media_attach()}
+        icon={Plus}
+        variant="plate"
+        iconSize={20}
+        className="composer__attach"
+        disabled={mode?.type === 'edit'}
+        onClick={() => picker.current?.click()}
+      />
+      <div className="composer__field glass-text">
+        {uploads.length ? (
+          <div className="upload-drafts">
+            {uploads.map((entry) => (
+              <div className="upload-draft" key={entry.id}>
+                <span>{entry.file.name}</span>
+                {entry.status === 'uploading' ? (
+                  <progress max={100} value={entry.percent} aria-label={entry.file.name} />
+                ) : null}
+                <small role="status" data-status={entry.status}>
+                  {entry.status === 'uploading' ? (
+                    m.media_uploading({ percent: entry.percent })
+                  ) : entry.status === 'processing' ? (
+                    m.media_processing()
+                  ) : entry.status === 'failed' ? (
+                    (entry.error ?? m.media_failed())
+                  ) : (
+                    <>
+                      <Check size={14} strokeWidth={2.5} aria-hidden="true" />
+                      <span className="sr-only">✓</span>
+                    </>
+                  )}
+                </small>
+                {entry.status === 'failed' ? (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      discardUpload(entry.id)
+                      addFiles([entry.file])
+                    }}
+                  >
+                    {m.common_retry()}
+                  </button>
+                ) : null}
+                <IconButton
+                  small
+                  icon={X}
+                  label={m.common_cancel()}
+                  onClick={() => discardUpload(entry.id)}
+                />
+              </div>
+            ))}
+          </div>
         ) : null}
-        {/* Preview and back: in the row, beside the send button, so the capsule keeps its height when the first character
-            is typed (a bar above the field made the whole dock jump). The label says what a press does. */}
-        {draft.trim() ? (
-          <IconButton
-            label={preview ? m.composer_edit_text() : m.composer_preview()}
-            icon={preview ? Pencil : Eye}
-            className="composer__toggle"
-            onClick={() => {
-              setDraftPreview(id, !preview)
-              if (preview) requestAnimationFrame(() => field.current?.focus())
+        {draft === '/' ? (
+          <div className="composer__commands">
+            {[
+              ['/summary', m.agent_summary()],
+              ['/translate', m.agent_translate()],
+              ['/draft', m.agent_draft()],
+            ].map(([command, label]) => (
+              <button
+                key={command}
+                type="button"
+                className="btn btn--tinted btn--sm"
+                onClick={() => setDraft(id, command ?? '')}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+        ) : null}
+        {!preview && mention && !insideMention && dismissedMention !== `${draft}:${caret}` ? (
+          <MentionPicker
+            conversationId={id}
+            membershipVersion={conversation.membershipVersion}
+            query={mention[1] ?? ''}
+            listId={listId}
+            active={setActiveMention}
+            dismiss={() => setDismissedMention(`${draft}:${caret}`)}
+            choose={(user) => {
+              engine.ingestUsers([user], engine.ticket(id))
+              insert(
+                `<@user:${user.id}> `,
+                caret - (mention[1]?.length ?? 0) - 1,
+                `@${user.displayName} `,
+              )
             }}
           />
         ) : null}
-        <IconButton
-          label={m.composer_send()}
-          icon={ArrowUp}
-          variant="filled"
-          className="composer__send"
-          disabled={!canSend}
-          tooltip={false}
-          onClick={() => void send()}
-        />
-      </div>
-      {length >= SHOW_COUNT_AT ? (
-        <div className="composer__hint" data-over={tooLong} role="status">
-          {m.composer_count({ count: length, max: LIMITS.messageMaxCodePoints })}
+        {emoji ? (
+          <EmojiPicker
+            recent={recentEmoji}
+            onPick={(value) => {
+              insert(value)
+              setEmoji(false)
+              const next = withRecentEmoji(recentEmoji, value)
+              setRecentEmoji(next)
+              if (recentKey !== null) local.set(recentKey, JSON.stringify(next))
+            }}
+          />
+        ) : null}
+        {mode !== undefined ? (
+          <div className="composer__ctx">
+            <span className="composer__ctx-bar" aria-hidden="true" />
+            <span className="composer__ctx-text">
+              {mode.type === 'edit' ? (
+                <b>{m.composer_editing()}</b>
+              ) : (
+                <>
+                  <b>{m.composer_replying()}</b>
+                  <span>
+                    {contextName === '' ? '' : `${contextName}: `}
+                    {targetExcerpt}
+                  </span>
+                </>
+              )}
+            </span>
+            <IconButton label={m.common_cancel()} icon={X} small onClick={leaveMode} />
+          </div>
+        ) : null}
+        <div className="composer__row">
+          <textarea
+            ref={field}
+            className="composer__input"
+            aria-autocomplete="list"
+            aria-haspopup="listbox"
+            aria-controls={activeMention ? listId : undefined}
+            aria-activedescendant={activeMention}
+            rows={1}
+            hidden={preview}
+            value={view.text}
+            aria-label={m.composer_label({ name })}
+            placeholder={m.composer_placeholder({ name })}
+            onChange={(event: ChangeEvent<HTMLTextAreaElement>) => {
+              setDraft(id, editMentionDraft(draft, view, event.target.value))
+              setDismissedMention(null)
+              setCaret(event.target.selectionStart)
+            }}
+            onSelect={(event) => setCaret(event.currentTarget.selectionStart)}
+            onPaste={(event) => {
+              if (event.clipboardData.files.length) {
+                event.preventDefault()
+                addFiles([...event.clipboardData.files])
+              }
+            }}
+            onKeyDown={onKeyDown}
+            onCompositionStart={() => {
+              composition.current = { composing: true, endedAt: composition.current.endedAt }
+            }}
+            onCompositionEnd={() => {
+              composition.current = { composing: false, endedAt: performance.now() }
+            }}
+          />
+          {preview ? (
+            <section className="composer__preview scroll" aria-label={m.composer_preview()}>
+              <MentionContext
+                value={{
+                  users,
+                  meId: account?.id ?? '',
+                  valid: view.mentions.map((item) => item.id),
+                }}
+              >
+                <MessageBody text={draft} />
+              </MentionContext>
+            </section>
+          ) : null}
+          {/* Preview and back: in the row, beside the send button, so the capsule keeps its height when the first character
+            is typed (a bar above the field made the whole dock jump). The label says what a press does. */}
+          <IconButton
+            label={m.media_emoji()}
+            icon={Smile}
+            aria-expanded={emoji}
+            onClick={() => setEmoji(!emoji)}
+          />
+          {draft.trim() ? (
+            <IconButton
+              label={preview ? m.composer_edit_text() : m.composer_preview()}
+              icon={preview ? Pencil : Eye}
+              className="composer__toggle"
+              onClick={() => {
+                setDraftPreview(id, !preview)
+                if (preview) requestAnimationFrame(() => field.current?.focus())
+              }}
+            />
+          ) : null}
+          <IconButton
+            label={m.composer_send()}
+            icon={ArrowUp}
+            variant="filled"
+            className="composer__send"
+            disabled={!canSend}
+            tooltip={false}
+            onClick={() => void send()}
+          />
         </div>
-      ) : null}
+        {length >= SHOW_COUNT_AT ? (
+          <div className="composer__hint" data-over={tooLong} role="status">
+            {m.composer_count({ count: length, max: LIMITS.messageMaxCodePoints })}
+          </div>
+        ) : null}
+      </div>
     </div>
   )
 }

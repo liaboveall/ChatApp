@@ -32,7 +32,7 @@ export function TypingIndicator({ conversationId }: { conversationId: string }) 
   return (
     <div className="typing" role="status" aria-live="off" data-conversation={conversationId}>
       {first === undefined ? null : (
-        <>
+        <span className="typing__pill">
           <span className="typing__dots" aria-hidden="true">
             <i />
             <i />
@@ -43,7 +43,7 @@ export function TypingIndicator({ conversationId }: { conversationId: string }) 
               ? m.typing_one({ name: name(first) })
               : m.typing_many({ name: name(first), count: typers.length - 1 })}
           </span>
-        </>
+        </span>
       )}
     </div>
   )

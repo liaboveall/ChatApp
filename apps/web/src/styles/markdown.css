@@ -54,8 +54,8 @@
 }
 .md [data-streamdown="inline-code"],
 .md :not(pre) > code {
-  padding: 1px 5px;
-  border-radius: 6px;
+  padding: 1px 6px;
+  border-radius: 7px;
   background: color-mix(in srgb, var(--shade) 10%, transparent);
   font-family: var(--font-mono);
   font-size: 0.9em;
@@ -92,8 +92,9 @@
   margin: 6px 0 2px;
   padding: 0;
   border: 0;
-  border-radius: 12px;
+  border-radius: 14px;
   background: var(--code-bg);
+  box-shadow: inset 0 0 0 1px var(--group-edge);
   color: var(--code-fg);
   text-align: left;
   overflow: hidden;
@@ -143,10 +144,17 @@
   place-items: center;
   width: 28px;
   height: 28px;
-  border-radius: 8px;
+  border-radius: 999px;
   padding: 0;
   color: var(--label-secondary);
   cursor: pointer;
+  transition:
+    background-color 0.16s,
+    color 0.16s,
+    scale var(--dur-snappy) var(--spring-snappy);
+}
+.md [data-streamdown="code-block-copy-button"]:active {
+  scale: 0.9;
 }
 .md [data-streamdown="code-block-copy-button"]:hover {
   background: var(--fill-hover);

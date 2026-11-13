@@ -1,6 +1,10 @@
 /* Components (spec 8): Button, IconButton, fields, Switch, Segmented, Slider, Badge, Avatar, Menu, Dialog, Toast,
    Skeleton, EmptyState. Every one uses tokens only. Base UI primitives are styled through their data attributes:
-   data-starting-style / data-ending-style drive enter and exit transitions. */
+   data-starting-style / data-ending-style drive enter and exit transitions.
+
+   One rule runs through all of them: what one presses is a capsule or a disc, what one types into is a rounded well,
+   and each of hover, press and keyboard focus changes a different property (fill, scale, ring), so any combination of
+   them shows all of its parts. */
 
 .icon {
   flex: none;
@@ -45,61 +49,69 @@
   gap: 6px;
   min-height: var(--btn-h);
   min-width: 28px;
-  padding: 0 14px;
-  border: 1px solid transparent;
-  border-radius: var(--radius-control);
+  padding: 0 15px;
+  border: 0;
+  border-radius: 999px;
   font-size: var(--fs-callout);
   line-height: 1.2;
   font-weight: 600;
   letter-spacing: 0.005em;
   white-space: nowrap;
+  text-decoration: none;
   user-select: none;
   transition:
-    background-color 0.15s,
-    color 0.15s,
-    box-shadow 0.15s,
+    background-color 0.16s,
+    color 0.16s,
+    box-shadow 0.16s,
     scale var(--dur-snappy) var(--spring-snappy);
 }
 
-/* Press: every button gives a little under the pointer. Hover, press and focus each change a different property, so
-   any combination of them shows all of its parts. */
+/* Press: every button gives a little under the pointer. */
 .btn:active {
-  scale: 0.97;
+  scale: 0.96;
 }
 
 .btn--sm {
   --btn-h: 28px;
-  padding: 0 10px;
+  padding: 0 12px;
+  font-size: var(--fs-subheadline);
 }
 .btn--lg {
-  --btn-h: 40px;
-  padding: 0 18px;
+  --btn-h: 44px;
+  padding: 0 22px;
   font-size: var(--fs-title-3);
-  border-radius: 12px;
 }
 .btn--block {
   display: flex;
   width: 100%;
 }
 
+/* Filled: the accent as a lit pane. The gradient moves the lower half away from the text colour (darker under white
+   text, lighter under black), so it never costs contrast; the shadow is the button's own colour, like light through
+   tinted glass. */
 .btn--filled {
-  background: var(--accent-solid);
+  background-color: var(--accent-solid);
+  background-image: linear-gradient(
+    to bottom,
+    transparent 30%,
+    color-mix(in srgb, var(--accent-shade) 9%, transparent)
+  );
   color: var(--on-accent);
-  /* A lit top edge and a short contact shadow: the button reads as a raised key, not a flat block. */
   box-shadow:
     inset 0 1px 0 var(--btn-sheen),
-    0 1px 2px var(--btn-drop);
+    0 1px 2px var(--btn-drop),
+    0 6px 14px -6px color-mix(in srgb, var(--accent-solid) 36%, transparent);
 }
 .btn--filled:hover {
-  background: color-mix(in srgb, var(--accent-solid) 88%, var(--shade));
+  background-color: color-mix(in srgb, var(--accent-solid) 90%, var(--accent-shade));
 }
 
 .btn--tinted {
-  background: color-mix(in srgb, var(--accent-solid) 14%, transparent);
+  background: color-mix(in srgb, var(--accent-solid) 12%, transparent);
   color: var(--accent-text);
 }
 .btn--tinted:hover {
-  background: color-mix(in srgb, var(--accent-solid) 22%, transparent);
+  background: color-mix(in srgb, var(--accent-solid) 16%, transparent);
 }
 
 .btn--plain {
@@ -113,34 +125,35 @@
 .btn--glass {
   background: var(--glass-fill-text);
   color: var(--label);
-  box-shadow:
-    0 0 0 1px var(--glass-edge),
-    inset 0 1px 0 var(--glass-highlight),
-    var(--elev-1);
+  box-shadow: var(--glass-ring), var(--glass-drop-sm);
 }
 .btn--glass:hover {
   background: color-mix(in srgb, var(--glass-fill-text), var(--fill-hover));
 }
 
 .btn--danger.btn--filled {
-  background: var(--danger-solid);
+  background-color: var(--danger-solid);
   color: var(--on-accent);
-}
-.btn--danger.btn--plain:hover {
-  background: color-mix(in srgb, var(--danger-solid) 10%, transparent);
-}
-.btn--danger.btn--tinted:hover {
-  background: color-mix(in srgb, var(--danger-solid) 18%, transparent);
+  box-shadow:
+    inset 0 1px 0 var(--btn-sheen),
+    0 1px 2px var(--btn-drop),
+    0 6px 14px -6px color-mix(in srgb, var(--danger-solid) 60%, transparent);
 }
 .btn--danger.btn--filled:hover {
-  background: color-mix(in srgb, var(--danger-solid) 88%, var(--shade));
+  background-color: color-mix(in srgb, var(--danger-solid) 90%, var(--accent-shade));
 }
 .btn--danger.btn--tinted,
 .btn--danger.btn--plain {
   color: var(--danger-text);
 }
 .btn--danger.btn--tinted {
-  background: color-mix(in srgb, var(--danger-solid) 12%, transparent);
+  background: color-mix(in srgb, var(--danger-solid) 11%, transparent);
+}
+.btn--danger.btn--tinted:hover {
+  background: color-mix(in srgb, var(--danger-solid) 16%, transparent);
+}
+.btn--danger.btn--plain:hover {
+  background: color-mix(in srgb, var(--danger-solid) 10%, transparent);
 }
 
 .btn[disabled],
@@ -151,26 +164,31 @@
   cursor: not-allowed;
   scale: none;
 }
+.btn--plain[disabled],
+.btn--plain[aria-disabled="true"] {
+  background: transparent;
+}
 
 .btn[aria-busy="true"] {
   cursor: progress;
 }
 
-/* ---- IconButton: at least 28 x 28 (spec 7) ---- */
+/* ---- IconButton: a disc, at least 28 x 28 (spec 7) ---- */
 
 .icon-btn {
   position: relative;
   display: inline-grid;
   place-items: center;
+  flex: none;
   width: 32px;
   height: 32px;
   min-width: 28px;
   min-height: 28px;
-  border-radius: var(--radius-control);
+  border-radius: 999px;
   color: var(--label-secondary);
   transition:
-    background-color 0.15s,
-    color 0.15s,
+    background-color 0.16s,
+    color 0.16s,
     scale var(--dur-snappy) var(--spring-snappy);
 }
 .icon-btn:hover {
@@ -178,7 +196,7 @@
   color: var(--label);
 }
 .icon-btn:active {
-  scale: 0.92;
+  scale: 0.9;
   background: var(--fill-hover);
 }
 .icon-btn[aria-pressed="true"],
@@ -198,25 +216,42 @@
   height: 28px;
 }
 .icon-btn--round {
-  border-radius: 999px;
   width: 36px;
   height: 36px;
 }
+/* A disc of clear glass on its own (the attach button, the menu button of a narrow window): icons only, in the label
+   colour, which is what the clear material is checked for. */
 .icon-btn--plate {
-  background: var(--glass-fill-text);
-  box-shadow:
-    0 0 0 1px var(--glass-edge),
-    var(--elev-1);
+  width: 36px;
+  height: 36px;
+  color: var(--label);
+  background: var(--glass-fill-clear);
+  -webkit-backdrop-filter: var(--glass-filter-clear);
+  backdrop-filter: var(--glass-filter-clear);
+  box-shadow: var(--glass-ring), var(--glass-drop-sm);
+}
+.icon-btn--plate:hover {
+  background: color-mix(in srgb, var(--glass-fill-clear), var(--fill-hover));
+}
+.icon-btn--plate[disabled] {
+  background: var(--glass-fill-clear);
+  color: var(--label-disabled);
 }
 .icon-btn--filled {
-  background: var(--accent-solid);
+  background-color: var(--accent-solid);
+  background-image: linear-gradient(
+    to bottom,
+    transparent 30%,
+    color-mix(in srgb, var(--accent-shade) 9%, transparent)
+  );
   color: var(--on-accent);
   box-shadow:
     inset 0 1px 0 var(--btn-sheen),
-    0 1px 2px var(--btn-drop);
+    0 1px 2px var(--btn-drop),
+    0 6px 14px -6px color-mix(in srgb, var(--accent-solid) 36%, transparent);
 }
 .icon-btn--filled:hover {
-  background: color-mix(in srgb, var(--accent-solid) 88%, var(--shade));
+  background-color: color-mix(in srgb, var(--accent-solid) 90%, var(--accent-shade));
   color: var(--on-accent);
 }
 .icon-btn--filled[disabled] {
@@ -236,12 +271,14 @@
   min-width: 0;
 }
 .field__label {
+  padding-inline: 2px;
   font-size: var(--fs-callout);
   line-height: var(--lh-callout);
   font-weight: 600;
   color: var(--label);
 }
 .field__hint {
+  padding-inline: 2px;
   font-size: var(--fs-subheadline);
   line-height: var(--lh-subheadline);
   color: var(--label-secondary);
@@ -251,6 +288,7 @@
   display: flex;
   align-items: flex-start;
   gap: 6px;
+  padding-inline: 2px;
   font-size: var(--fs-subheadline);
   line-height: var(--lh-subheadline);
 }
@@ -266,14 +304,14 @@
   height: 16px;
 }
 
-/* A field is a well of the content colour with a hairline the eye can find (--control-border, 3:1 on every surface).
-   The gray control fill is kept for what cannot be typed into: read-only and disabled fields. */
+/* A field is a well with a hairline the eye can find (--control-border, 3:1 on every surface). The gray control fill is
+   kept for what cannot be typed into: read-only and disabled fields. */
 .input,
 .textarea,
 .select {
   width: 100%;
-  min-height: 34px;
-  padding: 6px 10px;
+  min-height: 36px;
+  padding: 7px 12px;
   border: 1px solid var(--control-border);
   border-radius: var(--radius-control);
   background-color: var(--field-bg);
@@ -282,8 +320,9 @@
   line-height: var(--lh-body);
   box-shadow: inset 0 1px 1px var(--field-inset);
   transition:
-    border-color 0.15s,
-    box-shadow 0.15s;
+    border-color 0.16s,
+    box-shadow 0.16s,
+    background-color 0.16s;
 }
 .input:hover:not([disabled], [readonly]),
 .textarea:hover:not([disabled], [readonly]),
@@ -297,7 +336,7 @@
   outline: 2px solid var(--focus-ring);
   outline-offset: -1px;
   border-color: var(--focus-ring);
-  box-shadow: 0 0 0 4px color-mix(in srgb, var(--accent-solid) 18%, transparent);
+  box-shadow: 0 0 0 5px color-mix(in srgb, var(--accent-solid) 18%, transparent);
 }
 .input[aria-invalid="true"],
 .textarea[aria-invalid="true"],
@@ -308,7 +347,7 @@
 .textarea[aria-invalid="true"]:focus-visible,
 .select[aria-invalid="true"]:focus-visible {
   outline-color: var(--danger-text);
-  box-shadow: 0 0 0 4px color-mix(in srgb, var(--danger-solid) 16%, transparent);
+  box-shadow: 0 0 0 5px color-mix(in srgb, var(--danger-solid) 16%, transparent);
 }
 .input[disabled],
 .input[readonly],
@@ -326,21 +365,22 @@
   cursor: not-allowed;
 }
 .input--lg {
-  min-height: 42px;
-  padding: 8px 12px;
+  min-height: 44px;
+  padding: 9px 14px;
   font-size: var(--fs-title-3);
-  border-radius: 12px;
+  border-radius: 14px;
 }
 .textarea {
   resize: none;
   display: block;
 }
 
-/* A select keeps the browser's own popup (keyboard, type-ahead and the phone's picker come with it); the box is drawn
-   like the other fields and the arrow is ours: a chevron of two gradient strokes, so no image is needed. */
+/* A select. Where the browser lets the page draw the picker (`appearance: base-select`) it is drawn below as a menu
+   of glass; everywhere else it keeps the browser's own popup, with the box drawn like the other fields and a chevron
+   of two gradient strokes. Either way it is the platform's control: keyboard, type-ahead and forms come with it. */
 .select {
   appearance: none;
-  padding-right: 30px;
+  padding-right: 32px;
   background-image:
     linear-gradient(
       45deg,
@@ -357,12 +397,127 @@
       transparent 62%
     );
   background-position:
-    right 16px top 50%,
-    right 10.5px top 50%;
+    right 17.5px top 50%,
+    right 12px top 50%;
   background-size: 6px 6px;
   background-repeat: no-repeat;
   text-overflow: ellipsis;
   cursor: pointer;
+}
+
+@supports (appearance: base-select) {
+  .select,
+  .select::picker(select) {
+    appearance: base-select;
+  }
+  .select {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    padding-right: 12px;
+    background-image: none;
+  }
+  /* The arrow: two strokes that turn over while the picker is open. */
+  .select::picker-icon {
+    content: "";
+    flex: none;
+    width: 7px;
+    height: 7px;
+    margin: -3px 2px 0 0;
+    border: solid var(--label-secondary);
+    border-width: 0 1.6px 1.6px 0;
+    rotate: 45deg;
+    transition:
+      rotate var(--dur-snappy) var(--spring-snappy),
+      margin-top var(--dur-snappy) var(--spring-snappy);
+  }
+  .select:open::picker-icon {
+    margin-top: 4px;
+    rotate: -135deg;
+  }
+  .select:open {
+    border-color: var(--focus-ring);
+  }
+  /* The picker: a menu of glass in the top layer, at least as wide as the field. It stays scrollable. */
+  .select::picker(select) {
+    box-sizing: border-box;
+    min-inline-size: anchor-size(width);
+    max-block-size: min(360px, 60vh);
+    margin-block: 6px;
+    padding: 6px;
+    border: 0;
+    border-radius: 16px;
+    background: var(--glass-fill-text);
+    color: var(--label);
+    -webkit-backdrop-filter: var(--glass-filter);
+    backdrop-filter: var(--glass-filter);
+    box-shadow: var(--glass-ring), var(--glass-drop);
+    opacity: 0;
+    transition:
+      opacity 0.14s ease-out,
+      display 0.14s,
+      overlay 0.14s;
+    transition-behavior: allow-discrete;
+  }
+  .select:open::picker(select) {
+    opacity: 1;
+  }
+  @starting-style {
+    .select:open::picker(select) {
+      opacity: 0;
+    }
+  }
+  @media (prefers-reduced-motion: no-preference) {
+    .select::picker(select) {
+      translate: 0 -4px;
+      transition:
+        opacity 0.14s ease-out,
+        translate 0.14s ease-out,
+        display 0.14s,
+        overlay 0.14s;
+      transition-behavior: allow-discrete;
+    }
+    .select:open::picker(select) {
+      translate: 0 0;
+    }
+    @starting-style {
+      .select:open::picker(select) {
+        translate: 0 -4px;
+      }
+    }
+  }
+  .select option {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    min-height: 32px;
+    padding: 4px 10px;
+    border-radius: 10px;
+    font-size: var(--fs-callout);
+    line-height: var(--lh-callout);
+    color: var(--label);
+    cursor: pointer;
+  }
+  .select option:is(:hover, :focus-visible) {
+    background: var(--fill-hover);
+    outline: none;
+  }
+  /* The chosen one: a tick at the far edge and a heavier weight (not colour alone). */
+  .select option::checkmark {
+    order: 1;
+    margin-inline-start: auto;
+    padding-inline-start: 12px;
+    color: var(--accent-text);
+    font-weight: 700;
+  }
+  .select option:checked {
+    font-weight: 600;
+  }
+  .select option:disabled {
+    color: var(--label-disabled);
+    cursor: not-allowed;
+  }
 }
 
 .input-wrap {
@@ -371,22 +526,22 @@
   align-items: center;
 }
 .input-wrap .input {
-  padding-right: 40px;
+  padding-right: 42px;
 }
 .input-wrap > .icon-btn {
   position: absolute;
-  right: 3px;
+  right: 4px;
 }
 
-/* SearchField (a button that opens the command palette, or a real input) */
+/* SearchField (a button that opens the command palette, or a real input): a capsule. */
 .search {
   position: relative;
   display: flex;
   align-items: center;
   gap: 8px;
-  min-height: 34px;
-  padding: 0 10px;
-  border-radius: var(--radius-control);
+  min-height: 36px;
+  padding: 0 12px;
+  border-radius: 999px;
   color: var(--label-secondary);
   text-align: left;
 }
@@ -394,7 +549,13 @@
   /* A plate of the content colour under the placeholder, so it is readable over any wallpaper
      (the sidebar contrast check assumes at least 72%). */
   background: color-mix(in srgb, var(--bg-content) 72%, transparent);
-  box-shadow: 0 0 0 1px var(--separator);
+  box-shadow:
+    0 0 0 1px var(--separator),
+    inset 0 1px 0 var(--glass-highlight);
+  transition: background-color 0.16s;
+}
+.search--plate:hover {
+  background: color-mix(in srgb, var(--bg-content) 86%, transparent);
 }
 .search__text {
   flex: 1;
@@ -405,51 +566,113 @@
   overflow: hidden;
   text-overflow: ellipsis;
 }
+/* A search box that is typed into is a field like the others: the same well, hairline and focus halo. */
+.search--field {
+  background: var(--field-bg);
+  box-shadow:
+    0 0 0 1px var(--control-border),
+    inset 0 1px 1px var(--field-inset);
+  color: var(--label-secondary);
+  transition: box-shadow 0.16s;
+}
+.search--field:focus-within {
+  box-shadow:
+    0 0 0 2px var(--focus-ring),
+    0 0 0 6px color-mix(in srgb, var(--accent-solid) 18%, transparent);
+}
+.search__input {
+  flex: 1;
+  min-width: 0;
+  border: 0;
+  background: transparent;
+  color: var(--label);
+  font-size: var(--fs-callout);
+  line-height: var(--lh-callout);
+}
+.search__input:focus-visible {
+  outline: none;
+}
+.search__input::-webkit-search-cancel-button {
+  display: none;
+}
 
-/* ---- Switch ---- */
+/* ---- Switch ----
+   A track with a wide thumb. Its state is said three ways: the thumb's side, the track's colour, and a mark inside the
+   track (a stroke for on, a ring for off), so it never rests on colour alone. Under the pointer the thumb swells like
+   a drop being pressed. */
 
 .switch {
   position: relative;
   flex: none;
-  width: 44px;
-  height: 28px;
+  width: 50px;
+  height: 30px;
   border-radius: 999px;
-  background: var(--control-border);
-  transition: background-color 0.2s;
+  background: var(--fill-pressed);
+  /* The track's own edge: 3:1 on every surface, whatever the fill. */
+  box-shadow: inset 0 0 0 1px var(--control-border);
+  transition:
+    background-color 0.22s,
+    box-shadow 0.22s;
 }
 .switch__thumb {
   position: absolute;
   top: 3px;
   left: 3px;
-  width: 22px;
-  height: 22px;
+  width: 28px;
+  height: 24px;
   border-radius: 999px;
   background: #fff;
-  box-shadow: 0 1px 3px rgb(0 0 0 / 0.3);
-  transition: transform var(--dur-snappy) var(--spring-snappy);
+  box-shadow:
+    0 0 0 0.5px rgb(0 0 0 / 0.06),
+    0 2px 5px rgb(0 0 0 / 0.28),
+    inset 0 -1px 1px rgb(0 0 0 / 0.06);
+  transition:
+    translate var(--dur-snappy) var(--spring-snappy),
+    width var(--dur-snappy) var(--spring-snappy),
+    left var(--dur-snappy) var(--spring-snappy);
+}
+.switch:active:not([data-disabled]) .switch__thumb {
+  width: 33px;
 }
 .switch[data-checked] {
   background: var(--accent-solid);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent-solid) 80%, var(--accent-shade));
 }
 .switch[data-checked] .switch__thumb {
-  transform: translateX(16px);
+  translate: 16px 0;
 }
-/* Not colour alone: the on state also shows a tick mark inside the track. */
-.switch[data-checked]::before {
+.switch[data-checked]:active:not([data-disabled]) .switch__thumb {
+  left: -2px;
+}
+/* Off: a small ring at the far end of the track. On: a stroke at the near end. */
+.switch::before {
   content: "";
   position: absolute;
+  top: 10.5px;
+  right: 8px;
+  width: 9px;
+  height: 9px;
+  border: 1.5px solid var(--label-secondary);
+  border-radius: 999px;
+}
+.switch[data-checked]::before {
+  top: 10px;
+  right: auto;
   left: 11px;
-  top: 8px;
-  width: 4px;
-  height: 8px;
-  border: solid var(--on-accent);
-  border-width: 0 2px 2px 0;
-  transform: rotate(45deg);
+  width: 0;
+  height: 10px;
+  border: 0;
+  border-left: 2px solid var(--on-accent);
+  border-radius: 1px;
 }
 /* Off and unavailable: the track fades but the thumb stays a thumb, so it still reads as a switch. */
 .switch[data-disabled] {
-  background: var(--fill-pressed);
+  background: var(--fill);
+  box-shadow: inset 0 0 0 1px var(--separator);
   cursor: not-allowed;
+}
+.switch[data-disabled]::before {
+  border-color: var(--label-disabled);
 }
 .switch[data-disabled][data-checked] {
   background: color-mix(in srgb, var(--accent-solid) 45%, var(--fill-pressed));
@@ -463,9 +686,12 @@
 .check {
   display: inline-flex;
   align-items: center;
-  gap: 8px;
+  gap: 9px;
   min-height: 28px;
   font-size: var(--fs-body);
+  cursor: pointer;
+}
+.check label {
   cursor: pointer;
 }
 .check__box {
@@ -474,10 +700,17 @@
   height: 20px;
   margin: 0;
   border: 1.5px solid var(--control-border);
-  border-radius: 6px;
-  background: var(--bg-content);
+  border-radius: 7px;
+  background: var(--field-bg);
   display: grid;
   place-items: center;
+  transition:
+    background-color 0.16s,
+    border-color 0.16s,
+    scale var(--dur-snappy) var(--spring-snappy);
+}
+.check__box:active {
+  scale: 0.9;
 }
 .check__box[data-checked] {
   background: var(--accent-solid);
@@ -489,13 +722,13 @@
   cursor: not-allowed;
 }
 
-/* ---- SegmentedControl ---- */
+/* ---- SegmentedControl: a capsule track with a thumb that slides ---- */
 
 .seg {
   position: relative;
   display: inline-flex;
-  padding: 2px;
-  border-radius: 12px;
+  padding: 3px;
+  border-radius: 999px;
   background: var(--fill);
   isolation: isolate;
 }
@@ -507,12 +740,13 @@
   position: absolute;
   inset: 0;
   z-index: -1;
-  border-radius: 10px;
+  border-radius: 999px;
   background: var(--seg-thumb);
   /* A visible edge, so the selected segment does not rely on a 1.1:1 fill difference. */
   box-shadow:
     0 0 0 1px var(--control-border),
-    var(--elev-1);
+    inset 0 1px 0 light-dark(rgb(255 255 255 / 0.9), rgb(255 255 255 / 0.16)),
+    0 2px 6px light-dark(rgb(60 46 24 / 0.14), rgb(0 0 0 / 0.36));
 }
 .seg__item {
   position: relative;
@@ -522,12 +756,13 @@
   justify-content: center;
   gap: 6px;
   min-height: 28px;
-  padding: 0 12px;
-  border-radius: 10px;
+  padding: 0 14px;
+  border-radius: 999px;
   font-size: var(--fs-callout);
   line-height: 1.2;
   color: var(--label-secondary);
   white-space: nowrap;
+  transition: color 0.16s;
 }
 .seg__item[data-checked] {
   color: var(--label);
@@ -541,7 +776,7 @@
   cursor: not-allowed;
 }
 
-/* ---- Slider (native range input) ---- */
+/* ---- Slider (native range input): a thin track and a wide thumb ---- */
 
 .slider {
   --p: 50%;
@@ -553,7 +788,7 @@
   cursor: pointer;
 }
 .slider::-webkit-slider-runnable-track {
-  height: 6px;
+  height: 4px;
   border-radius: 999px;
   background: linear-gradient(
     to right,
@@ -562,31 +797,38 @@
   );
 }
 .slider::-moz-range-track {
-  height: 6px;
+  height: 4px;
   border-radius: 999px;
   background: var(--control-border);
 }
 .slider::-moz-range-progress {
-  height: 6px;
+  height: 4px;
   border-radius: 999px;
   background: var(--accent-solid);
 }
 .slider::-webkit-slider-thumb {
   appearance: none;
-  width: 22px;
-  height: 22px;
+  width: 30px;
+  height: 20px;
   margin-top: -8px;
   border-radius: 999px;
   background: #fff;
-  border: 1.5px solid var(--control-border);
-  box-shadow: 0 1px 3px rgb(0 0 0 / 0.25);
+  border: 0;
+  box-shadow:
+    0 0 0 1px var(--control-border),
+    0 2px 6px rgb(0 0 0 / 0.26);
+  transition: scale var(--dur-snappy) var(--spring-snappy);
+}
+.slider:active::-webkit-slider-thumb {
+  scale: 1.12;
 }
 .slider::-moz-range-thumb {
-  width: 20px;
-  height: 20px;
+  width: 28px;
+  height: 18px;
   border-radius: 999px;
   background: #fff;
-  border: 1.5px solid var(--control-border);
+  border: 1px solid var(--control-border);
+  box-shadow: 0 2px 6px rgb(0 0 0 / 0.26);
 }
 
 /* ---- Badge ---- */
@@ -645,18 +887,26 @@
   line-height: 1;
   font-weight: 600;
   user-select: none;
-  /* A hairline of light inside the top edge, as on the glass. */
-  box-shadow: inset 0 1px 0 rgb(255 255 255 / 0.22);
+  /* A hairline of light inside the top edge and a faint dark one below, as on the glass. */
+  box-shadow:
+    inset 0 1px 0 rgb(255 255 255 / 0.26),
+    inset 0 -1px 0 rgb(0 0 0 / 0.1);
 }
 .avatar--bot {
   background: linear-gradient(145deg, oklch(0.5 0.2 285), oklch(0.46 0.2 330));
 }
 /* A channel: a tinted tile with the hash sign in the accent text colour (checked on the 16% tint). */
 .avatar--tile {
-  border-radius: 30%;
+  border-radius: 32%;
   background: color-mix(in srgb, var(--accent-solid) 14%, transparent);
   color: var(--accent-text);
   box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent-solid) 14%, transparent);
+}
+@supports (corner-shape: squircle) {
+  .avatar--tile {
+    border-radius: 42%;
+    corner-shape: squircle;
+  }
 }
 .avatar--tile .icon {
   width: 50%;
@@ -668,6 +918,12 @@
   height: 56%;
   fill: currentColor;
   stroke: none;
+}
+.avatar img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  border-radius: inherit;
 }
 
 .presence {
@@ -696,38 +952,47 @@
     inset 0 0 0 1.5px var(--label-secondary);
 }
 
-/* ---- Tooltip, Toast ---- */
+/* ---- Tooltip, Toast: a dark heads-up plate in both themes ---- */
 
 .tooltip {
   z-index: 2000;
   max-width: 260px;
-  padding: 5px 9px;
-  border-radius: 8px;
+  padding: 5px 10px;
+  border-radius: 9px;
   background: var(--toast-bg);
   color: var(--toast-fg);
   font-size: var(--fs-subheadline);
   line-height: var(--lh-subheadline);
   font-weight: 500;
-  box-shadow: var(--elev-2);
-  transition: opacity 0.12s;
+  box-shadow:
+    0 0 0 1px rgb(255 255 255 / 0.08),
+    var(--elev-2);
+  transform-origin: var(--transform-origin, center);
+  transition:
+    opacity 0.12s,
+    scale 0.12s;
 }
 .tooltip[data-starting-style],
 .tooltip[data-ending-style] {
   opacity: 0;
+  scale: 0.94;
 }
 .tooltip kbd {
-  margin-left: 6px;
-  background: transparent;
+  margin-left: 8px;
+  background: rgb(255 255 255 / 0.14);
   color: inherit;
-  border-color: color-mix(in srgb, var(--toast-fg) 40%, transparent);
+  box-shadow: none;
 }
 
+/* Toasts drop in at the top of the window, between the toolbar's two capsules: the foot of the window belongs to the
+   composer, and a notice laid over it would cover what is being written. */
 .toast-stack {
   position: fixed;
   left: 50%;
-  bottom: 20px;
+  top: max(12px, env(titlebar-area-height, 0px) + 8px);
   z-index: 1500;
   display: grid;
+  justify-items: center;
   gap: 8px;
   width: max-content;
   max-width: calc(100vw - 32px);
@@ -738,13 +1003,18 @@
   display: flex;
   align-items: center;
   gap: 12px;
-  padding: 10px 14px;
-  border-radius: 14px;
+  min-height: 40px;
+  padding: 8px 18px;
+  border-radius: 999px;
   background: var(--toast-bg);
   color: var(--toast-fg);
   font-size: var(--fs-callout);
   line-height: var(--lh-callout);
-  box-shadow: var(--elev-2);
+  font-weight: 500;
+  box-shadow:
+    0 0 0 1px rgb(255 255 255 / 0.08),
+    inset 0 1px 0 rgb(255 255 255 / 0.1),
+    var(--elev-2);
   pointer-events: auto;
   transition:
     opacity var(--dur-fade) ease,
@@ -753,43 +1023,53 @@
 .toast[data-starting-style],
 .toast[data-ending-style] {
   opacity: 0;
-  transform: translateY(12px) scale(0.96);
+  transform: translateY(-16px) scale(0.92);
 }
 .toast__action {
   min-height: 28px;
-  padding: 0 8px;
-  border-radius: var(--radius-control);
-  border: 1px solid color-mix(in srgb, var(--toast-fg) 45%, transparent);
+  margin-right: -8px;
+  padding: 0 12px;
+  border-radius: 999px;
+  background: rgb(255 255 255 / 0.16);
   color: inherit;
   font-weight: 600;
+  transition: background-color 0.16s;
+}
+.toast__action:hover {
+  background: rgb(255 255 255 / 0.24);
 }
 
-/* ---- Menu, Popover ---- */
+/* ---- Menu, Popover ----
+   A menu opens out of the control that asked for it (the origin is Base UI's), fast, and its rows light up in gray:
+   the accent is kept for what is chosen, not for what the pointer passes over. */
 
 .menu {
   z-index: 1200;
-  min-width: 200px;
+  min-width: 208px;
   max-width: 320px;
   padding: 6px;
-  border-radius: 12px;
+  border-radius: 16px;
   color: var(--label);
   transform-origin: var(--transform-origin, top left);
   transition:
-    opacity var(--dur-snappy) ease,
+    opacity 0.14s ease-out,
     transform var(--dur-snappy) var(--spring-snappy);
 }
 .menu[data-starting-style],
 .menu[data-ending-style] {
   opacity: 0;
-  transform: scale(0.94);
+  transform: scale(0.9);
+}
+.menu[data-ending-style] {
+  transition-duration: 0.1s;
 }
 .menu__group + .menu__group {
-  margin-top: 4px;
-  padding-top: 4px;
+  margin-top: 5px;
+  padding-top: 5px;
   border-top: 1px solid var(--separator);
 }
 .menu__label {
-  padding: 6px 10px 2px;
+  padding: 6px 10px 3px;
   font-size: var(--fs-footnote);
   line-height: var(--lh-footnote);
   font-weight: 600;
@@ -800,14 +1080,15 @@
   align-items: center;
   gap: 10px;
   width: 100%;
-  min-height: 30px;
+  min-height: 32px;
   padding: 0 10px;
-  border-radius: 8px;
+  border-radius: 10px;
   font-size: var(--fs-callout);
   line-height: var(--lh-callout);
   text-align: left;
   color: var(--label);
-  cursor: pointer;
+  cursor: default;
+  user-select: none;
 }
 .menu__item .icon {
   width: 16px;
@@ -819,21 +1100,16 @@
   padding-left: 16px;
   font-size: var(--fs-subheadline);
   color: var(--label-secondary);
+  font-variant-numeric: tabular-nums;
 }
 .menu__item:hover,
 .menu__item:focus-visible,
 .menu__item[data-highlighted] {
-  background: var(--accent-solid);
-  color: var(--on-accent);
+  background: var(--fill-hover);
   outline: none;
 }
-.menu__item:hover .icon,
-.menu__item:focus-visible .icon,
-.menu__item[data-highlighted] .icon,
-.menu__item:hover .menu__hint,
-.menu__item:focus-visible .menu__hint,
-.menu__item[data-highlighted] .menu__hint {
-  color: inherit;
+.menu__item:active {
+  background: var(--fill-pressed);
 }
 .menu__item--danger,
 .menu__item--danger .icon {
@@ -842,12 +1118,15 @@
 .menu__item--danger:hover,
 .menu__item--danger:focus-visible,
 .menu__item--danger[data-highlighted] {
-  background: var(--danger-solid);
-  color: var(--on-accent);
+  background: color-mix(in srgb, var(--danger-solid) 12%, transparent);
 }
 .menu__item[data-disabled] {
   color: var(--label-disabled);
+  background: transparent;
   cursor: not-allowed;
+}
+.menu__item[data-disabled] .icon {
+  color: inherit;
 }
 
 /* ---- Dialog, Scrim ---- */
@@ -875,16 +1154,26 @@
 }
 .dialog {
   display: grid;
-  gap: 12px;
+  gap: 10px;
   width: min(440px, 100%);
   max-height: 100%;
   overflow: auto;
-  padding: 22px 22px 18px;
-  border-radius: 18px;
+  overscroll-behavior: contain;
+  padding: 24px;
+  border-radius: var(--radius-sheet);
+  box-shadow: var(--glass-ring), var(--glass-drop-lg);
   pointer-events: auto;
   transition:
-    opacity var(--dur-snappy) ease,
+    opacity 0.16s ease-out,
     transform var(--dur-bouncy) var(--spring-bouncy);
+}
+.dialog[data-starting-style],
+.dialog[data-ending-style] {
+  opacity: 0;
+  transform: scale(0.92) translateY(8px);
+}
+.dialog[data-ending-style] {
+  transition-duration: 0.12s;
 }
 
 /* Destructive account confirmation must stay readable over the settings sheet, including nested WebKit layers. */
@@ -893,26 +1182,65 @@
   -webkit-backdrop-filter: none;
   backdrop-filter: none;
 }
-.dialog[data-starting-style],
-.dialog[data-ending-style] {
-  opacity: 0;
-  transform: scale(0.94);
-}
 .dialog__title {
   font-size: var(--fs-title-2);
   line-height: var(--lh-title-2);
-  font-weight: 600;
+  font-weight: 650;
+  letter-spacing: -0.01em;
 }
 .dialog__body {
   color: var(--label-secondary);
   font-size: var(--fs-body);
   line-height: var(--lh-body);
+  text-wrap: pretty;
 }
 .dialog__actions {
   display: flex;
   flex-wrap: wrap;
   justify-content: flex-end;
   gap: 8px;
+  margin-top: 10px;
+}
+/* A question to answer before something that cannot be taken back: small, centred, its two answers side by side and
+   equally wide, so neither is the easier one to hit. */
+.dialog--alert {
+  width: min(340px, 100%);
+  justify-items: center;
+  padding: 26px 20px 18px;
+  text-align: center;
+}
+.dialog--alert .dialog__body {
+  text-wrap: balance;
+}
+.dialog--alert .dialog__actions {
+  width: 100%;
+  flex-wrap: nowrap;
+  margin-top: 14px;
+}
+.dialog--alert .dialog__actions > .btn {
+  flex: 1 1 0;
+  min-width: 0;
+  --btn-h: 38px;
+  font-size: var(--fs-body);
+  white-space: normal;
+}
+.dialog--alert .dialog__actions > .btn--plain {
+  background: var(--fill);
+  color: var(--label);
+}
+.dialog--alert .dialog__actions > .btn--plain:hover {
+  background: var(--fill-hover);
+}
+
+.dialog--form {
+  width: min(480px, calc(100% - 32px));
+}
+.dialog-form {
+  display: grid;
+  gap: 14px;
+  margin-top: 8px;
+}
+.dialog-form .dialog__actions {
   margin-top: 6px;
 }
 
@@ -920,16 +1248,16 @@
 
 .card {
   border-radius: var(--radius-card);
-  background: var(--bg-elevated);
-  box-shadow: 0 0 0 1px var(--separator);
+  background: var(--group-bg);
+  box-shadow: inset 0 0 0 1px var(--group-edge);
 }
 
 .banner {
   display: flex;
   align-items: flex-start;
   gap: 10px;
-  padding: 10px 12px;
-  border-radius: 12px;
+  padding: 10px 14px;
+  border-radius: 14px;
   background: var(--fill);
   color: var(--label);
   font-size: var(--fs-callout);
@@ -992,11 +1320,13 @@
 .empty__icon {
   display: grid;
   place-items: center;
-  width: 56px;
-  height: 56px;
-  border-radius: 18px;
+  width: 60px;
+  height: 60px;
+  margin-bottom: 4px;
+  border-radius: 20px;
   background: color-mix(in srgb, var(--accent-solid) 12%, transparent);
   color: var(--accent-text);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent-solid) 10%, transparent);
 }
 .empty__icon .icon {
   width: 28px;
@@ -1006,7 +1336,8 @@
   color: var(--label);
   font-size: var(--fs-title-2);
   line-height: var(--lh-title-2);
-  font-weight: 600;
+  font-weight: 650;
+  letter-spacing: -0.01em;
 }
 .empty__text {
   max-width: 34ch;
@@ -1015,9 +1346,11 @@
 .empty--error .empty__icon {
   background: color-mix(in srgb, var(--danger-solid) 11%, transparent);
   color: var(--danger-text);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--danger-solid) 10%, transparent);
 }
 
-/* Settings-style rows: label and help on the left, the control on the right. */
+/* ---- Grouped rows: a setting's words on the left, its control at the far edge ---- */
+
 .rows {
   display: grid;
 }
@@ -1029,7 +1362,7 @@
   flex-wrap: wrap;
   align-items: center;
   gap: 8px 16px;
-  min-height: 48px;
+  min-height: 50px;
   padding: 10px 0;
 }
 .row + .row {
@@ -1048,6 +1381,7 @@
   font-weight: 500;
 }
 .row__help {
+  margin-top: 1px;
   font-size: var(--fs-subheadline);
   line-height: var(--lh-subheadline);
   color: var(--label-secondary);
@@ -1076,7 +1410,7 @@
   align-items: flex-start;
 }
 .row--field > .row__control {
-  min-height: 34px;
+  min-height: 36px;
   margin-top: calc(var(--lh-callout) + 6px);
 }
 /* The narrowest phones (320 px wide: some 230 px inside a card). A field and its action no longer share a line that
@@ -1109,6 +1443,30 @@
   box-shadow: inset 0 0 0 1px rgb(0 0 0 / 0.25);
 }
 
+/* A chip: a chosen person, a file waiting to be sent. */
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  padding: 2px 4px 2px 11px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--accent-solid) 14%, transparent);
+  color: var(--accent-text);
+  font-size: var(--fs-callout);
+  line-height: var(--lh-callout);
+  font-weight: 600;
+}
+.chip__remove {
+  display: grid;
+  place-items: center;
+  width: 24px;
+  height: 24px;
+  border-radius: 999px;
+}
+.chip__remove:hover {
+  background: color-mix(in srgb, var(--accent-solid) 16%, transparent);
+}
+
 /* Base UI positioners wrap popups (menus, tooltips, popovers); they need a layer above the content and below the toasts. */
 .positioner {
   z-index: 1200;
@@ -1121,256 +1479,4 @@
 }
 .base-ui-disable-scrollbar::-webkit-scrollbar {
   display: none;
-}
-/* Administration and the public privacy document share the existing form and glass tokens. */
-/* ---- Site administration ---- */
-
-/* A page of records to scan: one column of a comfortable width, centred in the main panel. */
-.admin-page {
-  min-width: 0;
-  height: 100%;
-  padding: 24px 20px 40px;
-}
-.admin-page > * {
-  max-width: 880px;
-  margin-inline: auto;
-}
-.admin-head {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-}
-/* The sections: a row of pills that wraps, so every section stays in sight at any width. */
-.admin-tabs {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 4px;
-  margin-block: 14px 18px;
-}
-/* A filter: its field, then its button on the input's own line. The button starts where the input starts (past the
-   label and the field's gap) and is as tall, so the two read as one control whatever comes and goes under the input. */
-.admin-search {
-  display: flex;
-  align-items: flex-start;
-  gap: 10px;
-  margin-bottom: 16px;
-}
-.admin-search .field {
-  flex: 1;
-  min-width: 0;
-}
-.admin-search > .btn {
-  flex: none;
-  min-height: 34px;
-  margin-top: calc(var(--lh-callout) + 6px);
-}
-/* The audit filters are four fields: as many to a line as fit, and the button on a line of its own under them. */
-.admin-audit-filters {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(min(100%, 180px), 1fr));
-  gap: 12px;
-}
-.admin-audit-filters > .btn {
-  grid-column: 1 / -1;
-  justify-self: end;
-  margin-top: 0;
-}
-.admin-list,
-.admin-form {
-  display: grid;
-  gap: 12px;
-}
-/* The records of a section: one card with its rows parted by hairlines, the grouped list of the settings sheet (not a
-   pile of cards with a shadow each). */
-.admin-rows {
-  padding: 2px 14px;
-  border-radius: var(--radius-card);
-  background: var(--bg-elevated);
-  box-shadow: 0 0 0 1px var(--separator);
-}
-.admin-row {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 8px 12px;
-  padding: 12px 0;
-}
-.admin-row + .admin-row,
-.admin-line + .admin-line {
-  border-top: 1px solid var(--separator);
-}
-/* The picture keeps to the first line of a row that runs to three or four. */
-.admin-row > .avatar {
-  align-self: flex-start;
-  margin-top: 2px;
-}
-.admin-row__main {
-  flex: 1 1 200px;
-  display: grid;
-  gap: 2px;
-  min-width: 0;
-  overflow-wrap: anywhere;
-}
-.admin-row strong {
-  font-size: var(--fs-body);
-  line-height: var(--lh-body);
-  font-weight: 600;
-}
-.admin-row p {
-  color: var(--label-secondary);
-  font-size: var(--fs-subheadline);
-  line-height: var(--lh-subheadline);
-  overflow-wrap: anywhere;
-}
-/* What a person wrote (a note on an invitation, the details of a report) reads as text, not as a caption. */
-.admin-row p.admin-row__text {
-  color: var(--label);
-  font-size: var(--fs-callout);
-  line-height: var(--lh-callout);
-}
-/* States as tags: who is an administrator, banned or unverified shows down a list without reading every line. */
-.admin-row__tags {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
-  margin-top: 4px;
-}
-.admin-row__tags .badge {
-  height: 20px;
-  padding: 0 8px;
-  font-size: var(--fs-footnote);
-  line-height: 20px;
-}
-.admin-actions {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 4px;
-}
-/* The actions keep to the far edge, also when a narrow row puts them on a line of their own. */
-.admin-row > .admin-actions,
-.admin-row > .btn {
-  flex: none;
-  margin-inline-start: auto;
-}
-.admin-line {
-  padding: 10px 0;
-  font-size: var(--fs-callout);
-  line-height: var(--lh-callout);
-  font-variant-numeric: tabular-nums;
-}
-.admin-pager {
-  justify-content: flex-end;
-  gap: 8px;
-}
-
-/* The site settings: some twenty limits, shown under what they are about, two to a line where there is room. */
-.admin-policy {
-  gap: 18px;
-}
-.admin-policy__models {
-  margin-top: -8px;
-  padding-inline: 4px;
-  color: var(--label-secondary);
-  font-size: var(--fs-subheadline);
-  line-height: var(--lh-subheadline);
-  overflow-wrap: anywhere;
-}
-/* A fieldset asks for the width of its content unless told otherwise, which would push a narrow page sideways. */
-.admin-fieldset {
-  min-width: 0;
-  margin: 0;
-  padding: 0;
-  border: 0;
-}
-.admin-fieldset > legend {
-  padding: 0 4px 8px;
-  font-size: var(--fs-subheadline);
-  line-height: var(--lh-subheadline);
-  font-weight: 600;
-  color: var(--label-secondary);
-}
-.admin-fieldset__box {
-  padding: 14px;
-  border-radius: var(--radius-card);
-  background: var(--bg-elevated);
-  box-shadow: 0 0 0 1px var(--separator);
-}
-.admin-fields {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(min(100%, 300px), 1fr));
-  align-items: start;
-  gap: 14px 16px;
-}
-.admin-fieldset__row {
-  margin-top: 14px;
-  padding-bottom: 0;
-  border-top: 1px solid var(--separator);
-}
-.admin-form__actions {
-  display: flex;
-  justify-content: flex-end;
-}
-.admin-context {
-  max-height: 55dvh;
-  display: grid;
-  gap: 12px;
-}
-.admin-context p,
-.admin-context pre {
-  white-space: pre-wrap;
-  overflow-wrap: anywhere;
-}
-.admin-context time {
-  display: block;
-  font-size: var(--fs-callout);
-}
-.admin-context__reported {
-  border-inline-start: 3px solid var(--accent-solid);
-  padding-inline-start: 12px;
-}
-/* The privacy document: a page to read. A wider card than the sign-in forms, lines kept to a comfortable length. */
-.auth__inner:has(> .privacy-page) {
-  width: min(720px, 100%);
-}
-.privacy-page {
-  width: 100%;
-  max-height: calc(100dvh - 48px);
-  padding: 32px 36px 28px;
-  border-radius: 28px;
-  font-size: var(--fs-body);
-  line-height: 1.7;
-}
-.privacy-page h1 {
-  margin-bottom: 4px;
-}
-.privacy-page section {
-  max-width: 64ch;
-  margin-block: 22px;
-}
-.privacy-page h2 {
-  margin-bottom: 4px;
-}
-.privacy-page p {
-  text-wrap: pretty;
-}
-.privacy-page p + p,
-.privacy-page p + .banner {
-  margin-top: 8px;
-}
-.privacy-page nav {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px 20px;
-  margin-top: 28px;
-  padding-top: 16px;
-  border-top: 1px solid var(--separator);
-  font-size: var(--fs-callout);
-}
-@container win (max-width: 767px) {
-  .privacy-page {
-    padding: 24px 20px 20px;
-  }
 }

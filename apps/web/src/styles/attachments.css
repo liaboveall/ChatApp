@@ -1,3 +1,6 @@
+/* Attachments (docs/02 section 5): pictures, files, audio and video in a message; what is waiting in the composer; the
+   people and the emoji one picks while writing. */
+
 .attachments {
   display: grid;
   gap: 8px;
@@ -7,43 +10,109 @@
 .attachment-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 4px;
+  gap: 3px;
   max-width: 480px;
+  border-radius: 14px;
+  overflow: hidden;
 }
 .attachment-grid:has(> :only-child) {
   grid-template-columns: minmax(0, 1fr);
+}
+/* An odd one out takes the whole first line, so three pictures are one over two and never two and a gap. */
+.attachment-grid > :first-child:nth-last-child(odd):not(:only-child) {
+  grid-column: 1 / -1;
 }
 .attachment-image {
   position: relative;
   border: 0;
   background: var(--fill);
   padding: 0;
-  border-radius: 12px;
+  border-radius: 4px;
   overflow: hidden;
   cursor: zoom-in;
 }
 .attachment-image img {
   display: block;
   width: 100%;
-  height: auto;
+  height: 100%;
   max-height: 320px;
   object-fit: cover;
+  transition: scale 0.3s ease;
 }
+.attachment-image:hover img {
+  scale: 1.02;
+}
+.attachment-image:focus-visible {
+  outline-offset: -2px;
+  z-index: 1;
+}
+.attachment-placeholder {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+}
+
+/* A message that is only pictures has no bubble around them: the pictures are the message. */
+.bubble--media {
+  padding: 0;
+  background: none;
+  border-radius: 18px;
+}
+.bubble--media::before,
+.bubble--media::after {
+  display: none;
+}
+.bubble--media .attachments {
+  margin-top: 0;
+}
+.bubble--media .attachment-grid {
+  border-radius: 18px;
+  box-shadow: 0 0 0 1px var(--separator);
+}
+.bubble--media .bubble__edited,
+.bubble--media .bubble__via {
+  display: block;
+  margin: 4px 6px 0;
+  color: var(--label-secondary);
+  opacity: 1;
+}
+/* A message that is one to three emoji is drawn large and bare, as one would say it. */
+.bubble--emoji {
+  padding: 2px 4px;
+  background: none;
+  color: var(--label);
+  font-size: calc(var(--fs-message) * 2.8);
+  line-height: 1.15;
+}
+.bubble--emoji::before,
+.bubble--emoji::after {
+  display: none;
+}
+.bubble--emoji .bubble__edited {
+  display: block;
+  margin: 2px 0 0;
+  color: var(--label-secondary);
+  opacity: 1;
+}
+
 /* A file: what kind of thing it is, its name and size, and the arrow that says the whole card downloads it. */
 .file-card {
   display: flex;
   gap: 10px;
   align-items: center;
-  padding: 8px 12px 8px 8px;
-  border-radius: 12px;
+  padding: 8px 14px 8px 8px;
+  border-radius: 14px;
   background: var(--fill);
   color: inherit;
   text-decoration: none;
   min-width: 0;
-  transition: background-color 0.15s;
+  transition: background-color 0.16s;
 }
 .file-card:hover {
   background: var(--fill-hover);
+  text-decoration: none;
 }
 .file-card span {
   min-width: 0;
@@ -52,9 +121,9 @@
   flex: none;
   display: grid;
   place-items: center;
-  width: 36px;
-  height: 36px;
-  border-radius: 9px;
+  width: 38px;
+  height: 38px;
+  border-radius: 11px;
   background: color-mix(in srgb, var(--accent-solid) 14%, transparent);
   color: var(--accent-text);
 }
@@ -90,6 +159,9 @@
 .bubble--out .file-card {
   background: var(--inset);
 }
+.bubble--out .file-card:hover {
+  background: color-mix(in srgb, var(--accent-shade) 22%, transparent);
+}
 .bubble--out .file-card__icon {
   background: color-mix(in srgb, var(--on-accent) 18%, transparent);
   color: inherit;
@@ -98,44 +170,86 @@
 .bubble--out .file-card__get {
   color: inherit;
 }
+.attachment-playable {
+  display: grid;
+  gap: 6px;
+  min-width: 0;
+}
 .attachment-video {
   display: block;
   max-width: min(480px, 100%);
   max-height: 360px;
-  border-radius: 12px;
+  border-radius: 14px;
+  background: #000;
 }
 .attachment-audio {
   max-width: 100%;
 }
-.dialog--lightbox {
-  width: min(95vw, 1000px);
-  max-width: 1000px;
+
+/* ---- The picture viewer ---- */
+
+.dialog.dialog--lightbox {
+  width: min(96vw, 1120px);
+  max-width: 1120px;
+  gap: 12px;
+  padding: 16px 16px 14px;
+  justify-items: center;
+}
+.dialog--lightbox .dialog__title {
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: var(--fs-callout);
+  line-height: var(--lh-callout);
+  font-weight: 600;
+  color: var(--label-secondary);
+}
+.lightbox {
+  display: grid;
+  justify-items: center;
+  gap: 12px;
+  width: 100%;
+  min-width: 0;
 }
 .lightbox img {
   display: block;
   max-width: 100%;
-  max-height: 70vh;
+  max-height: 72vh;
   margin: auto;
+  border-radius: 14px;
   object-fit: contain;
 }
 .lightbox__actions {
   display: flex;
-  gap: 8px;
+  gap: 4px;
   justify-content: center;
   align-items: center;
-  margin-top: 12px;
+  max-width: 100%;
+  padding: 4px;
+  border-radius: 999px;
+  background: var(--fill);
 }
+.lightbox__actions .btn {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* ---- Files waiting in the composer ---- */
+
 .upload-drafts {
   display: flex;
   gap: 6px;
   flex-wrap: wrap;
-  padding: 10px 10px 2px;
+  padding: 8px 8px 0;
 }
 .upload-draft {
   display: flex;
-  gap: 6px;
+  gap: 8px;
   align-items: center;
-  padding: 2px 2px 2px 10px;
+  min-height: 32px;
+  padding: 2px 2px 2px 12px;
   border-radius: 999px;
   background: var(--fill);
   max-width: 100%;
@@ -143,9 +257,25 @@
   line-height: var(--lh-callout);
 }
 .upload-draft progress {
+  appearance: none;
   width: 56px;
   height: 4px;
-  accent-color: var(--accent-solid);
+  border: 0;
+  border-radius: 999px;
+  background: var(--fill-pressed);
+  overflow: hidden;
+}
+.upload-draft progress::-webkit-progress-bar {
+  background: transparent;
+}
+.upload-draft progress::-webkit-progress-value {
+  border-radius: 999px;
+  background: var(--accent-solid);
+  transition: inline-size 0.2s;
+}
+.upload-draft progress::-moz-progress-bar {
+  border-radius: 999px;
+  background: var(--accent-solid);
 }
 .upload-draft > button:not(.icon-btn) {
   color: var(--accent-text);
@@ -158,25 +288,36 @@
   white-space: nowrap;
 }
 .upload-draft small {
+  display: inline-flex;
+  align-items: center;
   color: var(--label-secondary);
 }
-/* Who to mention: a grid of people inside the composer (the server offers ten at most). It never scrolls, so the chosen
-   one cannot be out of sight; the chosen cell is filled like a menu's row. */
+.upload-draft small[data-status="ready"] {
+  color: var(--success-text);
+}
+.upload-draft small[data-status="failed"] {
+  color: var(--danger-text);
+}
+
+/* ---- Who to mention: a grid of people inside the composer (the server offers ten at most). It never scrolls, so the
+   chosen one cannot be out of sight; the cell the keys are on is lit like a menu's row. ---- */
+
 .mention-picker {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(min(200px, 100%), 1fr));
   gap: 2px;
   padding: 6px;
   border-bottom: 1px solid var(--separator);
+  animation: rise-in var(--dur-snappy) var(--spring-snappy) both;
 }
 .mention-picker button {
   display: flex;
   align-items: center;
   gap: 8px;
   min-width: 0;
-  min-height: 34px;
+  min-height: 36px;
   padding: 6px 10px 6px 7px;
-  border-radius: 8px;
+  border-radius: 12px;
   color: var(--label-secondary);
   font-size: var(--fs-callout);
   line-height: var(--lh-callout);
@@ -198,22 +339,50 @@
 .mention-picker button:hover {
   background: var(--fill);
 }
-/* Emoji: a grid of even cells; each lights up under the pointer. */
+.mention-picker button[aria-selected="true"] {
+  background: var(--fill-hover);
+  color: var(--label);
+}
+
+/* ---- Emoji: the ones used last, then a few groups, in one list that scrolls inside the composer ---- */
+
 .emoji-picker {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(38px, 1fr));
-  gap: 2px;
+  display: block;
+  max-height: min(280px, 36vh);
   margin: 0;
-  padding: 8px;
+  padding: 0 8px 8px;
   border: 0;
   border-bottom: 1px solid var(--separator);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  animation: rise-in var(--dur-snappy) var(--spring-snappy) both;
+}
+/* A group's name stays in sight while its rows pass under it. It carries text over the emoji scrolling behind, so it
+   stands on a strip of the capsule's own fill. */
+.emoji-picker__title {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  margin-inline: -8px;
+  padding: 8px 16px 4px;
+  background: var(--glass-base);
+  color: var(--label-secondary);
+  font-size: var(--fs-footnote);
+  line-height: var(--lh-footnote);
+  font-weight: 600;
+  letter-spacing: 0.02em;
+}
+.emoji-picker__grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(40px, 1fr));
+  gap: 2px;
 }
 .emoji-picker button {
   display: grid;
   place-items: center;
   aspect-ratio: 1;
-  border-radius: 10px;
-  font-size: 22px;
+  border-radius: 12px;
+  font-size: 23px;
   line-height: 1;
   cursor: pointer;
   transition:
@@ -222,19 +391,26 @@
 }
 .emoji-picker button:hover {
   background: var(--fill-hover);
-  scale: 1.12;
+  scale: 1.14;
 }
 .emoji-picker button:active {
-  scale: 0.94;
+  scale: 0.92;
 }
+.emoji-picker button:focus-visible {
+  outline-offset: -2px;
+}
+
+/* ---- Mentions in a message ---- */
+
 .mention {
+  padding: 1px 4px;
+  border-radius: 6px;
   color: var(--accent-text);
-  font-weight: 500;
-  border-radius: 4px;
-  padding: 0 3px;
+  font-weight: 600;
 }
+/* Me: the name stands on a tint of the accent (the pair the contrast check covers). */
 .mention[data-self="true"] {
-  background: var(--fill);
+  background: color-mix(in srgb, var(--accent-solid) 16%, transparent);
 }
 .bubble--out .mention {
   color: var(--on-accent);
@@ -243,12 +419,9 @@
   text-decoration-thickness: 1px;
   text-underline-offset: 2px;
 }
-.avatar img {
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
-  border-radius: inherit;
-}
+
+/* ---- Changing a picture (one's own, a conversation's) ---- */
+
 .avatar-editor {
   display: flex;
   flex-wrap: wrap;
@@ -260,10 +433,11 @@
   width: 256px;
   height: 256px;
   overflow: hidden;
-  border-radius: 12px;
+  border-radius: 999px;
   margin: 12px auto;
   padding: 0;
   border: 0;
+  box-shadow: 0 0 0 1px var(--separator);
   cursor: grab;
   touch-action: none;
   user-select: none;
@@ -277,25 +451,9 @@
   pointer-events: none;
 }
 
-.attachment-placeholder {
-  position: absolute;
-  inset: 0;
-  width: 100%;
-  height: 100%;
-  pointer-events: none;
-}
-.mention-picker button[aria-selected="true"],
-.mention-picker button[aria-selected="true"] b {
-  background: var(--accent-solid);
-  color: var(--on-accent);
-}
-/* On the filled cell a disc of a near hue would melt into it: a thin ring of the text colour keeps its edge. */
-.mention-picker button[aria-selected="true"] .avatar {
-  box-shadow: 0 0 0 1.5px color-mix(in srgb, var(--on-accent) 72%, transparent);
-}
-
-.emoji-picker {
-  max-height: min(240px, 30vh);
-  overflow-y: auto;
-  overscroll-behavior: contain;
+@media (prefers-reduced-motion: reduce) {
+  .mention-picker,
+  .emoji-picker {
+    animation: none;
+  }
 }

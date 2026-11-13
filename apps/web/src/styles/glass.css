@@ -1,20 +1,33 @@
 /*
- * Glass materials (spec 2, D-109). Three kinds, all driven by the four transparency levels:
- *   .glass       blurred and translucent. Its alpha follows the chosen level. Only for surfaces that sit on
- *                the wallpaper (the sidebar), where the backdrop is known, so the contrast check can cover it.
- *   .glass-text  same look, but never less opaque than --glass-floor and never tinted. For toolbar,
- *                composer, menus and sheets, which carry text over arbitrary content.
- *   .glass-lite  the glass-text fill without blur: for cards that sit on solid content, where there is
- *                nothing to blur. Keeps the number of backdrop-filter layers at four or fewer.
+ * Liquid glass (spec 2). The window is one solid surface that the content lies on; everything one navigates or acts with
+ * floats above it as glass. Four materials, all driven by the transparency level the person chose:
+ *
+ *   .glass        blurred and translucent; its alpha follows the level. Only for layers over the wallpaper (the
+ *                 sidebar, the sign-in card), where what is behind is known and the contrast check can cover it.
+ *   .glass-text   the same body, never less opaque than --glass-floor and never tinted. For glass that carries words
+ *                 over arbitrary content: the title of the toolbar, the composer, menus, sheets, the inspector.
+ *   .glass-clear  the clearest: for controls that carry icons only (the toolbar's tools, the attach button, "jump to
+ *                 latest"). An icon needs 3:1 where text needs 4.5:1, so this one may really show what passes under it.
+ *   .glass-lite   the text fill without blur, for small things that sit on the solid surface (the tools beside a
+ *                 message, a card in the timeline): any number of them costs nothing.
+ *
+ * A glass layer is drawn as a thick pane: a hairline where it meets what is under it, a lit upper edge, a rim that
+ * catches light at two opposite corners, and a soft shadow that says how far above the surface it floats. None of this
+ * changes the colour the text stands on, which is what the contrast check measures.
  */
 
 :root {
-  --shade: light-dark(#000, #fff); /* hover on filled buttons moves away from the text colour */
-  --glass-edge: light-dark(rgb(0 0 0 / 0.12), rgb(0 0 0 / 0.62));
-  --glass-highlight: light-dark(rgb(255 255 255 / 0.85), rgb(255 255 255 / 0.16));
-  --glass-shadow-color: light-dark(rgb(40 40 90 / 0.13), rgb(0 0 0 / 0.5));
-  --glass-rim-a: light-dark(rgb(255 255 255 / 0.95), rgb(255 255 255 / 0.34));
-  --glass-rim-b: light-dark(rgb(255 255 255 / 0.12), rgb(255 255 255 / 0.05));
+  /* A step away from the text colour: on the neutral surfaces that is towards black in the light theme and towards white
+     in the dark one; on an accent fill, whose text is white in both, it is always towards black. */
+  --shade: light-dark(#000, #fff);
+  --accent-shade: #000;
+
+  --glass-edge: light-dark(rgb(60 46 24 / 0.11), rgb(0 0 0 / 0.6));
+  --glass-highlight: light-dark(rgb(255 255 255 / 0.95), rgb(255 255 255 / 0.13));
+  --glass-rim-a: light-dark(rgb(255 255 255 / 1), rgb(255 255 255 / 0.4));
+  --glass-rim-b: light-dark(rgb(255 255 255 / 0.25), rgb(255 255 255 / 0.05));
+  --glass-shadow-color: light-dark(rgb(66 50 24 / 0.14), rgb(0 0 0 / 0.6));
+
   --glass-fill: color-mix(
     in srgb,
     color-mix(in oklch, var(--accent-solid) var(--glass-tint), var(--glass-base)) var(--glass-alpha),
@@ -25,29 +38,54 @@
     var(--glass-base) max(var(--glass-alpha), var(--glass-floor)),
     transparent
   );
+  --glass-clear-alpha: var(--glass-icon-floor);
+  --glass-fill-clear: color-mix(in srgb, var(--glass-base) var(--glass-clear-alpha), transparent);
   --glass-filter: blur(var(--glass-blur)) saturate(var(--glass-saturate));
+  /* Small controls blur less: a wide blur under a 36px disc turns everything into one flat colour. */
+  --glass-filter-clear: blur(calc(var(--glass-blur) * 0.5)) saturate(var(--glass-saturate));
+
+  /* The pane's edges: the hairline outside, the lit edge inside. */
+  --glass-ring: 0 0 0 1px var(--glass-edge), inset 0 1px 0 var(--glass-highlight);
+
   /* Elevation is layered: a tight contact shadow under the edge and a wide ambient one, so depth reads as soft light
      rather than as one gray smudge. */
   --elev-1:
-    0 1px 1px light-dark(rgb(20 20 40 / 0.04), rgb(0 0 0 / 0.3)),
-    0 2px 6px light-dark(rgb(20 20 40 / 0.06), rgb(0 0 0 / 0.3));
+    0 1px 1px light-dark(rgb(60 46 24 / 0.04), rgb(0 0 0 / 0.3)),
+    0 2px 8px light-dark(rgb(60 46 24 / 0.06), rgb(0 0 0 / 0.32));
   --elev-2:
-    0 1px 2px light-dark(rgb(20 20 40 / 0.06), rgb(0 0 0 / 0.35)),
-    0 8px 24px light-dark(rgb(20 20 50 / 0.1), rgb(0 0 0 / 0.4)),
-    0 24px 48px light-dark(rgb(20 20 50 / 0.06), rgb(0 0 0 / 0.25));
-  /* The floating layers (glass panels, sheets, dialogs): the same two-part recipe at a larger size. */
+    0 1px 2px light-dark(rgb(60 46 24 / 0.05), rgb(0 0 0 / 0.35)),
+    0 10px 28px -4px light-dark(rgb(66 50 24 / 0.12), rgb(0 0 0 / 0.45)),
+    0 28px 56px -12px light-dark(rgb(66 50 24 / 0.08), rgb(0 0 0 / 0.3));
+  /* Controls that float (a capsule of tools, a round button). */
+  --glass-drop-sm:
+    0 1px 2px light-dark(rgb(66 50 24 / 0.06), rgb(0 0 0 / 0.36)),
+    0 6px 16px -4px light-dark(rgb(66 50 24 / 0.12), rgb(0 0 0 / 0.5));
+  /* Panels and popups. */
   --glass-drop:
-    0 2px 6px light-dark(rgb(30 30 70 / 0.05), rgb(0 0 0 / 0.3)),
-    0 14px 36px var(--glass-shadow-color);
-  /* Filled buttons: a lit top edge and a contact shadow. Fields: a well of the content colour. */
-  --btn-sheen: light-dark(rgb(255 255 255 / 0.24), rgb(255 255 255 / 0.3));
-  --btn-drop: light-dark(rgb(0 0 30 / 0.18), rgb(0 0 0 / 0.4));
-  --field-bg: var(--bg-content);
-  --field-inset: light-dark(rgb(0 0 30 / 0.04), rgb(0 0 0 / 0.3));
+    0 2px 6px light-dark(rgb(66 50 24 / 0.05), rgb(0 0 0 / 0.36)),
+    0 18px 44px -10px var(--glass-shadow-color);
+  /* Sheets and dialogs, which stand furthest above the page. */
+  --glass-drop-lg:
+    0 4px 10px light-dark(rgb(66 50 24 / 0.06), rgb(0 0 0 / 0.4)),
+    0 32px 80px -16px light-dark(rgb(66 50 24 / 0.24), rgb(0 0 0 / 0.72));
+
+  /* Filled buttons: a lit top edge and a shadow of their own colour. Fields: a well of the content colour. */
+  --btn-sheen: light-dark(rgb(255 255 255 / 0.28), rgb(255 255 255 / 0.36));
+  --btn-drop: light-dark(rgb(40 30 10 / 0.16), rgb(0 0 0 / 0.4));
+  --field-bg: light-dark(#fffdf9, rgb(255 255 255 / 0.05));
+  --field-inset: light-dark(rgb(60 46 24 / 0.05), rgb(0 0 0 / 0.28));
+  /* A group of rows inside a panel: a shade of the panel itself, so it works on glass and on the solid surface alike. */
+  --group-bg: light-dark(rgb(128 114 92 / 0.08), rgb(255 255 255 / 0.05));
+  --group-edge: light-dark(rgb(72 62 46 / 0.1), rgb(255 255 255 / 0.07));
 }
 
+:root[data-glass="tinted"] {
+  --glass-clear-alpha: 70%;
+}
 :root[data-glass="opaque"] {
   --glass-filter: none;
+  --glass-filter-clear: none;
+  --glass-clear-alpha: 100%;
 }
 
 /* The system asks for less transparency: every level becomes opaque (spec 2). */
@@ -56,20 +94,20 @@
   :root[data-glass] {
     --glass-alpha: 100% !important;
     --glass-tint: 0% !important;
+    --glass-clear-alpha: 100% !important;
     --glass-filter: none !important;
+    --glass-filter-clear: none !important;
   }
 }
 
 .glass,
-.glass-text {
+.glass-text,
+.glass-clear {
   position: relative;
   isolation: isolate;
   -webkit-backdrop-filter: var(--glass-filter);
   backdrop-filter: var(--glass-filter);
-  box-shadow:
-    0 0 0 1px var(--glass-edge),
-    inset 0 1px 0 var(--glass-highlight),
-    var(--glass-drop);
+  box-shadow: var(--glass-ring), var(--glass-drop);
 }
 
 .glass {
@@ -80,18 +118,23 @@
   background: var(--glass-fill-text);
 }
 
+.glass-clear {
+  background: var(--glass-fill-clear);
+  -webkit-backdrop-filter: var(--glass-filter-clear);
+  backdrop-filter: var(--glass-filter-clear);
+  box-shadow: var(--glass-ring), var(--glass-drop-sm);
+}
+
 .glass-lite {
   position: relative;
   background: var(--glass-fill-text);
-  box-shadow:
-    0 0 0 1px var(--glass-edge),
-    inset 0 1px 0 var(--glass-highlight),
-    var(--elev-1);
+  box-shadow: var(--glass-ring), var(--elev-1);
 }
 
-/* Rim light: a 1px gradient edge, brighter at the top left and bottom right. */
+/* Rim light: a 1px gradient edge, brightest at the top left and the bottom right, as on a pane lit from above. */
 .glass::before,
 .glass-text::before,
+.glass-clear::before,
 .glass-lite::before {
   content: "";
   position: absolute;
@@ -101,10 +144,10 @@
   border-radius: inherit;
   pointer-events: none;
   background: linear-gradient(
-    145deg,
+    150deg,
     var(--glass-rim-a),
-    var(--glass-rim-b) 38%,
-    var(--glass-rim-b) 62%,
+    var(--glass-rim-b) 32%,
+    var(--glass-rim-b) 68%,
     var(--glass-rim-a)
   );
   -webkit-mask:
@@ -116,35 +159,33 @@
     linear-gradient(#000 0 0);
 }
 
-/* "Tinted" level: the accent shows up as a faint rim glow on text-bearing glass. */
-:root[data-glass="tinted"] .glass-text,
-:root[data-glass="tinted"] .glass-lite {
-  box-shadow:
-    0 0 0 1px color-mix(in srgb, var(--accent) 38%, var(--glass-edge)),
-    inset 0 1px 0 var(--glass-highlight),
-    var(--glass-drop);
+/* "Tinted" level: the accent shows up as a faint glow in the hairline of text-bearing glass. */
+:root[data-glass="tinted"] :is(.glass-text, .glass-clear, .glass-lite) {
+  --glass-edge: color-mix(
+    in srgb,
+    var(--accent) 38%,
+    light-dark(rgb(60 46 24 / 0.11), rgb(0 0 0 / 0.6))
+  );
 }
 
 @supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
   .glass,
-  .glass-text {
+  .glass-text,
+  .glass-clear {
     background: var(--bg-elevated);
   }
 }
 
-/* Squircle corners where the browser has them (Chromium); others keep plain rounded corners. */
-@supports (corner-shape: squircle) {
-  .squircle {
-    corner-shape: squircle;
-  }
-}
+/* Corners are plain circular arcs everywhere. A superellipse (`corner-shape: squircle`) keeps its curve inside the same
+   radius box, so the same number draws a visibly tighter corner in the one engine that has it: panels would stop being
+   concentric with what they hold, and would differ between browsers. The class stays on the markup as a name for "a
+   panel with the large radius"; only the small channel tile, sized for it, uses the superellipse (components.css). */
 
-/* Glass budget (spec 2: at most four backdrop-filter layers on screen). While a modal layer is open the app behind it
-   is inert and dimmed, so its toolbar and composer drop their blur. They are at least 88% opaque anyway (the text
-   floor), so this is hardly visible, and it keeps modal + sidebar + preview within four. The modal layers set
-   <html data-modal="true"> while they are open. */
-:root[data-modal="true"] .toolbar,
-:root[data-modal="true"] .composer {
+/* Glass budget (spec 2). While a modal layer is open the app behind it is inert and dimmed, so the floating chrome
+   drops its blur: the sheet on top is the one pane worth the cost. The modal layers set <html data-modal="true">
+   while they are open. */
+:root[data-modal="true"]
+:is(.toolbar__who, .toolbar__actions, .composer__field, .composer__attach, .jump) {
   -webkit-backdrop-filter: none;
   backdrop-filter: none;
 }

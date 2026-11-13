@@ -4,16 +4,18 @@ import { LinkTabIndex } from '@/components/markdown/link-context.ts'
 import { MentionContext } from '@/components/markdown/mention-context.ts'
 import { MessageBody } from '@/components/markdown/message-body.tsx'
 import { Avatar } from '@/components/ui/avatar.tsx'
+import { Badge } from '@/components/ui/badge.tsx'
 import { IconButton } from '@/components/ui/button.tsx'
 import { Icon } from '@/components/ui/icon.tsx'
 import { cx } from '@/lib/cx.ts'
 import { messageText } from '@/lib/message-text.ts'
 import type { PendingMessage } from '@/lib/sync/outbox.ts'
-import { dateTime, exactTime, separatorLabel } from '@/lib/time-format.ts'
+import { clockTime, dateTime, exactTime, separatorLabel } from '@/lib/time-format.ts'
 import { m } from '@/paraglide/messages.js'
 import { AgentRunCard } from '../agent/run-card.tsx'
 import { Attachments } from '../attachments/gallery.tsx'
 import { hasAny, type MessageActions } from '../message-actions/eligibility.ts'
+import { bubbleShape } from './bubble-shape.ts'
 import type { MessageItem, PendingItem, StartItem, TimelineItem } from './items.ts'
 import { systemText } from './system-text.ts'
 
@@ -45,6 +47,8 @@ export type RowContext = {
   actionsOf: (message: Message) => MessageActions
   onMenu: (message: Message, anchor: Element | { getBoundingClientRect: () => DOMRect }) => void
   onReply: (message: Message) => void
+  /** Opens the card of the person who wrote a message, at their picture. */
+  onProfile: (user: UserSummary, anchor: Element) => void
 }
 
 /** A point on the screen as a menu anchor (a right click opens the menu where the pointer is). */
@@ -182,9 +186,9 @@ function MessageRow({ item, context }: { item: MessageItem; context: RowContext 
   const user = message.senderId === null ? undefined : context.users[message.senderId]
   const who = item.who === 'me' ? 'out' : 'in'
   const actions = context.actionsOf(message)
-  const label = `${sender}, ${exactTime(message.createdAt, context.locale, context.timeZone)}${
-    item.firstUnread ? `, ${m.timeline_new_messages()}` : ''
-  }`
+  const shape = bubbleShape(message)
+  const exact = exactTime(message.createdAt, context.locale, context.timeZone)
+  const label = `${sender}, ${exact}${item.firstUnread ? `, ${m.timeline_new_messages()}` : ''}`
   return (
     <article
       className="msg-article"
@@ -199,7 +203,13 @@ function MessageRow({ item, context }: { item: MessageItem; context: RowContext 
       onFocus={() => context.onSelect(message.id)}
       {...menuHandlers(message, actions, context)}
     >
-      {item.showName ? <div className="msg-sender">{sender}</div> : null}
+      {item.showName ? (
+        <div className="msg-sender">
+          {sender}
+          {/* Said in words beside the name: a display name alone cannot pass for the assistant, or for a person. */}
+          {user?.isBot === true ? <Badge tone="role">{m.user_bot()}</Badge> : null}
+        </div>
+      ) : null}
       <div
         className={cx(
           'msg',
@@ -211,13 +221,31 @@ function MessageRow({ item, context }: { item: MessageItem; context: RowContext 
         {who === 'in' && context.conversationKind !== 'dm' ? (
           <div className="msg__avatar">
             {item.showAvatar ? (
-              <Avatar
-                name={sender}
-                src={user?.avatarUrl}
-                seed={message.senderId ?? message.id}
-                size={28}
-                bot={user?.isBot === true}
-              />
+              user !== undefined && !user.deleted ? (
+                <button
+                  type="button"
+                  className="msg__who"
+                  aria-label={m.profile_open({ name: sender })}
+                  tabIndex={current ? 0 : -1}
+                  onClick={(event) => context.onProfile(user, event.currentTarget)}
+                >
+                  <Avatar
+                    name={sender}
+                    src={user.avatarUrl}
+                    seed={user.id}
+                    size={30}
+                    bot={user.isBot}
+                  />
+                </button>
+              ) : (
+                <Avatar
+                  name={sender}
+                  src={user?.avatarUrl}
+                  seed={message.senderId ?? message.id}
+                  size={30}
+                  bot={user?.isBot === true}
+                />
+              )
             ) : null}
           </div>
         ) : null}
@@ -226,9 +254,13 @@ function MessageRow({ item, context }: { item: MessageItem; context: RowContext 
             className={cx(
               'bubble',
               who === 'out' ? 'bubble--out' : 'bubble--in',
+              shape === 'media' && 'bubble--media',
+              shape === 'emoji' && 'bubble--emoji',
+              // The assistant is still writing: the bubble's edge is lit until the reply is whole (docs/02 section 6).
+              message.kind === 'agent' && message.status === 'streaming' && 'bubble--streaming',
               !item.first && 'bubble--join-prev',
               !item.last && 'bubble--join-next',
-              item.last && 'bubble--tail',
+              item.last && shape === 'bubble' && 'bubble--tail',
             )}
           >
             {message.meta.reminder ? (
@@ -270,7 +302,8 @@ function MessageRow({ item, context }: { item: MessageItem; context: RowContext 
             ) : null}
           </div>
           {/* Beside the bubble, on the side away from the screen edge and out of the row's flow: what can be done with the
-              message, then its exact time. Shown on hover and while focus is inside the row. */}
+              message, then the time it was sent (the exact time is the clock's tooltip and part of the row's name).
+              Shown on hover and while focus is inside the row. */}
           <div className="msg__side">
             {hasAny(actions) ? (
               <div className="msg__tools glass-lite">
@@ -297,8 +330,8 @@ function MessageRow({ item, context }: { item: MessageItem; context: RowContext 
                 />
               </div>
             ) : null}
-            <time className="msg__time" dateTime={message.createdAt}>
-              {exactTime(message.createdAt, context.locale, context.timeZone)}
+            <time className="msg__time" dateTime={message.createdAt} title={exact}>
+              {clockTime(message.createdAt, context.locale, context.timeZone)}
             </time>
           </div>
         </div>
