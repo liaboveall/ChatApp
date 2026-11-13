@@ -14,7 +14,7 @@ import {
   signedIn,
 } from './support/chat.ts'
 import { expect, test } from './support/fixtures.ts'
-import { openSettings, signIn } from './support/ui.ts'
+import { chooseTheme, openSettings, signIn } from './support/ui.ts'
 
 /**
  * Automated accessibility checks (docs/08 section 2, AT-21): axe-core against WCAG 2.2 A and AA on the key screens, in
@@ -49,12 +49,8 @@ async function expectAccessible(
 for (const scheme of ['light', 'dark'] as const) {
   test.describe(`axe, ${scheme}`, () => {
     test.use({ colorScheme: scheme })
-    // The theme is dark unless a member chooses otherwise (appearance.ts), whatever the system prefers: the scheme
-    // under test is chosen the way a member chooses it, or the light pass would look at the dark theme again.
     test.beforeEach(async ({ page }) => {
-      await page.addInitScript((theme) => {
-        localStorage.setItem('chatapp.appearance', JSON.stringify({ theme }))
-      }, scheme)
+      await chooseTheme(page, scheme)
     })
 
     test('pages before sign-in', async ({ page }) => {

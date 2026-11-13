@@ -90,12 +90,13 @@ test.describe('appearance', () => {
     browser,
   }) => {
     const person = await createVerifiedMember('look')
-    await page.emulateMedia({ colorScheme: 'light' })
+    // The system prefers dark, and the default is still the light theme.
+    await page.emulateMedia({ colorScheme: 'dark' })
     await signIn(page, person.email, person.password)
     await openSettings(page, 'appearance')
     const dialog = page.getByRole('dialog')
-    await expect(dialog.getByRole('radio', { name: '深色' })).toBeChecked()
-    expect(await html(page, 'data-theme')).toBe('dark')
+    await expect(dialog.getByRole('radio', { name: '浅色' })).toBeChecked()
+    expect(await html(page, 'data-theme')).toBe('light')
 
     await dialog.getByRole('radio', { name: '深色' }).click()
     await dialog.getByRole('radio', { name: '紫' }).click()
@@ -133,7 +134,7 @@ test.describe('appearance', () => {
     await openSettings(page, 'appearance')
     await expect(page.getByRole('radio', { name: '深色' })).toBeChecked()
     await page.getByRole('button', { name: '恢复默认外观' }).click()
-    expect(await html(page, 'data-theme')).toBe('dark')
+    expect(await html(page, 'data-theme')).toBe('light')
     expect(await html(page, 'data-accent')).toBeNull()
     expect(await html(page, 'data-glass')).toBeNull()
   })
@@ -233,14 +234,14 @@ test.describe('sidebar', () => {
     const nav = page.getByRole('navigation', { name: '会话' })
     const row = (name: string) => nav.getByRole('link', { name })
     // What the row looks like: a pane of the accent with its words in the colour written on it (docs/02 section 3: a
-    // filled shape and inverted text, not a hue alone). The tokens give both colours of the default dark theme.
+    // filled shape and inverted text, not a hue alone). The tokens give both colours of the default light theme.
     const drawn = (name: string) =>
       row(name).evaluate((element) => ({
         fill: getComputedStyle(element).backgroundColor,
         text: getComputedStyle(element).color,
       }))
     const clear = 'rgba(0, 0, 0, 0)'
-    const pane = { fill: 'rgb(65, 103, 173)', text: 'rgb(255, 255, 255)' }
+    const pane = { fill: 'rgb(60, 97, 167)', text: 'rgb(255, 255, 255)' }
 
     await row(first).click()
     await expect(row(first)).toHaveAttribute('aria-current', 'page')

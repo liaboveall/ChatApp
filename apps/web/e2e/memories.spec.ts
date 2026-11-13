@@ -1,6 +1,6 @@
 import { createVerifiedMember } from './support/api.ts'
 import { expect, test } from './support/fixtures.ts'
-import { openSettings, signIn } from './support/ui.ts'
+import { chooseTheme, openSettings, signIn } from './support/ui.ts'
 
 test('M5 memories: private default, explicit site consent, versioned revocation, delete and persistence', async ({
   page,
@@ -57,6 +57,7 @@ for (const scheme of ['light', 'dark'] as const) {
   }) => {
     await page.setViewportSize({ width: 320, height: 740 })
     await page.emulateMedia({ colorScheme: scheme })
+    await chooseTheme(page, scheme)
     const alice = await createVerifiedMember(`memory${scheme}`)
     await signIn(page, alice.email, alice.password)
     await openSettings(page, 'assistant')

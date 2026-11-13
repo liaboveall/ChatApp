@@ -13,7 +13,7 @@ import {
 } from './support/chat.ts'
 import { expect, newContext, test } from './support/fixtures.ts'
 import { holdAnswer, signInInPlace, signOutInPlace, watchText } from './support/late.ts'
-import { animationsFinished, signIn } from './support/ui.ts'
+import { animationsFinished, chooseTheme, signIn } from './support/ui.ts'
 
 const tags = ['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa', 'wcag22aa', 'best-practice']
 let admin: APIRequestContext
@@ -76,6 +76,9 @@ async function fits(page: Page, selector: string) {
 for (const scheme of ['light', 'dark'] as const) {
   test.describe(`M7 screens ${scheme}`, () => {
     test.use({ colorScheme: scheme })
+    test.beforeEach(async ({ page }) => {
+      await chooseTheme(page, scheme)
+    })
     test('public privacy has accurate policy, both entrypoints and accessible narrow layouts', async ({
       page,
     }) => {

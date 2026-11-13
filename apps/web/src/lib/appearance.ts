@@ -24,7 +24,7 @@ export const THEMES = ['system', 'light', 'dark'] as const
 export type Theme = (typeof THEMES)[number]
 
 export const appearanceSchema = z.object({
-  theme: z.enum(THEMES).catch('dark'),
+  theme: z.enum(THEMES).catch('light'),
   accent: z.enum(ACCENT_KEYS).catch(DEFAULT_ACCENT),
   glass: z.enum(GLASS_KEYS).catch(DEFAULT_GLASS),
   typeSize: z.number().int().min(-1).max(3).catch(0),
@@ -36,7 +36,7 @@ export const appearanceSchema = z.object({
 export type Appearance = z.infer<typeof appearanceSchema>
 
 export const DEFAULT_APPEARANCE: Appearance = {
-  theme: 'dark',
+  theme: 'light',
   accent: DEFAULT_ACCENT,
   glass: DEFAULT_GLASS,
   typeSize: 0,

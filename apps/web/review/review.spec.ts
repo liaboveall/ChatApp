@@ -496,6 +496,10 @@ for (const colorScheme of ['light', 'dark'] as const) {
       page,
     }) => {
       await page.emulateMedia({ colorScheme })
+      // The theme is a member's choice and not the system's (appearance.ts): choose it, or both passes are light.
+      await page.addInitScript((theme) => {
+        localStorage.setItem('chatapp.appearance', JSON.stringify({ theme }))
+      }, colorScheme)
       await page.setViewportSize({ width, height: 900 })
       await page.goto('/?mode=shell')
       await expect(page.getByRole('heading', { name: '欢迎回来，Alice' })).toBeVisible()

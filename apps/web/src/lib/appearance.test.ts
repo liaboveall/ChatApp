@@ -36,7 +36,7 @@ const attributes = (): Record<string, string | null> =>
 
 describe('loadAppearance', () => {
   test('nothing stored, garbage and wrong shapes all fall back to the defaults', () => {
-    expect(DEFAULT_APPEARANCE.theme).toBe('dark')
+    expect(DEFAULT_APPEARANCE.theme).toBe('light')
     expect(loadAppearance()).toEqual(DEFAULT_APPEARANCE)
     localStorage.setItem(APPEARANCE_STORAGE_KEY, '{not json')
     expect(loadAppearance()).toEqual(DEFAULT_APPEARANCE)
@@ -44,10 +44,10 @@ describe('loadAppearance', () => {
     expect(loadAppearance()).toEqual(DEFAULT_APPEARANCE)
   })
 
-  test('keeps explicit light and system choices, defaulting missing or invalid themes to dark', () => {
+  test('keeps explicit dark and system choices, defaulting missing or invalid themes to light', () => {
     for (const theme of ['light', 'system', 'dark', undefined, 'invalid']) {
       localStorage.setItem(APPEARANCE_STORAGE_KEY, JSON.stringify({ theme }))
-      expect(loadAppearance().theme).toBe(theme === 'light' || theme === 'system' ? theme : 'dark')
+      expect(loadAppearance().theme).toBe(theme === 'dark' || theme === 'system' ? theme : 'light')
     }
   })
 
@@ -71,10 +71,10 @@ describe('loadAppearance', () => {
 })
 
 describe('applyToRoot', () => {
-  test('defaults force dark mode and leave other attributes off', () => {
+  test('defaults force light mode and leave other attributes off', () => {
     applyToRoot(DEFAULT_APPEARANCE)
     expect(attributes()).toEqual({
-      'data-theme': 'dark',
+      'data-theme': 'light',
       'data-accent': null,
       'data-glass': null,
       'data-type-size': null,
@@ -114,7 +114,7 @@ describe('the store', () => {
     })
     useAppearance.getState().reset()
     expect(document.documentElement.getAttribute('data-accent')).toBeNull()
-    expect(document.documentElement.getAttribute('data-theme')).toBe('dark')
+    expect(document.documentElement.getAttribute('data-theme')).toBe('light')
     stop()
   })
 })
@@ -130,7 +130,7 @@ describe('public/theme-init.js', () => {
       'data-reduce-motion',
     ])
       document.documentElement.removeAttribute(name)
-    document.documentElement.setAttribute('data-theme', 'dark')
+    document.documentElement.setAttribute('data-theme', 'light')
     if (stored === undefined) localStorage.removeItem(APPEARANCE_STORAGE_KEY)
     else
       localStorage.setItem(
@@ -154,9 +154,9 @@ describe('public/theme-init.js', () => {
             }
   })
 
-  test('survives unreadable and hostile storage with the dark default', () => {
+  test('survives unreadable and hostile storage with the light default', () => {
     expect(runScript('{broken')).toEqual({
-      'data-theme': 'dark',
+      'data-theme': 'light',
       'data-accent': null,
       'data-glass': null,
       'data-type-size': null,
@@ -169,13 +169,13 @@ describe('public/theme-init.js', () => {
       typeSize: '2',
       reduceMotion: 'true',
     })
-    expect(hostile['data-theme']).toBe('dark')
+    expect(hostile['data-theme']).toBe('light')
     expect(
       Object.entries(hostile).every(([key, value]) => key === 'data-theme' || value === null),
     ).toBe(true)
   })
 
-  test('missing and invalid storage use dark before the first paint', () => {
+  test('missing and invalid storage use light before the first paint', () => {
     for (const value of [undefined, 'null', '[1,2]', '42', '{}']) {
       const fromScript = runScript(value)
       applyToRoot(DEFAULT_APPEARANCE)
@@ -183,13 +183,13 @@ describe('public/theme-init.js', () => {
     }
   })
 
-  test('blocked storage still applies the dark default', () => {
+  test('blocked storage still applies the light default', () => {
     const get = vi.spyOn(Storage.prototype, 'getItem').mockImplementation(() => {
       throw new Error('Storage blocked')
     })
     try {
       new Function(themeInit)()
-      expect(document.documentElement.getAttribute('data-theme')).toBe('dark')
+      expect(document.documentElement.getAttribute('data-theme')).toBe('light')
     } finally {
       get.mockRestore()
     }
@@ -205,7 +205,7 @@ describe("the installed app's title bar colour (theme-color)", () => {
     document.head.querySelector('meta[name="color-scheme"]')?.remove()
     const scheme = document.createElement('meta')
     scheme.name = 'color-scheme'
-    scheme.content = 'dark'
+    scheme.content = 'light'
     document.head.append(scheme)
     for (const old of document.head.querySelectorAll('meta[name="theme-color"]')) old.remove()
     const metas = [...indexHtml.matchAll(/<meta name="theme-color"[^>]*>/g)].map((match) => {
@@ -223,14 +223,16 @@ describe("the installed app's title bar colour (theme-color)", () => {
       ),
     )
 
-  test('index.html starts with the dark theme and a matching title bar', () => {
+  test('index.html starts with the light theme and a matching title bar', () => {
     installMetas()
     const initial = new DOMParser().parseFromString(indexHtml, 'text/html')
-    expect(initial.documentElement.getAttribute('data-theme')).toBe('dark')
-    expect(initial.querySelector('meta[name="color-scheme"]')?.getAttribute('content')).toBe('dark')
+    expect(initial.documentElement.getAttribute('data-theme')).toBe('light')
+    expect(initial.querySelector('meta[name="color-scheme"]')?.getAttribute('content')).toBe(
+      'light',
+    )
     expect(contents()).toEqual({
-      '(prefers-color-scheme: light)': dark,
-      '(prefers-color-scheme: dark)': dark,
+      '(prefers-color-scheme: light)': light,
+      '(prefers-color-scheme: dark)': light,
     })
   })
 

@@ -24,6 +24,17 @@ export async function signIn(page: Page, email: string, password: string): Promi
   await notices
 }
 
+/**
+ * Chooses the theme the way a member does, before the page loads. The theme is the light one unless a member chooses
+ * otherwise (appearance.ts), whatever the system prefers, so emulating the system's scheme alone would show the light
+ * theme in both passes of a test that means to look at both.
+ */
+export async function chooseTheme(page: Page, theme: 'light' | 'dark'): Promise<void> {
+  await page.addInitScript((value) => {
+    localStorage.setItem('chatapp.appearance', JSON.stringify({ theme: value }))
+  }, theme)
+}
+
 export async function openSettings(
   page: Page,
   section: 'appearance' | 'account' | 'invites' | 'assistant' | 'notifications',

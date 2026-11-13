@@ -8,11 +8,11 @@
     const stored = raw ? JSON.parse(raw) : null
     if (stored && typeof stored === 'object' && !Array.isArray(stored)) a = stored
   } catch {
-    // Unreadable storage uses the dark default, just like loadAppearance().
+    // Unreadable storage uses the light default, just like loadAppearance().
   }
   const root = document.documentElement
   const one = (v, list) => (list.includes(v) ? v : null)
-  const theme = one(a.theme, ['system', 'light', 'dark']) || 'dark'
+  const theme = one(a.theme, ['system', 'light', 'dark']) || 'light'
   const accent = one(a.accent, [
     'purple',
     'pink',
