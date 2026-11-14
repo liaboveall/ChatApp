@@ -90,6 +90,39 @@ describe('Gateway (unit, fake sockets)', () => {
     await draining
     expect(drained).toBe(true)
   })
+  test('a client that leaves during the start-up read is not put into presence or greeted', async () => {
+    let release!: () => void
+    const waiting = new Promise<void>((resolve) => {
+      release = resolve
+    })
+    let joined = 0
+    const { gateway, identity } = setup(
+      {},
+      {
+        bus: {} as GatewayServices['bus'],
+        presence: {
+          connect: async () => {
+            joined += 1
+            return null
+          },
+        } as unknown as GatewayServices['presence'],
+        memberships: async () => {
+          await waiting
+          return new Map()
+        },
+      },
+    )
+    const socket = new FakeSocket()
+    const connection = gateway.accept(socket, identity())
+    // The browser closed the socket itself; nothing on the server asked for it.
+    gateway.closed(connection, 1001)
+    release()
+    await gateway.settled()
+    expect(joined).toBe(0)
+    expect(socket.sent).toEqual([])
+    expect(gateway.connectionCount).toBe(0)
+  })
+
   test('accept sends hello with the identity and server time', () => {
     const { gateway, identity } = setup()
     const socket = new FakeSocket()

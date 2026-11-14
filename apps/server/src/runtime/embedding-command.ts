@@ -11,6 +11,7 @@ import {
 } from '@chatapp/db'
 import { createDatabase } from '@chatapp/db/client'
 import { and, eq, isNull, notExists, sql } from 'drizzle-orm'
+import { domainConfig } from '../config/domain.ts'
 import { loadConfig } from '../config/index.ts'
 import type { Deps } from '../domain/deps.ts'
 import { backfillEmbeddings } from '../domain/embeddings.ts'
@@ -71,12 +72,7 @@ const deps: Deps = {
   db: database.db,
   clock: systemClock,
   newId: uuidv7,
-  config: {
-    origin: config.origin,
-    timezone: config.timezone,
-    auth: config.auth,
-    product: config.product,
-  },
+  config: domainConfig(config),
   passwords: {
     hash: async () => {
       throw new Error('not used')

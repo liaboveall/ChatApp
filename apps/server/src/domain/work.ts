@@ -20,11 +20,8 @@ export type WorkInput = {
 const FORBIDDEN_PAYLOAD_KEY = /token|password|secret|email|body|cookie|authorization/i
 const MAX_PAYLOAD_BYTES = 2048
 
-export async function enqueueWork(
-  tx: DbOrTx,
-  deps: Pick<Deps, 'clock'>,
-  input: WorkInput,
-): Promise<{ id: string; created: boolean }> {
+/** The row of an intent, after the checks every payload has to pass. */
+function workRow(deps: Pick<Deps, 'clock'>, input: WorkInput): typeof workItems.$inferInsert {
   const payload = input.payload ?? {}
   for (const key of Object.keys(payload)) {
     if (FORBIDDEN_PAYLOAD_KEY.test(key)) {
@@ -32,18 +29,51 @@ export async function enqueueWork(
     }
   }
   if (JSON.stringify(payload).length > MAX_PAYLOAD_BYTES) throw new Error('work payload too large')
+  return {
+    kind: input.kind,
+    dedupeKey: input.dedupeKey,
+    entityId: input.entityId,
+    entityVersion: input.entityVersion,
+    payload,
+    // The application clock decides readiness (tests move it); the database default would use its own clock.
+    availableAt: input.availableAt ?? deps.clock.now(),
+  }
+}
 
+/** Rows per statement of `enqueueWorkMany`: six parameters each, far below the protocol's limit of 65,535. */
+const ENQUEUE_CHUNK = 500
+
+/**
+ * Many intents at once, for a fan-out (one push task per subscription of every recipient): the same rows `enqueueWork`
+ * would write one by one, in one statement per few hundred. An intent that already exists is left as it is, so a repeat
+ * after a crash adds nothing. Returns how many were new.
+ */
+export async function enqueueWorkMany(
+  tx: DbOrTx,
+  deps: Pick<Deps, 'clock'>,
+  inputs: readonly WorkInput[],
+): Promise<number> {
+  const rows = inputs.map((input) => workRow(deps, input))
+  let created = 0
+  for (let start = 0; start < rows.length; start += ENQUEUE_CHUNK) {
+    const inserted = await tx
+      .insert(workItems)
+      .values(rows.slice(start, start + ENQUEUE_CHUNK))
+      .onConflictDoNothing({ target: workItems.dedupeKey })
+      .returning({ id: workItems.id })
+    created += inserted.length
+  }
+  return created
+}
+
+export async function enqueueWork(
+  tx: DbOrTx,
+  deps: Pick<Deps, 'clock'>,
+  input: WorkInput,
+): Promise<{ id: string; created: boolean }> {
   const inserted = await tx
     .insert(workItems)
-    .values({
-      kind: input.kind,
-      dedupeKey: input.dedupeKey,
-      entityId: input.entityId,
-      entityVersion: input.entityVersion,
-      payload,
-      // The application clock decides readiness (tests move it); the database default would use its own clock.
-      availableAt: input.availableAt ?? deps.clock.now(),
-    })
+    .values(workRow(deps, input))
     .onConflictDoNothing({ target: workItems.dedupeKey })
     .returning({ id: workItems.id })
   const created = inserted[0]

@@ -289,10 +289,44 @@ export async function findMember(
   return row ?? null
 }
 
+/** The conversation and the actor's membership of it, as one reading. */
+async function readConversationAndMember(
+  db: DbOrTx,
+  actorId: string,
+  conversationId: string,
+  lock: boolean,
+): Promise<{ conversation: ConversationRow; member: MemberRow | null } | null> {
+  if (lock) {
+    // Two statements on purpose. A statement that waits for the row lock re-reads only the row it locked; a member row
+    // joined to it would still be the one from before the wait, and somebody removed meanwhile would look like a member.
+    const [conversation] = await db
+      .select()
+      .from(conversations)
+      .where(eq(conversations.id, conversationId))
+      .for('update')
+    if (!conversation) return null
+    return { conversation, member: await findMember(db, conversationId, actorId) }
+  }
+  const [row] = await db
+    .select({ conversation: conversations, member: conversationMembers })
+    .from(conversations)
+    .leftJoin(
+      conversationMembers,
+      and(
+        eq(conversationMembers.conversationId, conversations.id),
+        eq(conversationMembers.userId, actorId),
+      ),
+    )
+    .where(eq(conversations.id, conversationId))
+    .limit(1)
+  return row ?? null
+}
+
 /**
  * Loads the conversation (locked FOR UPDATE when `lock` is set, which needs a transaction and follows the users in the
  * lock order), the actor's membership and, when named, the target's. No policy is applied yet: callers that must tell
- * "already a member" from "not allowed" look at the rows first and then call `enforce`.
+ * "already a member" from "not allowed" look at the rows first and then call `enforce`. Without the lock the
+ * conversation and the membership come from one statement, so every plain read is judged on one snapshot.
  */
 export async function loadAccess(
   db: DbOrTx,
@@ -300,12 +334,9 @@ export async function loadAccess(
   conversationId: string,
   options: { lock?: boolean; targetUserId?: string } = {},
 ): Promise<ConversationAccess & { targetNamed: boolean }> {
-  const select = db.select().from(conversations).where(eq(conversations.id, conversationId))
-  const rows = options.lock ? await select.for('update') : await select.limit(1)
-  const conversation = rows[0]
-  if (!conversation) throw new AppError('NOT_FOUND', 'Conversation not found')
-
-  const member = await findMember(db, conversationId, actorId)
+  const found = await readConversationAndMember(db, actorId, conversationId, options.lock === true)
+  if (!found) throw new AppError('NOT_FOUND', 'Conversation not found')
+  const { conversation, member } = found
   const targetId = options.targetUserId
   const target =
     targetId === undefined

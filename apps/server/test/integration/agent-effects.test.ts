@@ -8,6 +8,7 @@ import {
   agentApprovals,
   agentEffects,
   agentRuns,
+  appSettings,
   conversationMembers,
   executionDelegations,
   messages,
@@ -42,6 +43,7 @@ import {
   revokeDevice,
   revokeOtherDevices,
 } from '../../src/domain/sessions.ts'
+import { readSitePolicy, SITE_POLICY_KEY } from '../../src/domain/site-policy.ts'
 import {
   cancelReminder,
   deliverTask,
@@ -399,6 +401,37 @@ describe('effects happen exactly once across crashes (INV-10, AT-07, docs/08 sec
         expectedStateVersion: approval.stateVersion,
       }),
     ).rejects.toMatchObject({ code: 'CONFLICT' })
+  })
+
+  test('a change of the member list while it waits ends the run, and the run no longer says it is waiting', async () => {
+    const g = await group()
+    const started = await ask(g.id, '代发：名单要变了')
+    const paused = await run(started.id)
+    expect(paused.run).toMatchObject({ status: 'awaiting_approval', pendingApproval: true })
+    // The owner removes the other member: what the run read is no longer what the conversation is.
+    await removeConversationMember(deps, alice, g.id, bob.userId)
+    const ended = await getAgentRun(deps, alice, started.id)
+    expect(ended.run).toMatchObject({
+      status: 'cancelled',
+      error: { code: 'CONTEXT_CHANGED' },
+      pendingApproval: false,
+    })
+    expect(ended.approvals[0]).toMatchObject({ status: 'rejected' })
+  })
+
+  test("the number of tasks that may wait is the site's setting, also where the request is prepared", async () => {
+    const current = (await readSitePolicy(deps, deps.db)).policy
+    const lowered = { ...current, limits: { ...current.limits, maxFutureTasksPerUser: 1 } }
+    await dbs.owner.db
+      .insert(appSettings)
+      .values({ key: SITE_POLICY_KEY, value: lowered })
+      .onConflictDoUpdate({ target: appSettings.key, set: { value: lowered } })
+    const g = await group()
+    const first = await run((await ask(g.id, `提醒我：${later(3)} 第一个`)).id)
+    expect(first.run.status).toBe('completed')
+    // One is waiting, and one is all the site allows: the second is refused where the request is prepared.
+    const second = await run((await ask(g.id, `提醒我：${later(4)} 第二个`)).id)
+    expect(second.approvals[0]).toMatchObject({ status: 'rejected', reason: 'invalid:TASK_LIMIT' })
   })
 
   test('an unanswered request expires after 24 hours and cancels the run', async () => {

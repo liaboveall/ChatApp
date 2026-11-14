@@ -14,12 +14,8 @@ const SQLSTATE = /^[0-9A-Z]{5}$/
 const IDENTIFIER = /^[A-Za-z0-9_.-]{1,80}$/
 
 export const SQLSTATE_UNIQUE_VIOLATION = '23505'
-export const SQLSTATE_FOREIGN_KEY_VIOLATION = '23503'
-export const SQLSTATE_CHECK_VIOLATION = '23514'
 export const SQLSTATE_SERIALIZATION_FAILURE = '40001'
 export const SQLSTATE_DEADLOCK = '40P01'
-export const SQLSTATE_LOCK_NOT_AVAILABLE = '55P03'
-export const SQLSTATE_QUERY_CANCELED = '57014'
 
 /** Walks the `cause` chain (depth-limited) and returns the first SQLSTATE/constraint found. */
 export function pgErrorInfo(error: unknown): PgErrorInfo | undefined {

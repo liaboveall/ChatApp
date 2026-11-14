@@ -27,7 +27,7 @@ import type { HttpEnv, Services } from '../context.ts'
 import { principalOf, requireSession } from '../middleware/session.ts'
 import { POLICIES } from '../policies.ts'
 import { ACCOUNT_DELETION_COOKIE } from './deletions.ts'
-import { err, json } from './helpers.ts'
+import { err, json, jsonBody, OK } from './helpers.ts'
 
 const errors = {
   401: {
@@ -55,7 +55,7 @@ const patchMeRoute = createRoute({
   summary: 'Change my own settings (time zone); conditional on meVersion',
   security: [{ cookieAuth: [] }],
   request: {
-    body: { required: true, content: { 'application/json': { schema: patchMeRequestSchema } } },
+    body: jsonBody(patchMeRequestSchema),
   },
   responses: {
     200: { description: 'Me', content: { 'application/json': { schema: meSchema } } },
@@ -74,10 +74,7 @@ const deleteMeRoute = createRoute({
   summary: 'Confirm the password, then anonymize my account after offsite acceptance',
   security: [{ cookieAuth: [] }],
   request: {
-    body: {
-      required: true,
-      content: { 'application/json': { schema: deleteAccountRequestSchema } },
-    },
+    body: jsonBody(deleteAccountRequestSchema),
   },
   responses: {
     200: json(okResponseSchema, 'Account deleted'),
@@ -186,7 +183,7 @@ const putAiKeyRoute = createRoute({
   summary: 'Verify with the provider, then store or replace my own key (stops runs on the old one)',
   security: [{ cookieAuth: [] }],
   request: {
-    body: { required: true, content: { 'application/json': { schema: putAiKeyRequestSchema } } },
+    body: jsonBody(putAiKeyRequestSchema),
   },
   responses: {
     200: {
@@ -214,12 +211,11 @@ export function meRoutes(app: OpenAPIHono<HttpEnv>, services: Services): void {
   const readOnlyGuard = requireSession(services, { cookieEffects: false })
   const names = cookieNames(services.config.origin)
   const secure = services.config.origin.startsWith('https://')
-  for (const path of ['/api/me', '/api/me/*'])
-    app.use(path, async (c, next) =>
-      c.req.method === 'DELETE' && c.req.path === '/api/me'
-        ? readOnlyGuard(c, next)
-        : guard(c, next),
-    )
+  // `/api/me/*` also matches `/api/me` itself. Deleting the account ends its sessions, so that one request must not
+  // refresh or clear a cookie of its own accord: the handler decides what happens to the cookie.
+  app.use('/api/me/*', async (c, next) =>
+    c.req.method === 'DELETE' && c.req.path === '/api/me' ? readOnlyGuard(c, next) : guard(c, next),
+  )
 
   app.openapi(getMeRoute, async (c) => {
     const me = await getMe(services.deps, principalOf(c))
@@ -261,7 +257,7 @@ export function meRoutes(app: OpenAPIHono<HttpEnv>, services: Services): void {
       return c.json(operation, 202)
     }
     c.get('pendingCookies').push(...sessionCookieDeletions(names, secure))
-    return c.json({ status: 'ok' as const }, 200)
+    return c.json(OK, 200)
   })
 
   app.openapi(listDevicesRoute, async (c) => {
@@ -291,12 +287,12 @@ export function meRoutes(app: OpenAPIHono<HttpEnv>, services: Services): void {
     // Revoking the device you are on also ends this browser's session: drop its cookie.
     if (id === principal.originId)
       c.get('pendingCookies').push(...sessionCookieDeletions(names, secure))
-    return c.json({ status: 'ok' as const }, 200)
+    return c.json(OK, 200)
   })
 
   app.openapi(revokeOthersRoute, async (c) => {
     await revokeOtherDevices(services.deps, principalOf(c))
-    return c.json({ status: 'ok' as const }, 200)
+    return c.json(OK, 200)
   })
 
   app.openapi(getAiKeyRoute, async (c) =>
@@ -311,12 +307,12 @@ export function meRoutes(app: OpenAPIHono<HttpEnv>, services: Services): void {
 
   app.openapi(deleteAiKeyRoute, async (c) => {
     await deleteAiKey(services.deps, principalOf(c))
-    return c.json({ status: 'ok' as const }, 200)
+    return c.json(OK, 200)
   })
 
   app.openapi(revokeAllRoute, async (c) => {
     await revokeAllDevices(services.deps, principalOf(c))
     c.get('pendingCookies').push(...sessionCookieDeletions(names, secure))
-    return c.json({ status: 'ok' as const }, 200)
+    return c.json(OK, 200)
   })
 }

@@ -13,7 +13,7 @@ import {
   syncHeadsResponseSchema,
   userChangesResponseSchema,
 } from '@chatapp/contracts'
-import { createRoute, type OpenAPIHono, type z } from '@hono/zod-openapi'
+import { createRoute, type OpenAPIHono } from '@hono/zod-openapi'
 import {
   editMessage,
   getMessage,
@@ -28,12 +28,7 @@ import { getConversationChanges, getSyncHeads, getUserChanges } from '../../doma
 import type { HttpEnv, Services } from '../context.ts'
 import { principalOf, requireSession } from '../middleware/session.ts'
 import { POLICIES } from '../policies.ts'
-import { accessErrors, err, guardedErrors, idParam, json } from './helpers.ts'
-
-const body = <T extends z.ZodType>(schema: T) => ({
-  required: true as const,
-  content: { 'application/json': { schema } },
-})
+import { accessErrors, err, guardedErrors, idParam, json, jsonBody, OK } from './helpers.ts'
 
 const listRoute = createRoute({
   method: 'get',
@@ -52,7 +47,7 @@ const sendRoute = createRoute({
   tags: ['messages'],
   summary: 'Send a message; the same clientId returns the same message (201 new, 200 repeat)',
   security: [{ cookieAuth: [] }],
-  request: { params: idParam, body: body(sendMessageRequestSchema) },
+  request: { params: idParam, body: jsonBody(sendMessageRequestSchema) },
   responses: {
     201: json(messageEnvelopeSchema, 'Sent'),
     200: json(
@@ -72,7 +67,7 @@ const replayRoute = createRoute({
   summary:
     'Send a plain-text message that was queued offline; accepted within 24 hours (403 WINDOW_EXPIRED after), never moves the read position',
   security: [{ cookieAuth: [] }],
-  request: { params: idParam, body: body(replayMessageRequestSchema) },
+  request: { params: idParam, body: jsonBody(replayMessageRequestSchema) },
   responses: {
     201: json(messageEnvelopeSchema, 'Sent'),
     200: json(
@@ -119,7 +114,7 @@ const editRoute = createRoute({
   tags: ['messages'],
   summary: 'Edit within the current site window (author only); conditional on changeSeq',
   security: [{ cookieAuth: [] }],
-  request: { params: idParam, body: body(editMessageRequestSchema) },
+  request: { params: idParam, body: jsonBody(editMessageRequestSchema) },
   responses: {
     200: json(messageEnvelopeSchema, 'Edited'),
     409: err('The message changed, was withdrawn, or the conversation is archived'),
@@ -203,21 +198,25 @@ export function messageRoutes(app: OpenAPIHono<HttpEnv>, services: Services): vo
     ),
   )
 
-  app.openapi(sendRoute, async (c) => {
-    const principal = principalOf(c)
-    const { id } = c.req.valid('param')
+  /** Per person and conversation, then per person overall (docs/01 section 7); the person's own limit, never the IP's. */
+  const enforceSendLimits = async (userId: string, conversationId: string): Promise<void> => {
     const limits = await readSiteLimits(deps, deps.db)
-    // Per person and conversation, then per person overall (docs/01 section 7); the person's own limit, never the IP's.
     await limiter.enforce([
       {
         policy: { ...POLICIES.messageConversationUser, limit: limits.messageRateConversationLimit },
-        subject: `${principal.userId}:${id}`,
+        subject: `${userId}:${conversationId}`,
       },
       {
         policy: { ...POLICIES.messageUser, limit: limits.messageRateUserLimit },
-        subject: principal.userId,
+        subject: userId,
       },
     ])
+  }
+
+  app.openapi(sendRoute, async (c) => {
+    const principal = principalOf(c)
+    const { id } = c.req.valid('param')
+    await enforceSendLimits(principal.userId, id)
     const result = await sendMessage(deps, principal, id, c.req.valid('json'))
     return c.json(result.envelope, result.created ? 201 : 200)
   })
@@ -225,17 +224,7 @@ export function messageRoutes(app: OpenAPIHono<HttpEnv>, services: Services): vo
   app.openapi(replayRoute, async (c) => {
     const principal = principalOf(c)
     const { id } = c.req.valid('param')
-    const limits = await readSiteLimits(deps, deps.db)
-    await limiter.enforce([
-      {
-        policy: { ...POLICIES.messageConversationUser, limit: limits.messageRateConversationLimit },
-        subject: `${principal.userId}:${id}`,
-      },
-      {
-        policy: { ...POLICIES.messageUser, limit: limits.messageRateUserLimit },
-        subject: principal.userId,
-      },
-    ])
+    await enforceSendLimits(principal.userId, id)
     const result = await replayMessage(deps, principal, id, c.req.valid('json'))
     return c.json(result.envelope, result.created ? 201 : 200)
   })
@@ -279,7 +268,7 @@ export function messageRoutes(app: OpenAPIHono<HttpEnv>, services: Services): vo
 
   app.openapi(hideRoute, async (c) => {
     await hideMessage(deps, principalOf(c), c.req.valid('param').id)
-    return c.json({ status: 'ok' as const }, 200)
+    return c.json(OK, 200)
   })
 
   app.openapi(deleteRoute, async (c) => {
@@ -290,7 +279,7 @@ export function messageRoutes(app: OpenAPIHono<HttpEnv>, services: Services): vo
       'message_delete',
     )
     if (result && 'operationId' in result) return c.json(result, 202)
-    return c.json({ status: 'ok' as const }, 200)
+    return c.json(OK, 200)
   })
 
   app.openapi(headsRoute, async (c) => c.json(await getSyncHeads(deps, principalOf(c)), 200))

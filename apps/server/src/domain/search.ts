@@ -75,7 +75,9 @@ export function visibleMessagePredicate(db: DbOrTx, userId: string, filter: Sear
       : undefined,
     filter.siteInput ? eq(messages.privacyClass, 'standard') : undefined,
     filter.siteInput
-      ? sql`(${messages.kind} <> 'agent' or exists (select 1 from agent_runs ar where ar.id::text = ${messages.meta}->'agent'->>'runId' and ar.status = 'completed' and ar.privacy_class = 'standard' and ar.content_purged_at is null))`
+      ? // The run is looked up by its key: the id stored with the message is compared as a uuid (and only when it reads as
+        // one), not the key as text, which no index could serve.
+        sql`(${messages.kind} <> 'agent' or exists (select 1 from agent_runs ar where ar.id = (case when ${messages.meta}->'agent'->>'runId' ~ '^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$' then (${messages.meta}->'agent'->>'runId')::uuid end) and ar.status = 'completed' and ar.privacy_class = 'standard' and ar.content_purged_at is null))`
       : undefined,
     filter.shared
       ? sql`${messages.seq} > (select coalesce(max(cm.visible_from_seq), 0) from conversation_members cm where cm.conversation_id = ${messages.conversationId})`

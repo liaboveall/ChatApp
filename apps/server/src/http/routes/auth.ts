@@ -7,9 +7,7 @@ import {
   AppError,
   acceptedResponseSchema,
   changePasswordRequestSchema,
-  errorBodySchema,
   findAuthEndpoint,
-  IDEMPOTENCY_KEY_HEADER,
   INVITE_CODE_HEADER,
   normalizeEmail,
   okResponseSchema,
@@ -46,23 +44,14 @@ import type { HttpEnv, Services } from '../context.ts'
 import { authenticate, principalOf, requireSession, sdkHeaders } from '../middleware/session.ts'
 import { POLICIES } from '../policies.ts'
 import { errorResponse, isSdkApiError } from '../responses.ts'
-
-const json = <T extends z.ZodType>(schema: T, description: string) => ({
-  description,
-  content: { 'application/json': { schema } },
-})
-const body = <T extends z.ZodType>(schema: T) => ({
-  required: true as const,
-  content: { 'application/json': { schema } },
-})
-const err = (description: string) => json(errorBodySchema, description)
+import { err, json, jsonBody, OK, requireIdempotencyKey } from './helpers.ts'
 
 const signUpRoute = createRoute({
   method: 'post',
   path: '/api/auth/sign-up/email',
   tags: ['auth'],
   summary: 'Register with an invitation (code in the X-Invite-Code header, key in Idempotency-Key)',
-  request: { body: body(signUpRequestSchema) },
+  request: { body: jsonBody(signUpRequestSchema) },
   responses: {
     200: json(
       signUpResponseSchema,
@@ -80,7 +69,7 @@ const signInRoute = createRoute({
   path: '/api/auth/sign-in/email',
   tags: ['auth'],
   summary: 'Sign in with email and password; the session is a cookie, the body carries no token',
-  request: { body: body(signInRequestSchema) },
+  request: { body: jsonBody(signInRequestSchema) },
   responses: {
     200: json(okResponseSchema, 'Signed in (Set-Cookie)'),
     401: json(signInErrorSchema, 'Wrong email or password'),
@@ -103,7 +92,7 @@ const changePasswordRoute = createRoute({
   tags: ['auth'],
   summary: 'Change the password; other sessions end, this one continues under a new origin',
   security: [{ cookieAuth: [] }],
-  request: { body: body(changePasswordRequestSchema) },
+  request: { body: jsonBody(changePasswordRequestSchema) },
   responses: {
     200: json(okResponseSchema, 'Changed'),
     401: err('Not signed in'),
@@ -118,7 +107,7 @@ const verificationRequestRoute = createRoute({
   path: '/api/auth/verification/request',
   tags: ['auth'],
   summary: 'Send (again) the verification email; the answer never depends on the account',
-  request: { body: body(verificationRequestSchema) },
+  request: { body: jsonBody(verificationRequestSchema) },
   responses: { 202: json(acceptedResponseSchema, 'Accepted'), 429: err('Rate limited') },
 })
 
@@ -127,7 +116,7 @@ const verificationConsumeRoute = createRoute({
   path: '/api/auth/verification/consume',
   tags: ['auth'],
   summary: 'Consume a verification credential from the email link; does not sign in',
-  request: { body: body(verificationConsumeSchema) },
+  request: { body: jsonBody(verificationConsumeSchema) },
   responses: {
     200: json(okResponseSchema, 'Verified'),
     400: err('Credential invalid, used or expired'),
@@ -140,7 +129,7 @@ const resetRequestRoute = createRoute({
   path: '/api/auth/password/request-reset',
   tags: ['auth'],
   summary: 'Email a password-reset link; the answer never depends on the account',
-  request: { body: body(passwordResetRequestSchema) },
+  request: { body: jsonBody(passwordResetRequestSchema) },
   responses: { 202: json(acceptedResponseSchema, 'Accepted'), 429: err('Rate limited') },
 })
 
@@ -149,7 +138,7 @@ const resetConsumeRoute = createRoute({
   path: '/api/auth/password/consume-reset',
   tags: ['auth'],
   summary: 'Set a new password with a reset credential; ends every session',
-  request: { body: body(passwordResetConsumeSchema) },
+  request: { body: jsonBody(passwordResetConsumeSchema) },
   responses: {
     200: json(okResponseSchema, 'Password changed'),
     400: err('Credential invalid, used or expired'),
@@ -214,12 +203,7 @@ export function authRoutes(app: OpenAPIHono<HttpEnv>, services: Services): void 
   app.openapi(signUpRoute, async (c) => {
     const input = c.req.valid('json')
     await limiter.enforce([{ policy: POLICIES.registerIp, subject: ipKey(c) }])
-    const idempotencyKey = c.req.header(IDEMPOTENCY_KEY_HEADER)
-    if (idempotencyKey === undefined) {
-      throw new AppError('VALIDATION_FAILED', 'Idempotency-Key header is required', {
-        details: { field: 'idempotencyKey' },
-      })
-    }
+    const idempotencyKey = requireIdempotencyKey(c)
     const result = await registerAccount(deps, {
       email: input.email,
       username: input.username,
@@ -258,7 +242,7 @@ export function authRoutes(app: OpenAPIHono<HttpEnv>, services: Services): void 
     }
     // The SDK's JSON carries the session token; the browser only gets the cookie.
     c.get('pendingCookies').push(...response.headers.getSetCookie())
-    return c.json({ status: 'ok' as const }, 200)
+    return c.json(OK, 200)
   })
 
   app.openapi(signOutRoute, async (c) => {
@@ -276,7 +260,7 @@ export function authRoutes(app: OpenAPIHono<HttpEnv>, services: Services): void 
         .catch(() => undefined)
     }
     c.get('pendingCookies').push(...sessionCookieDeletions(names, secure))
-    return c.json({ status: 'ok' as const }, 200)
+    return c.json(OK, 200)
   })
 
   app.use('/api/auth/change-password', requireSession(services))
@@ -287,7 +271,7 @@ export function authRoutes(app: OpenAPIHono<HttpEnv>, services: Services): void 
       { policy: POLICIES.loginIp, subject: ipKey(c) },
     ])
     await changePassword(deps, principal, c.req.valid('json'))
-    return c.json({ status: 'ok' as const }, 200)
+    return c.json(OK, 200)
   })
 
   // ── email verification ──
@@ -306,7 +290,7 @@ export function authRoutes(app: OpenAPIHono<HttpEnv>, services: Services): void 
   app.openapi(verificationConsumeRoute, async (c) => {
     await limiter.enforce([{ policy: POLICIES.verificationConsumeIp, subject: ipKey(c) }])
     await consumeVerification(deps, c.req.valid('json'))
-    return c.json({ status: 'ok' as const }, 200)
+    return c.json(OK, 200)
   })
 
   // ── password reset ──
@@ -325,7 +309,7 @@ export function authRoutes(app: OpenAPIHono<HttpEnv>, services: Services): void 
   app.openapi(resetConsumeRoute, async (c) => {
     await limiter.enforce([{ policy: POLICIES.resetConsumeIp, subject: ipKey(c) }])
     await consumePasswordReset(deps, c.req.valid('json'))
-    return c.json({ status: 'ok' as const }, 200)
+    return c.json(OK, 200)
   })
 
   // ── gateway for everything else under /api/auth: exact allowlist, then the SDK (passkeys only) ──

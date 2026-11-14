@@ -26,20 +26,14 @@ import {
 import type { HttpEnv, Services } from '../context.ts'
 import { principalOf, requireSession } from '../middleware/session.ts'
 import { POLICIES } from '../policies.ts'
-import { accessErrors, err, guardedErrors, idParam, json } from './helpers.ts'
-
-const body = <T extends z.ZodType>(schema: T) => ({
-  required: true as const,
-  content: { 'application/json': { schema } },
-})
+import { accessErrors, err, guardedErrors, idParam, json, jsonBody } from './helpers.ts'
 
 const removedSchema = z.object({ id: z.uuid() })
 const testRequestSchema = z.strictObject({ installationId: z.uuid() })
 
 export function notificationRoutes(app: OpenAPIHono<HttpEnv>, services: Services): void {
   const { deps, limiter } = services
-  for (const path of ['/api/notifications', '/api/notifications/*'])
-    app.use(path, requireSession(services))
+  app.use('/api/notifications/*', requireSession(services))
   // A worker can finish this request after every page was closed or signed out. Its answer must never refresh or delete a
   // cookie of a later login. Normal page identity requests own rolling refresh and stale-cookie cleanup.
   app.use('/api/push/*', requireSession(services, { cookieEffects: false }))
@@ -68,7 +62,7 @@ export function notificationRoutes(app: OpenAPIHono<HttpEnv>, services: Services
       tags: ['notifications'],
       summary: 'Mark some, or all, of my notifications read; repeating it changes nothing',
       security: [{ cookieAuth: [] }],
-      request: { body: body(markNotificationsReadSchema) },
+      request: { body: jsonBody(markNotificationsReadSchema) },
       responses: {
         200: json(markNotificationsReadResponseSchema, 'What changed and the unread count now'),
         422: err('Validation failed'),
@@ -134,7 +128,7 @@ export function notificationRoutes(app: OpenAPIHono<HttpEnv>, services: Services
       summary:
         'Subscribe this browser installation; bound to this sign-in, and removed with it (201 new, 200 repeat)',
       security: [{ cookieAuth: [] }],
-      request: { body: body(pushSubscribeRequestSchema) },
+      request: { body: jsonBody(pushSubscribeRequestSchema) },
       responses: {
         201: json(pushSubscriptionResponseSchema, 'Subscribed'),
         200: json(pushSubscriptionResponseSchema, 'Already subscribed; the keys were refreshed'),
@@ -181,7 +175,7 @@ export function notificationRoutes(app: OpenAPIHono<HttpEnv>, services: Services
       tags: ['push'],
       summary: 'Send a test push to this browser installation',
       security: [{ cookieAuth: [] }],
-      request: { body: body(testRequestSchema) },
+      request: { body: jsonBody(testRequestSchema) },
       responses: {
         200: json(
           pushTestResponseSchema,

@@ -37,12 +37,8 @@ import {
 import type { HttpEnv, Services } from '../context.ts'
 import { principalOf, requireSession } from '../middleware/session.ts'
 import { POLICIES } from '../policies.ts'
-import { accessErrors, err, idParam, json } from './helpers.ts'
+import { accessErrors, err, idParam, json, jsonBody, OK } from './helpers.ts'
 
-const body = <T extends z.ZodType>(schema: T) => ({
-  required: true as const,
-  content: { 'application/json': { schema } },
-})
 const memberParams = z.object({ id: z.uuid(), userId: z.uuid() })
 const inviteParams = z.object({ id: z.uuid(), inviteId: z.uuid() })
 
@@ -68,7 +64,7 @@ const addMembersRoute = createRoute({
   tags: ['members'],
   summary: 'Add people; banned people are skipped and the answer says why',
   security: [{ cookieAuth: [] }],
-  request: { params: idParam, body: body(addMembersRequestSchema) },
+  request: { params: idParam, body: jsonBody(addMembersRequestSchema) },
   responses: {
     200: json(addMembersResponseSchema, 'Who was added and who was skipped'),
     409: err('The member list changed, or the conversation is archived'),
@@ -82,7 +78,7 @@ const patchMemberRoute = createRoute({
   tags: ['members'],
   summary: 'Appoint or dismiss an administrator (owner), silence or unsilence a member',
   security: [{ cookieAuth: [] }],
-  request: { params: memberParams, body: body(patchMemberRequestSchema) },
+  request: { params: memberParams, body: jsonBody(patchMemberRequestSchema) },
   responses: {
     200: json(memberSchema, 'The member after the change'),
     409: err('The member list changed, or the conversation is archived'),
@@ -117,7 +113,7 @@ const banRoute = createRoute({
   tags: ['members'],
   summary: 'Remove and ban, or ban somebody who is not (or no longer) a member',
   security: [{ cookieAuth: [] }],
-  request: { params: idParam, body: body(banRequestSchema) },
+  request: { params: idParam, body: jsonBody(banRequestSchema) },
   responses: {
     200: json(banSchema, 'Banned'),
     409: err('The member list changed, or the conversation is archived'),
@@ -182,7 +178,7 @@ const previewRoute = createRoute({
   tags: ['invitations'],
   summary: 'What an invitation link leads to; the code travels in the body, never in the URL',
   security: [{ cookieAuth: [] }],
-  request: { body: body(conversationInviteCodeRequestSchema) },
+  request: { body: jsonBody(conversationInviteCodeRequestSchema) },
   responses: {
     200: json(conversationInvitePreviewSchema, 'Preview'),
     400: err('Invalid, expired, used up or revoked'),
@@ -196,7 +192,7 @@ const acceptRoute = createRoute({
   tags: ['invitations'],
   summary: 'Join the group an invitation link belongs to',
   security: [{ cookieAuth: [] }],
-  request: { body: body(conversationInviteCodeRequestSchema) },
+  request: { body: jsonBody(conversationInviteCodeRequestSchema) },
   responses: {
     200: json(conversationSchema, 'Joined (or already a member)'),
     400: err('Invalid, expired, used up or revoked'),
@@ -237,7 +233,7 @@ export function memberRoutes(app: OpenAPIHono<HttpEnv>, services: Services): voi
   app.openapi(removeMemberRoute, async (c) => {
     const { id, userId } = c.req.valid('param')
     await removeConversationMember(deps, principalOf(c), id, userId)
-    return c.json({ status: 'ok' as const }, 200)
+    return c.json(OK, 200)
   })
 
   app.openapi(listBansRoute, async (c) =>
@@ -259,7 +255,7 @@ export function memberRoutes(app: OpenAPIHono<HttpEnv>, services: Services): voi
   app.openapi(unbanRoute, async (c) => {
     const { id, userId } = c.req.valid('param')
     await unbanConversationMember(deps, principalOf(c), id, userId)
-    return c.json({ status: 'ok' as const }, 200)
+    return c.json(OK, 200)
   })
 
   app.openapi(createInviteRoute, async (c) => {
@@ -280,7 +276,7 @@ export function memberRoutes(app: OpenAPIHono<HttpEnv>, services: Services): voi
   app.openapi(revokeInviteRoute, async (c) => {
     const { id, inviteId } = c.req.valid('param')
     await revokeConversationInvite(deps, principalOf(c), id, inviteId)
-    return c.json({ status: 'ok' as const }, 200)
+    return c.json(OK, 200)
   })
 
   app.openapi(previewRoute, async (c) => {

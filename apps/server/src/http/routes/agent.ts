@@ -34,7 +34,7 @@ import { searchMessages } from '../../domain/search.ts'
 import type { HttpEnv, Services } from '../context.ts'
 import { principalOf, requireSession } from '../middleware/session.ts'
 import { POLICIES } from '../policies.ts'
-import { accessErrors, err, idParam, json } from './helpers.ts'
+import { accessErrors, err, idempotencyKeyOf, idParam, json, jsonBody, OK } from './helpers.ts'
 
 const errors = {
   ...accessErrors,
@@ -95,10 +95,7 @@ export function agentRoutes(app: OpenAPIHono<HttpEnv>, services: Services): void
       tags: ['agent'],
       security: [{ cookieAuth: [] }],
       request: {
-        body: {
-          required: true,
-          content: { 'application/json': { schema: agentRunRequestSchema } },
-        },
+        body: jsonBody(agentRunRequestSchema),
       },
       responses: {
         200: json(agentRunResponseSchema, 'Queued run, or idempotent replay'),
@@ -108,12 +105,7 @@ export function agentRoutes(app: OpenAPIHono<HttpEnv>, services: Services): void
     async (c) =>
       c.json(
         {
-          run: await createAgentRun(
-            deps,
-            principalOf(c),
-            c.req.valid('json'),
-            c.req.header('Idempotency-Key') ?? '',
-          ),
+          run: await createAgentRun(deps, principalOf(c), c.req.valid('json'), idempotencyKeyOf(c)),
         },
         200,
       ),
@@ -160,7 +152,7 @@ export function agentRoutes(app: OpenAPIHono<HttpEnv>, services: Services): void
             deps,
             principalOf(c),
             c.req.valid('param').id,
-            c.req.header('Idempotency-Key') ?? '',
+            idempotencyKeyOf(c),
           ),
         },
         200,
@@ -174,10 +166,7 @@ export function agentRoutes(app: OpenAPIHono<HttpEnv>, services: Services): void
       security: [{ cookieAuth: [] }],
       request: {
         params: idParam,
-        body: {
-          required: true,
-          content: { 'application/json': { schema: agentKeySourceRequestSchema } },
-        },
+        body: jsonBody(agentKeySourceRequestSchema),
       },
       responses: {
         200: json(agentContextResponseSchema, 'A blank segment with the chosen key source'),
@@ -221,10 +210,7 @@ export function agentRoutes(app: OpenAPIHono<HttpEnv>, services: Services): void
       security: [{ cookieAuth: [] }],
       request: {
         params: idParam,
-        body: {
-          required: true,
-          content: { 'application/json': { schema: agentApprovalDecisionSchema } },
-        },
+        body: jsonBody(agentApprovalDecisionSchema),
       },
       responses: {
         200: json(agentApprovalResponseSchema, 'Decided; the run resumes when nothing is open'),
@@ -286,7 +272,7 @@ export function agentRoutes(app: OpenAPIHono<HttpEnv>, services: Services): void
         c.req.valid('param').id,
       )
       if (status) return c.json(status, 202)
-      return c.json({ status: 'ok' as const }, 200)
+      return c.json(OK, 200)
     },
   )
 }

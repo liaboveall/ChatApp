@@ -7,12 +7,15 @@ import {
   beginWork,
   claimReadyWork,
   completeWork,
+  completeWorkMany,
   failWork,
   purgeFinishedWork,
   recoverExpiredWork,
   WORK_LIMITS,
   workBacklog,
 } from '../../src/domain/work-queue.ts'
+import { createDispatcher } from '../../src/jobs/dispatcher.ts'
+import type { BusEvent } from '../../src/realtime/events.ts'
 import { openTestDatabases, type TestDatabases, truncateAll } from '../support/db.ts'
 import { makeDeps } from '../support/deps.ts'
 
@@ -201,5 +204,104 @@ describe('the dispatcher and consumer steps', () => {
     deps.clock.advance((WORK_LIMITS.finishedRetentionDays + 1) * 86_400_000)
     expect(await purgeFinishedWork(deps)).toBe(1)
     expect(await dbs.owner.db.select().from(workItems)).toHaveLength(1)
+  })
+})
+
+describe('completeWorkMany', () => {
+  test('completes each item only under the epoch it was leased with', async () => {
+    const deps = makeDeps(dbs.app.db)
+    for (const name of ['a', 'b', 'c'])
+      await enqueueWork(deps.db, deps, { kind: 'realtime', dedupeKey: `rt:${name}` })
+    const [first, second, third] = await claimReadyWork(deps, { limit: 10 })
+    if (!first || !second || !third) throw new Error('three items were expected')
+    expect(await completeWorkMany(deps, [])).toBe(0)
+    const done = await completeWorkMany(deps, [
+      { id: first.id, leaseEpoch: first.leaseEpoch },
+      // Another delivery owns this one by now: a stale epoch must not complete it.
+      { id: second.id, leaseEpoch: second.leaseEpoch + 1 },
+      { id: third.id, leaseEpoch: third.leaseEpoch },
+    ])
+    expect(done).toBe(2)
+    expect((await row(first.id))?.status).toBe('done')
+    expect((await row(second.id))?.status).toBe('leased')
+    expect((await row(third.id))?.status).toBe('done')
+    // Repeating it changes nothing: done items are no longer leased.
+    expect(await completeWorkMany(deps, [{ id: first.id, leaseEpoch: first.leaseEpoch }])).toBe(0)
+  })
+})
+
+describe('dispatcher scheduling (docs/03 section 7: normal traffic never waits for the periodic scan)', () => {
+  const revoked = (deps: ReturnType<typeof makeDeps>, name: string) =>
+    enqueueWork(deps.db, deps, {
+      kind: 'realtime',
+      dedupeKey: `rt:${name}`,
+      entityId: deps.newId(),
+      payload: { event: 'auth.revoked' },
+    })
+  const until = async (condition: () => boolean | Promise<boolean>, ms = 3000) => {
+    const deadline = Date.now() + ms
+    while (!(await condition()) && Date.now() < deadline)
+      await new Promise((resolve) => setTimeout(resolve, 10))
+    return await condition()
+  }
+
+  test('a hint that arrives while a scan is running is answered by another scan, not dropped', async () => {
+    const deps = makeDeps(dbs.app.db)
+    const published: BusEvent[] = []
+    let release: () => void = () => undefined
+    const held = new Promise<void>((resolve) => {
+      release = resolve
+    })
+    const dispatcher = createDispatcher({
+      deps,
+      bus: {
+        publish: async (event: BusEvent) => {
+          // The first scan stays busy until the test lets it go.
+          if (published.length === 0) await held
+          published.push(event)
+        },
+      } as never,
+      emailQueue: {} as never,
+      log: deps.log,
+      // Far beyond the test: only a remembered hint can bring the second item out in time.
+      intervalMs: 60_000,
+    })
+    const first = await revoked(deps, 'first')
+    dispatcher.start()
+    try {
+      // The first scan has claimed its item and is held inside publish.
+      expect(await until(async () => (await row(first.id))?.status === 'leased')).toBe(true)
+      const second = await revoked(deps, 'second')
+      dispatcher.wake()
+      release()
+      expect(await until(() => published.length === 2)).toBe(true)
+      expect(await until(async () => (await row(second.id))?.status === 'done')).toBe(true)
+      expect((await row(first.id))?.status).toBe('done')
+    } finally {
+      release()
+      await dispatcher.stop()
+    }
+  })
+
+  test('a full batch is followed by the next scan at once', async () => {
+    const deps = makeDeps(dbs.app.db)
+    const published: BusEvent[] = []
+    const dispatcher = createDispatcher({
+      deps,
+      bus: { publish: async (event: BusEvent) => void published.push(event) } as never,
+      emailQueue: {} as never,
+      log: deps.log,
+      intervalMs: 60_000,
+      batch: 2,
+    })
+    for (const name of ['a', 'b', 'c', 'd', 'e']) await revoked(deps, name)
+    dispatcher.start()
+    try {
+      expect(await until(() => published.length === 5)).toBe(true)
+    } finally {
+      await dispatcher.stop()
+    }
+    const rows = await dbs.owner.db.select().from(workItems)
+    expect(rows.map((item) => item.status)).toEqual(['done', 'done', 'done', 'done', 'done'])
   })
 })

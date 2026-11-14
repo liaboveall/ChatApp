@@ -39,15 +39,28 @@ export function expiredAttachmentWhere(tx: DbOrTx, cutoff: Date) {
     ),
   )
 }
+/**
+ * The kind of the first attachment a preview, a quote, a notification or a push may name for a message: ready, and of
+ * the standard privacy class only. Written once, because it is a privacy rule: nothing that summarizes a message may be
+ * more generous than the others. It refers to the `messages` row of the query it is used in.
+ */
+export const firstAttachmentKind = sql<
+  'image' | 'video' | 'audio' | 'file' | null
+>`(select a.kind from ${attachments} a where a.message_id = "messages"."id" and a.status = 'ready' and a.privacy_class = 'standard' order by a.position limit 1)`
+
 export function blobStore(deps: Deps) {
   if (!deps.blobs) throw new AppError('CAPACITY_UNAVAILABLE', 'Storage unavailable')
   return deps.blobs
 }
 export async function lockStorage(tx: DbOrTx) {
+  const locked = () => tx.select().from(siteStorage).where(eq(siteStorage.id, 1)).for('update')
+  const [site] = await locked()
+  if (site) return site
+  // The ledger row is created by whoever needs it first; every later call is the one statement above.
   await tx.insert(siteStorage).values({ id: 1 }).onConflictDoNothing()
-  const [site] = await tx.select().from(siteStorage).where(eq(siteStorage.id, 1)).for('update')
-  if (!site) throw new Error('storage ledger missing')
-  return site
+  const [created] = await locked()
+  if (!created) throw new Error('storage ledger missing')
+  return created
 }
 export function attachmentDto(row: AttachmentRow): Attachment {
   return {

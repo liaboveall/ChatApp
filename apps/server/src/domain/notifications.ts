@@ -24,7 +24,6 @@ import {
 import {
   agentApprovals,
   agentRuns,
-  attachments,
   conversationMembers,
   conversations,
   type DbOrTx,
@@ -36,15 +35,16 @@ import {
   users,
   workItems,
 } from '@chatapp/db'
-import { and, desc, eq, inArray, isNull, lt, lte, ne, or, sql } from 'drizzle-orm'
-import { recordNotificationChange } from './changes.ts'
+import { and, desc, eq, inArray, isNull, lt, notInArray, or, sql } from 'drizzle-orm'
+import { firstAttachmentKind } from './attachment-common.ts'
+import { recordNotificationChange, recordNotificationChanges } from './changes.ts'
 import { cursorExpiry, decodeCursor, encodeCursor } from './cursor.ts'
 import type { Deps } from './deps.ts'
 import type { SessionPrincipal } from './principal.ts'
-import { accountAllowsSession, lockAndRevalidate } from './sessions.ts'
+import { accountAllowsSession, accountAllowsSessionWhere, lockAndRevalidate } from './sessions.ts'
 import { inTransaction } from './tx.ts'
 import { usersDictionary } from './users.ts'
-import { enqueueWork } from './work.ts'
+import { enqueueWorkMany } from './work.ts'
 import type { WorkLease } from './work-queue.ts'
 
 type Row = typeof notifications.$inferSelect
@@ -58,23 +58,17 @@ export async function enqueueAdminNotifications(
   const admins = await tx
     .select({ id: users.id })
     .from(users)
-    .where(
-      and(
-        eq(users.role, 'admin'),
-        eq(users.activationStatus, 'active'),
-        eq(users.isBot, false),
-        or(eq(users.banned, false), lte(users.banExpires, deps.clock.now())),
-        eq(users.emailVerified, true),
-        isNull(users.deletedAt),
-      ),
-    )
-  for (const admin of admins)
-    await enqueueWork(tx, deps, {
+    .where(and(eq(users.role, 'admin'), accountAllowsSessionWhere(deps.clock.now())))
+  await enqueueWorkMany(
+    tx,
+    deps,
+    admins.map((admin) => ({
       kind: 'notification',
       dedupeKey: `report:${data.reportId}:admin:${admin.id}`,
       entityId: data.reportId,
       payload: { reportId: data.reportId, userId: admin.id },
-    })
+    })),
+  )
   await tx
     .update(reports)
     .set({ notificationsQueuedAt: deps.clock.now() })
@@ -188,8 +182,9 @@ export async function createNotification(
 }
 
 /**
- * An entry for every site administrator (a budget alert, later a new report). Each gets it in a transaction of their own, so
- * the caller's locks never meet an administrator's row.
+ * An entry for every site administrator who could sign in right now (a budget alert): a banned or unverified one is not
+ * told, like everywhere else administrators are picked. Each gets it in a transaction of their own, so the caller's locks
+ * never meet an administrator's row.
  */
 export async function notifyAdmins(
   deps: Deps,
@@ -198,14 +193,7 @@ export async function notifyAdmins(
   const admins = await deps.db
     .select({ id: users.id })
     .from(users)
-    .where(
-      and(
-        eq(users.role, 'admin'),
-        eq(users.activationStatus, 'active'),
-        eq(users.isBot, false),
-        isNull(users.deletedAt),
-      ),
-    )
+    .where(and(eq(users.role, 'admin'), accountAllowsSessionWhere(deps.clock.now())))
   let created = 0
   for (const admin of admins) {
     const result = await inTransaction(deps.db, (tx) =>
@@ -226,11 +214,12 @@ const str = (value: unknown): string | null => (typeof value === 'string' ? valu
  */
 export async function projectNotifications(
   db: DbOrTx,
-  viewer: { userId: string },
+  viewer: { userId: string; isAdmin: boolean },
   rows: readonly Row[],
 ): Promise<Notification[]> {
   const messageIds = new Set<string>()
   const approvalIds = new Set<string>()
+  const reportIds = new Set<string>()
   for (const row of rows) {
     if (row.type === 'mention' || row.type === 'reply' || row.type === 'reminder') {
       const id = str(row.data.messageId)
@@ -238,8 +227,22 @@ export async function projectNotifications(
     } else if (row.type === 'approval_requested') {
       const id = str(row.data.approvalId)
       if (id) approvalIds.add(id)
+    } else if (row.type === 'report_opened' && viewer.isAdmin) {
+      const id = str(row.data.reportId)
+      if (id) reportIds.add(id)
     }
   }
+  // A report is an administrator's to open, and only while it exists; the entry itself says nothing of its content.
+  const reportsThere = new Set(
+    reportIds.size
+      ? (
+          await db
+            .select({ id: reports.id })
+            .from(reports)
+            .where(inArray(reports.id, [...reportIds]))
+        ).map((report) => report.id)
+      : [],
+  )
 
   const messageRows = messageIds.size
     ? await db
@@ -251,9 +254,7 @@ export async function projectNotifications(
           body: messages.body,
           recalledAt: messages.recalledAt,
           deletedAt: messages.deletedAt,
-          attachmentKind: sql<
-            'image' | 'video' | 'audio' | 'file' | null
-          >`(select a.kind from ${attachments} a where a.message_id = "messages"."id" and a.status = 'ready' and a.privacy_class = 'standard' order by a.position limit 1)`,
+          attachmentKind: firstAttachmentKind,
         })
         .from(messages)
         .where(inArray(messages.id, [...messageIds]))
@@ -435,10 +436,16 @@ export async function projectNotifications(
           },
         })
         break
-      case 'report_opened':
-        // Reports arrive with M7; until then nothing creates this entry, and a stray one shows nothing of its source.
-        out.push({ ...base, type: 'report_opened', data: unavailable })
+      case 'report_opened': {
+        const reportId = str(row.data.reportId)
+        out.push({
+          ...base,
+          type: 'report_opened',
+          data:
+            reportId && reportsThere.has(reportId) ? { available: true, reportId } : unavailable,
+        })
         break
+      }
     }
   }
   return out
@@ -446,9 +453,9 @@ export async function projectNotifications(
 
 // ───────── reading ─────────
 
-/** Site budget alerts are for administrators; a demoted one stops seeing them. */
+/** Budget alerts and new reports are for administrators; a demoted one stops seeing them, and stops counting them. */
 const visibleTypes = (isAdmin: boolean) =>
-  isAdmin ? undefined : ne(notifications.type, 'budget_alert')
+  isAdmin ? undefined : notInArray(notifications.type, ['budget_alert', 'report_opened'])
 
 async function roleOf(db: DbOrTx, userId: string): Promise<boolean> {
   const [row] = await db.select({ role: users.role }).from(users).where(eq(users.id, userId))
@@ -488,7 +495,7 @@ export async function loadNotificationsByIds(
         visibleTypes(isAdmin),
       ),
     )
-  return await projectNotifications(db, { userId }, rows)
+  return await projectNotifications(db, { userId, isAdmin }, rows)
 }
 
 /** Newest first. The cursor is signed and carries the position of the last entry of the previous page. */
@@ -539,7 +546,7 @@ export async function listNotifications(
             })
           : null
       return {
-        items: await projectNotifications(tx, principal, page),
+        items: await projectNotifications(tx, { userId: principal.userId, isAdmin }, page),
         nextCursor,
         unreadCount: await unreadNotificationCount(tx, principal.userId, isAdmin),
       }
@@ -584,15 +591,15 @@ export async function markNotificationsRead(
           .returning()
       : []
     // Every entry takes a personal change number; one hint, at the end, is enough to wake the other devices.
-    for (const [index, row] of changed.entries()) {
-      await recordNotificationChange(tx, deps, {
-        userId: principal.userId,
-        notificationId: row.id,
-        silent: index < changed.length - 1,
-      })
-    }
+    await recordNotificationChanges(tx, deps, {
+      userId: principal.userId,
+      notificationIds: changed.map((row) => row.id),
+    })
     return {
-      items: 'ids' in request ? await projectNotifications(tx, principal, changed) : [],
+      items:
+        'ids' in request
+          ? await projectNotifications(tx, { userId: principal.userId, isAdmin }, changed)
+          : [],
       unreadCount: await unreadNotificationCount(tx, principal.userId, isAdmin),
     }
   })

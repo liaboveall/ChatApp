@@ -37,7 +37,8 @@ export function toUserSummary(row: SummaryRow): UserSummary {
   }
 }
 
-const summaryColumns = {
+/** The columns a `UserSummary` is built from: what a query selects when all it needs of a person is that. */
+export const summaryColumns = {
   id: users.id,
   profileVersion: users.profileVersion,
   avatarAttachmentId: users.avatarAttachmentId,

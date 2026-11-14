@@ -7,6 +7,7 @@ import { createDatabase } from '@chatapp/db/client'
 import { Queue } from 'bullmq'
 import { sdkPasswords } from './auth/passwords.ts'
 import { loadAiConfig } from './config/ai.ts'
+import { domainConfig } from './config/domain.ts'
 import { type Config, ConfigError, loadConfig } from './config/index.ts'
 import { loadJournalSettings } from './config/journal.ts'
 import { withPhysicalDeletion } from './domain/backups.ts'
@@ -95,18 +96,7 @@ async function main(): Promise<void> {
     db: database.db,
     clock: systemClock,
     newId: uuidv7,
-    config: {
-      origin: config.origin,
-      timezone: config.timezone,
-      auth: {
-        tokenEncryptionKey: config.auth.tokenEncryptionKey,
-        cursorKey: config.auth.cursorKey,
-        restoreEpoch: config.auth.restoreEpoch,
-      },
-      product: config.product,
-      ai: aiPolicy,
-      aiKeyEncryptionKey: config.aiKeyEncryptionKey,
-    },
+    config: domainConfig(config, { ai: aiPolicy, memberAiKeys: true }),
     blobs: createBlobStore(config.s3, {
       physicalDeletion: (remove) => withPhysicalDeletion({ db: database.db }, remove),
     }),
@@ -130,26 +120,26 @@ async function main(): Promise<void> {
 
   const queueConnection = createBullConnection(config.valkeyUrl, 'worker-queue')
   const consumerConnection = createBullConnection(config.valkeyUrl, 'worker-consumer')
-  const emailQueue = new Queue<WorkJobData>(QUEUE.email, {
-    connection: queueConnection,
-    prefix: queuePrefix(config.env),
-    defaultJobOptions: DEFAULT_JOB_OPTIONS,
-  })
-  const mediaQueue = new Queue<WorkJobData>(QUEUE.media, {
-    connection: queueConnection,
-    prefix: queuePrefix(config.env),
-    defaultJobOptions: DEFAULT_JOB_OPTIONS,
-  })
+  // Without a listener BullMQ writes the raw error to the console, past the allowlist logger (D-077).
+  const queueError = (queue: string) => (error: unknown) =>
+    log.warn('queue.error', { queue, ...describeError(error) })
+  const openQueue = (name: string): Queue<WorkJobData> => {
+    const queue = new Queue<WorkJobData>(name, {
+      connection: queueConnection,
+      prefix: queuePrefix(config.env),
+      defaultJobOptions: DEFAULT_JOB_OPTIONS,
+    })
+    queue.on('error', queueError(name))
+    return queue
+  }
+  const emailQueue = openQueue(QUEUE.email)
+  const mediaQueue = openQueue(QUEUE.media)
   const mediaWorker = createMediaWorker({
     deps,
     connection: consumerConnection,
     environment: config.env,
   })
-  const agentQueue = new Queue<WorkJobData>(QUEUE.agent, {
-    connection: queueConnection,
-    prefix: queuePrefix(config.env),
-    defaultJobOptions: DEFAULT_JOB_OPTIONS,
-  })
+  const agentQueue = openQueue(QUEUE.agent)
   const agentWorker = createAgentWorker({
     deps,
     config: ai,
@@ -157,22 +147,14 @@ async function main(): Promise<void> {
     connection: consumerConnection,
     environment: config.env,
   })
-  const scheduledQueue = new Queue<WorkJobData>(QUEUE.scheduled, {
-    connection: queueConnection,
-    prefix: queuePrefix(config.env),
-    defaultJobOptions: DEFAULT_JOB_OPTIONS,
-  })
+  const scheduledQueue = openQueue(QUEUE.scheduled)
   const scheduledWorker = createScheduledWorker({
     deps,
     connection: consumerConnection,
     environment: config.env,
   })
   const presenceStore = createPresenceStore(valkey, `presence:${config.env}`)
-  const pushQueue = new Queue<WorkJobData>(QUEUE.push, {
-    connection: queueConnection,
-    prefix: queuePrefix(config.env),
-    defaultJobOptions: DEFAULT_JOB_OPTIONS,
-  })
+  const pushQueue = openQueue(QUEUE.push)
   const pushWorker = createPushWorker({
     deps,
     presence: presenceStore,
@@ -183,11 +165,7 @@ async function main(): Promise<void> {
   const embeddingQueues = new Map(
     Object.values(EMBEDDING_MODELS).map((model) => [
       model.version,
-      new Queue<WorkJobData>(embeddingQueueName(model.version), {
-        connection: queueConnection,
-        prefix: queuePrefix(config.env),
-        defaultJobOptions: DEFAULT_JOB_OPTIONS,
-      }),
+      openQueue(embeddingQueueName(model.version)),
     ]),
   )
   const dispatcher = createDispatcher({
@@ -215,6 +193,25 @@ async function main(): Promise<void> {
         environment: config.env,
       })
     : undefined
+  // A finished job has usually committed more work (the hint that an attachment is ready, the pushes of a message, the
+  // update of a run): the dispatcher looks again now instead of at its next periodic scan. A job that threw leaves a
+  // log line; its item comes back through the work table, not through the queue.
+  const consumers = [
+    [QUEUE.media, mediaWorker],
+    [QUEUE.agent, agentWorker],
+    [QUEUE.scheduled, scheduledWorker],
+    [QUEUE.push, pushWorker],
+    [QUEUE.email, emailWorker],
+    ...(embeddingWorker ? ([[QUEUE.embedding, embeddingWorker]] as const) : []),
+  ] as const
+  for (const [queue, consumer] of consumers) {
+    consumer.on('error', queueError(queue))
+    consumer.on('completed', () => dispatcher.wake())
+    consumer.on('failed', (job, error) => {
+      log.warn('job.failed', { queue, jobId: job?.id ?? null, ...describeError(error) })
+      dispatcher.wake()
+    })
+  }
   const maintenance = createMaintenance({ deps, log })
   const presence = createPresenceSweeper({
     deps,
@@ -242,19 +239,20 @@ async function main(): Promise<void> {
     await dispatcher.stop()
     await maintenance.stop()
     await presence.stop()
-    await agentWorker.close()
-    await agentQueue.close()
-    await scheduledWorker.close()
-    await scheduledQueue.close()
-    await pushWorker.close()
-    await pushQueue.close()
-    await embeddingWorker?.close()
-    await Promise.all([...embeddingQueues.values()].map((queue) => queue.close()))
+    // Each consumer waits for the job it is running. Closing them together means a long assistant run does not keep the
+    // others from finishing cleanly within the time the process is given to stop.
+    await Promise.all(consumers.map(([, consumer]) => consumer.close()))
+    await Promise.all(
+      [
+        agentQueue,
+        scheduledQueue,
+        pushQueue,
+        mediaQueue,
+        emailQueue,
+        ...embeddingQueues.values(),
+      ].map((queue) => queue.close()),
+    )
     await embeddingChild.stop()
-    await mediaWorker.close()
-    await mediaQueue.close()
-    await emailWorker.close()
-    await emailQueue.close()
     queueConnection.disconnect()
     consumerConnection.disconnect()
     valkey.disconnect()

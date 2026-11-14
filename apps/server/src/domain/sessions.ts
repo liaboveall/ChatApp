@@ -15,7 +15,7 @@ import {
   type Tx,
   users,
 } from '@chatapp/db'
-import { and, asc, eq, inArray, isNull, ne, sql } from 'drizzle-orm'
+import { and, asc, eq, inArray, isNull, lte, ne, or, sql } from 'drizzle-orm'
 import { closePendingApprovals } from './agent-access.ts'
 import { writeAudit } from './audit.ts'
 import type { Deps } from './deps.ts'
@@ -40,6 +40,30 @@ export type AccountGate = Pick<
   'activationStatus' | 'emailVerified' | 'isBot' | 'banned' | 'banExpires' | 'deletedAt'
 >
 
+/**
+ * What the session checks read of an account and of a device origin. These run on every request and for every open
+ * socket, so they name their columns: the whole user row carries the profile and the settings document, and the whole
+ * session row carries its token.
+ */
+const ACCOUNT_COLUMNS = {
+  id: users.id,
+  role: users.role,
+  authEpoch: users.authEpoch,
+  activationStatus: users.activationStatus,
+  emailVerified: users.emailVerified,
+  isBot: users.isBot,
+  banned: users.banned,
+  banExpires: users.banExpires,
+  deletedAt: users.deletedAt,
+}
+const ORIGIN_COLUMNS = {
+  id: authorizationOrigins.id,
+  userId: authorizationOrigins.userId,
+  revokedAt: authorizationOrigins.revokedAt,
+  endedAt: authorizationOrigins.endedAt,
+  restoreEpoch: authorizationOrigins.restoreEpoch,
+}
+
 /** Single definition of "may this account hold a session right now" (INV-18, SEC-31). */
 export function accountAllowsSession(user: AccountGate, now: Date): boolean {
   if (user.activationStatus !== 'active' || !user.emailVerified) return false
@@ -47,6 +71,20 @@ export function accountAllowsSession(user: AccountGate, now: Date): boolean {
   if (user.banned && (user.banExpires === null || user.banExpires > now)) return false
   return true
 }
+
+/**
+ * `accountAllowsSession` as a condition on `users`, for queries that pick accounts instead of judging one row in hand
+ * (the administrators to tell about something, the administrator that must remain). The two say the same thing and
+ * change together.
+ */
+export const accountAllowsSessionWhere = (now: Date) =>
+  and(
+    eq(users.activationStatus, 'active'),
+    eq(users.emailVerified, true),
+    eq(users.isBot, false),
+    isNull(users.deletedAt),
+    or(eq(users.banned, false), lte(users.banExpires, now)),
+  )
 
 /**
  * Called when the SDK is about to create a session (password or passkey login). Refuses accounts that may not log
@@ -81,7 +119,7 @@ export async function resolveSessionPrincipal(
   const now = deps.clock.now()
   if (session.expiresAt <= now) return null
   const [row] = await deps.db
-    .select({ user: users, origin: authorizationOrigins })
+    .select({ user: ACCOUNT_COLUMNS, origin: ORIGIN_COLUMNS })
     .from(users)
     .innerJoin(authorizationOrigins, eq(authorizationOrigins.id, session.authorizationOriginId))
     .where(eq(users.id, session.userId))
@@ -141,27 +179,25 @@ export async function lockAndRevalidate(
   if (!user || !accountAllowsSession(user, now) || user.authEpoch !== principal.authEpoch) {
     throw new AppError('UNAUTHENTICATED', 'Session is no longer valid')
   }
-  const [origin] = await tx
+  // The origin and the session in one statement, and a statement of its own: it starts after the lock was granted, so it
+  // sees a revocation that committed while this transaction waited. Either row missing leaves no row at all.
+  const [login] = await tx
     .select({
       revokedAt: authorizationOrigins.revokedAt,
       endedAt: authorizationOrigins.endedAt,
       restoreEpoch: authorizationOrigins.restoreEpoch,
+      expiresAt: sessions.expiresAt,
     })
     .from(authorizationOrigins)
+    .innerJoin(sessions, eq(sessions.id, principal.sessionId))
     .where(eq(authorizationOrigins.id, principal.originId))
     .limit(1)
-  const [session] = await tx
-    .select({ expiresAt: sessions.expiresAt })
-    .from(sessions)
-    .where(eq(sessions.id, principal.sessionId))
-    .limit(1)
   if (
-    !origin ||
-    origin.revokedAt !== null ||
-    origin.endedAt !== null ||
-    origin.restoreEpoch !== deps.config.auth.restoreEpoch ||
-    !session ||
-    session.expiresAt <= now
+    !login ||
+    login.revokedAt !== null ||
+    login.endedAt !== null ||
+    login.restoreEpoch !== deps.config.auth.restoreEpoch ||
+    login.expiresAt <= now
   ) {
     throw new AppError('UNAUTHENTICATED', 'Session is no longer valid')
   }
@@ -452,13 +488,17 @@ export type SessionRef = {
  * Throws on database errors; callers must fail closed.
  */
 export async function validateSessions(
-  deps: Pick<Deps, 'db' | 'clock' | 'config'>,
+  deps: { db: DbOrTx } & Pick<Deps, 'clock' | 'config'>,
   refs: readonly SessionRef[],
 ): Promise<Set<string>> {
   if (refs.length === 0) return new Set()
   const now = deps.clock.now()
   const rows = await deps.db
-    .select({ session: sessions, user: users, origin: authorizationOrigins })
+    .select({
+      session: { id: sessions.id, authEpoch: sessions.authEpoch, expiresAt: sessions.expiresAt },
+      user: ACCOUNT_COLUMNS,
+      origin: ORIGIN_COLUMNS,
+    })
     .from(sessions)
     .innerJoin(users, eq(users.id, sessions.userId))
     .innerJoin(authorizationOrigins, eq(authorizationOrigins.id, sessions.authorizationOriginId))

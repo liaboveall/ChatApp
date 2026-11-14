@@ -8,7 +8,7 @@ import { createRoute, type OpenAPIHono } from '@hono/zod-openapi'
 import { rateLimitIpKey } from '../../lib/ip.ts'
 import type { HttpEnv, Services } from '../context.ts'
 import { POLICIES } from '../policies.ts'
-import { err, json } from './helpers.ts'
+import { err, json, jsonBody, OK } from './helpers.ts'
 export function monitoringRoutes(app: OpenAPIHono<HttpEnv>, services: Services) {
   app.openapi(
     createRoute({
@@ -25,10 +25,7 @@ export function monitoringRoutes(app: OpenAPIHono<HttpEnv>, services: Services) 
       path: '/api/monitoring',
       tags: ['site'],
       request: {
-        body: {
-          required: true,
-          content: { 'application/json': { schema: monitoringEventSchema } },
-        },
+        body: jsonBody(monitoringEventSchema),
       },
       responses: {
         200: json(okResponseSchema, 'Sanitized event forwarded'),
@@ -47,7 +44,7 @@ export function monitoringRoutes(app: OpenAPIHono<HttpEnv>, services: Services) 
       } catch {
         throw new AppError('CAPACITY_UNAVAILABLE', 'Monitoring temporarily unavailable')
       }
-      return c.json({ status: 'ok' as const }, 200)
+      return c.json(OK, 200)
     },
   )
 }

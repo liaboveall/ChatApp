@@ -147,7 +147,8 @@ Events: api/worker ──publish──▶ Valkey channel "events:{APP_ENV}" ─�
 │     ├─ src/auth/               Better Auth config, route allowlist, registration adapter/state, field guards
 │     ├─ src/runtime/            Bun adapters: ids, server (Bun.serve + WebSocket binding), process/IPC; injected into auth/domain
 │     ├─ src/startup.ts · health.ts   start-up self-checks (bootstrap, unprivileged role), readiness probe
-│     ├─ src/config/             env schema (zod), fail-fast loading
+│     ├─ src/config/             env schema (zod), fail-fast loading; domain.ts hands the domain only the values it
+│     │                          works with (never the SDK secret, connection strings or storage credentials)
 │     ├─ src/lib/                logger, errors, ids, time (injectable clock), rate-limit, client-ip
 │     ├─ evals/                  Agent eval datasets + runner
 │     └─ test/                   integration, realtime, security, contract snapshots, fault (isolated instance only), support
@@ -315,9 +316,9 @@ work_items 唯一 dedupe_key 与业务事务关联；payload 只存 id、版本�
 | embeddings | 1 | content_version + model_version 条件写回，旧结果丢弃 |
 | cleanup | 1 | 以 durable cursor 和实体状态推进，失败重试并监测截止时间 |
 
-- 正常路径在提交后 best-effort 唤醒 dispatcher，立即领取和派发；唤醒不保存业务事实，丢失时由每秒扫描兜底，不能让正常收发固定等待一秒。dispatcher 用 FOR UPDATE SKIP LOCKED 领取短租约；BullMQ jobId 为 workId-deliverySeq（无冒号）。派发不等于完成，消费者提交业务状态后才标 done。入队后崩溃可重复投递。
+- 正常路径在提交后 best-effort 唤醒 dispatcher，立即领取和派发；唤醒不保存业务事实，丢失时由每秒扫描兜底，不能让正常收发固定等待一秒。唤醒来自 API 的写请求，也来自 worker 自己的消费者（任务完成或失败后，它提交的后续工作不等下一次周期扫描）。扫描进行中到达的唤醒不丢弃，本轮结束后合并为一次补扫；领满一批说明还有积压，直接续扫；扫描失败才回到每秒间隔。realtime 提示逐条发布，随后在一条语句内按各自的租约代次批量标记完成。dispatcher 用 FOR UPDATE SKIP LOCKED 领取短租约；BullMQ jobId 为 workId-deliverySeq（无冒号）。派发不等于完成，消费者提交业务状态后才标 done。入队后崩溃可重复投递。
 - 独立 worker 定时循环每分钟直接扫描 Postgres，修复过期租约、丢队列任务、过期注册/审批和到期调度；每次重投增加 delivery_seq，避免已保留的 completed job 阻止新投递。业务去重依靠表约束，而不是 BullMQ 的保留时间。
-- 存储清理独立每分钟运行；完整存储对账独立每 6 小时运行（启动时一轮，失败后 15 分钟再试），异常不阻止租约、注册恢复和死信告警。每个维护任务有进程内排重及 Postgres 事务 advisory lock，避免多个 worker 同任务并发；LIST 每页一次批量读账本、live HEAD 每批 100，只有用户计数不一致才锁用户修复，不逐用户争抢 site_storage。全站计数仍在一次短事务内锁 site_storage 后核算；异常继续停止新上传而不删除未知对象。
+- 存储清理独立每分钟运行；完整存储对账独立每 6 小时运行（启动时一轮，失败后 15 分钟再试），异常不阻止租约、注册恢复和死信告警。某个附件因另一项删除尚未结算而无法准备退休时，本轮只跳过它，其余退休、到期对象的物理删除和容量释放照常进行。每个维护任务有进程内排重及 Postgres 事务 advisory lock，避免多个 worker 同任务并发；LIST 每页一次批量读账本、live HEAD 每批 100，只有用户计数不一致才锁用户修复，不逐用户争抢 site_storage。全站计数仍在一次短事务内锁 site_storage 后核算；异常继续停止新上传而不删除未知对象。
 - 暂时故障最多按类型退避重试，达到上限进入 dead 并告警；人工重投保留原业务标识。运行结果未知的外部调用进入 uncertain，不无限重试。
 - 准入上限初值：未执行 Agent 工作 100、媒体 1000、所有未完成 work_items 50000；达到类型上限拒绝该类新任务（503/Retry-After），达到总上限拒绝会新增可靠工作的写操作，读取、注销和清理仍保留。M7 用积压/恢复实测调整，不能任队列无限增长。
 - Valkey 设置 noeviction、AOF；80% 内存告警。限流数据丢失时临时收紧准入，不能声称历史限流计数可精确恢复。业务任务、预算、权限均能从 Postgres 恢复。
@@ -391,6 +392,9 @@ work_items 唯一 dedupe_key 与业务事务关联；payload 只存 id、版本�
   - 路由自动分割代码；React Compiler 自动做 memo 优化；Shiki 的语言包按需加载。
 - **服务端**
   - 从数据库连接池取连接时，每个请求最多占用 1 个连接。未读数等计算都在 SQL 里完成。
+  - 同一请求只鉴权一次：路径重叠的会话守卫发现 principal 已建立就直接放行，不重复查询 session，也不重复计入每人限流。写事务锁定用户行后，对 origin 与 session 的复核是一条独立语句（在取得锁之后开始，能看到等待期间提交的撤销）。
+  - 热点读取按语句数设计：会话详情一次查询同时给出策略判定所需的行与返回内容；同步水位（sync heads）是单条语句、不开事务；消息分页多取一行判断该方向是否还有更多。
+  - 一条消息的推送任务为全部收件人批量写入；只有被 @ 或被回复的人各占一个事务（写其通知并取个人序号）。
   - Agent 的文本增量每 50–100 毫秒合并发送一次，减少事件数量。
   - `message.changed` 触发的补拉由客户端随机延迟，避免同时涌入。
 

@@ -17,6 +17,7 @@ import { z } from 'zod'
 import { createAuth } from '../auth/better-auth.ts'
 import { sdkPasswords } from '../auth/passwords.ts'
 import { readSecret } from '../cli/secret-prompt.ts'
+import { domainConfig } from '../config/domain.ts'
 import { loadConfig } from '../config/index.ts'
 import { loadJournalSettings } from '../config/journal.ts'
 import { loadOffsiteTarget } from '../config/offsite.ts'
@@ -134,12 +135,7 @@ async function main() {
     newId: uuidv7,
     passwords: sdkPasswords,
     log: silentLogger,
-    config: {
-      origin: config.origin,
-      timezone: config.timezone,
-      auth: config.auth,
-      product: config.product,
-    },
+    config: domainConfig(config),
     blobs: createBlobStore(config.s3),
   }
   const repository = async () =>

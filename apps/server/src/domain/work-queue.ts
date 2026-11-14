@@ -144,6 +144,29 @@ export async function completeWork(deps: Deps, lease: WorkLease): Promise<boolea
   return rows.length === 1
 }
 
+/**
+ * Marks several items done in one statement, each only under the epoch it was leased with: an item another delivery
+ * owns by now is left alone, as with `completeWork`. Returns how many were completed.
+ */
+export async function completeWorkMany(deps: Deps, leases: readonly WorkLease[]): Promise<number> {
+  if (leases.length === 0) return 0
+  const pairs = sql.join(
+    leases.map((lease) => sql`(${lease.id}::uuid, ${lease.leaseEpoch}::bigint)`),
+    sql`, `,
+  )
+  const rows = await deps.db
+    .update(workItems)
+    .set({ status: 'done', finishedAt: deps.clock.now(), leaseUntil: null, lastErrorCode: null })
+    .where(
+      and(
+        sql`(${workItems.id}, ${workItems.leaseEpoch}) in (${pairs})`,
+        inArray(workItems.status, ['leased', 'running']),
+      ),
+    )
+    .returning({ id: workItems.id })
+  return rows.length
+}
+
 /** Long Agent calls keep the durable work lease alive independently of BullMQ's lock. */
 export async function renewWork(deps: Deps, lease: WorkLease): Promise<boolean> {
   const rows = await deps.db

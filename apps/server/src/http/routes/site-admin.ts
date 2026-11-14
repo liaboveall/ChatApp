@@ -40,17 +40,13 @@ import { readClientSiteLimits, readSitePolicy } from '../../domain/site-policy.t
 import type { HttpEnv, Services } from '../context.ts'
 import { principalOf, requireSession } from '../middleware/session.ts'
 import { POLICIES } from '../policies.ts'
-import { accessErrors, err, idParam, json } from './helpers.ts'
+import { accessErrors, err, idempotencyKeyOf, idParam, json, jsonBody, OK } from './helpers.ts'
 
 const errors = {
   ...accessErrors,
   409: err('Version or state changed'),
   422: err('Invalid request'),
 }
-const body = <T extends z.ZodType>(schema: T) => ({
-  required: true,
-  content: { 'application/json': { schema } },
-})
 const security = [{ cookieAuth: [] }]
 export function siteAdminRoutes(app: OpenAPIHono<HttpEnv>, services: Services) {
   const { deps } = services
@@ -110,7 +106,7 @@ export function siteAdminRoutes(app: OpenAPIHono<HttpEnv>, services: Services) {
       path: '/api/admin/users/{id}',
       tags: ['admin'],
       security,
-      request: { params: idParam, body: body(adminUserUpdateSchema) },
+      request: { params: idParam, body: jsonBody(adminUserUpdateSchema) },
       responses: { 200: json(adminUserSchema, 'Updated current user'), ...errors },
     }),
     async (c) =>
@@ -120,7 +116,7 @@ export function siteAdminRoutes(app: OpenAPIHono<HttpEnv>, services: Services) {
           principalOf(c),
           c.req.valid('param').id,
           c.req.valid('json'),
-          c.req.header('Idempotency-Key') ?? '',
+          idempotencyKeyOf(c),
         ),
         200,
       ),
@@ -131,7 +127,7 @@ export function siteAdminRoutes(app: OpenAPIHono<HttpEnv>, services: Services) {
       path: '/api/admin/users/{id}/ban',
       tags: ['admin'],
       security,
-      request: { params: idParam, body: body(adminBanSchema) },
+      request: { params: idParam, body: jsonBody(adminBanSchema) },
       responses: { 200: json(adminUserSchema, 'Banned user; active authority revoked'), ...errors },
     }),
     async (c) => {
@@ -145,7 +141,7 @@ export function siteAdminRoutes(app: OpenAPIHono<HttpEnv>, services: Services) {
             expectedVersion: input.expectedVersion,
             ban: { reason: input.reason, until: input.until },
           },
-          c.req.header('Idempotency-Key') ?? '',
+          idempotencyKeyOf(c),
         ),
         200,
       )
@@ -157,7 +153,7 @@ export function siteAdminRoutes(app: OpenAPIHono<HttpEnv>, services: Services) {
       path: '/api/admin/users/{id}/unban',
       tags: ['admin'],
       security,
-      request: { params: idParam, body: body(expectedVersionSchema) },
+      request: { params: idParam, body: jsonBody(expectedVersionSchema) },
       responses: {
         200: json(adminUserSchema, 'Unbanned user; old devices remain revoked'),
         ...errors,
@@ -170,7 +166,7 @@ export function siteAdminRoutes(app: OpenAPIHono<HttpEnv>, services: Services) {
           principalOf(c),
           c.req.valid('param').id,
           { ...c.req.valid('json'), ban: false },
-          c.req.header('Idempotency-Key') ?? '',
+          idempotencyKeyOf(c),
         ),
         200,
       ),
@@ -181,7 +177,7 @@ export function siteAdminRoutes(app: OpenAPIHono<HttpEnv>, services: Services) {
       path: '/api/admin/users/{id}/verify-email',
       tags: ['admin'],
       security,
-      request: { params: idParam, body: body(expectedVersionSchema) },
+      request: { params: idParam, body: jsonBody(expectedVersionSchema) },
       responses: { 200: json(adminUserSchema, 'Verified confirmed account; audited'), ...errors },
     }),
     async (c) =>
@@ -191,7 +187,7 @@ export function siteAdminRoutes(app: OpenAPIHono<HttpEnv>, services: Services) {
           principalOf(c),
           c.req.valid('param').id,
           { ...c.req.valid('json'), verify: true },
-          c.req.header('Idempotency-Key') ?? '',
+          idempotencyKeyOf(c),
         ),
         200,
       ),
@@ -223,13 +219,8 @@ export function siteAdminRoutes(app: OpenAPIHono<HttpEnv>, services: Services) {
       responses: { 200: json(okResponseSchema, 'Invite revoked'), ...errors },
     }),
     async (c) => {
-      await adminRevokeInvite(
-        deps,
-        principalOf(c),
-        c.req.valid('param').id,
-        c.req.header('Idempotency-Key') ?? '',
-      )
-      return c.json({ status: 'ok' as const }, 200)
+      await adminRevokeInvite(deps, principalOf(c), c.req.valid('param').id, idempotencyKeyOf(c))
+      return c.json(OK, 200)
     },
   )
   app.openapi(
@@ -255,11 +246,11 @@ export function siteAdminRoutes(app: OpenAPIHono<HttpEnv>, services: Services) {
       path: '/api/admin/conversations/{id}/archive',
       tags: ['admin'],
       security,
-      request: { params: idParam, body: body(expectedVersionSchema) },
+      request: { params: idParam, body: jsonBody(expectedVersionSchema) },
       responses: { 200: json(okResponseSchema, 'Archived'), ...errors },
     }),
     async (c) => {
-      const key = c.req.header('Idempotency-Key') ?? ''
+      const key = idempotencyKeyOf(c)
       assertIdempotencyKey(key)
       await adminArchive(
         deps,
@@ -268,7 +259,7 @@ export function siteAdminRoutes(app: OpenAPIHono<HttpEnv>, services: Services) {
         c.req.valid('json').expectedVersion,
         key,
       )
-      return c.json({ status: 'ok' as const }, 200)
+      return c.json(OK, 200)
     },
   )
   const restore = restoreConversationRequestSchema.extend({
@@ -280,15 +271,15 @@ export function siteAdminRoutes(app: OpenAPIHono<HttpEnv>, services: Services) {
       path: '/api/admin/conversations/{id}/restore',
       tags: ['admin'],
       security,
-      request: { params: idParam, body: body(restore) },
+      request: { params: idParam, body: jsonBody(restore) },
       responses: { 200: json(okResponseSchema, 'Restored after ownership validation'), ...errors },
     }),
     async (c) => {
-      const key = c.req.header('Idempotency-Key') ?? ''
+      const key = idempotencyKeyOf(c)
       assertIdempotencyKey(key)
       const { expectedVersion, ...input } = c.req.valid('json')
       await adminRestore(deps, principalOf(c), c.req.valid('param').id, input, expectedVersion, key)
-      return c.json({ status: 'ok' as const }, 200)
+      return c.json(OK, 200)
     },
   )
   const bans = z
@@ -315,13 +306,13 @@ export function siteAdminRoutes(app: OpenAPIHono<HttpEnv>, services: Services) {
       path: '/api/admin/conversations/{id}/unban',
       tags: ['admin'],
       security,
-      request: { params: idParam, body: body(z.object({ userId: z.uuid() }).strict()) },
+      request: { params: idParam, body: jsonBody(z.object({ userId: z.uuid() }).strict()) },
       responses: { 200: json(okResponseSchema, 'Conversation ban lifted'), ...errors },
     }),
     async (c) => {
-      assertIdempotencyKey(c.req.header('Idempotency-Key') ?? '')
+      assertIdempotencyKey(idempotencyKeyOf(c))
       await adminUnban(deps, principalOf(c), c.req.valid('param').id, c.req.valid('json').userId)
-      return c.json({ status: 'ok' as const }, 200)
+      return c.json(OK, 200)
     },
   )
   app.openapi(
@@ -330,7 +321,7 @@ export function siteAdminRoutes(app: OpenAPIHono<HttpEnv>, services: Services) {
       path: '/api/reports',
       tags: ['reports'],
       security,
-      request: { body: body(reportRequestSchema) },
+      request: { body: jsonBody(reportRequestSchema) },
       responses: {
         200: json(reportReceiptSchema, 'Report accepted or original receipt'),
         ...errors,
@@ -341,12 +332,7 @@ export function siteAdminRoutes(app: OpenAPIHono<HttpEnv>, services: Services) {
         { policy: POLICIES.reportUser, subject: principalOf(c).userId },
       ])
       return c.json(
-        await submitReport(
-          deps,
-          principalOf(c),
-          c.req.valid('json'),
-          c.req.header('Idempotency-Key') ?? '',
-        ),
+        await submitReport(deps, principalOf(c), c.req.valid('json'), idempotencyKeyOf(c)),
         200,
       )
     },
@@ -389,7 +375,7 @@ export function siteAdminRoutes(app: OpenAPIHono<HttpEnv>, services: Services) {
       path: '/api/admin/reports/{id}',
       tags: ['admin'],
       security,
-      request: { params: idParam, body: body(reportUpdateSchema) },
+      request: { params: idParam, body: jsonBody(reportUpdateSchema) },
       responses: { 200: json(okResponseSchema, 'Report decision recorded'), ...errors },
     }),
     async (c) => {
@@ -398,9 +384,9 @@ export function siteAdminRoutes(app: OpenAPIHono<HttpEnv>, services: Services) {
         principalOf(c),
         c.req.valid('param').id,
         c.req.valid('json'),
-        c.req.header('Idempotency-Key') ?? '',
+        idempotencyKeyOf(c),
       )
-      return c.json({ status: 'ok' as const }, 200)
+      return c.json(OK, 200)
     },
   )
   app.openapi(
@@ -452,17 +438,12 @@ export function siteAdminRoutes(app: OpenAPIHono<HttpEnv>, services: Services) {
       path: '/api/admin/settings',
       tags: ['admin'],
       security,
-      request: { body: body(siteSettingsUpdateSchema) },
+      request: { body: jsonBody(siteSettingsUpdateSchema) },
       responses: { 200: json(siteSettingsSchema, 'Versioned policy saved'), ...errors },
     }),
     async (c) =>
       c.json(
-        await updateAdminSettings(
-          deps,
-          principalOf(c),
-          c.req.valid('json'),
-          c.req.header('Idempotency-Key') ?? '',
-        ),
+        await updateAdminSettings(deps, principalOf(c), c.req.valid('json'), idempotencyKeyOf(c)),
         200,
       ),
   )

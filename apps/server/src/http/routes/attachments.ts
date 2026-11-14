@@ -22,10 +22,11 @@ import {
 } from '../../domain/attachments.ts'
 import { readSiteLimits } from '../../domain/site-policy.ts'
 import { cancelUpload, getUpload, receiveUpload, reserveUpload } from '../../domain/uploads.ts'
+import type { LimitPolicy } from '../../lib/rate-limit.ts'
 import type { HttpEnv, Services } from '../context.ts'
 import { principalOf, requireSession } from '../middleware/session.ts'
 import { POLICIES } from '../policies.ts'
-import { accessErrors, err, idParam, json } from './helpers.ts'
+import { accessErrors, err, idempotencyKeyOf, idParam, json, jsonBody, OK } from './helpers.ts'
 
 const base = {
   tags: ['attachments'],
@@ -42,7 +43,7 @@ const reservationRoute = createRoute({
   method: 'post',
   path: '/api/uploads/reservations',
   request: {
-    body: { required: true, content: { 'application/json': { schema: reserveUploadSchema } } },
+    body: jsonBody(reserveUploadSchema),
   },
   responses: { ...base.responses, 200: json(uploadSchema, 'Upload reservation') },
 })
@@ -111,7 +112,7 @@ const avatarRoute = createRoute({
   method: 'post',
   path: '/api/me/avatar',
   request: {
-    body: { required: true, content: { 'application/json': { schema: setAvatarSchema } } },
+    body: jsonBody(setAvatarSchema),
   },
   responses: {
     ...base.responses,
@@ -125,7 +126,7 @@ const conversationAvatarRoute = createRoute({
   path: '/api/conversations/{id}/avatar',
   request: {
     params: idParam,
-    body: { required: true, content: { 'application/json': { schema: setAvatarSchema } } },
+    body: jsonBody(setAvatarSchema),
   },
   responses: {
     ...base.responses,
@@ -156,34 +157,24 @@ export function attachmentRoutes(app: OpenAPIHono<HttpEnv>, services: Services):
   // Native image/player/download requests cannot participate in api()'s account cancellation.
   app.use('/api/attachments/*', requireSession(services, { cookieEffects: false }))
   // Conversation and me guards are installed by their respective route modules.
+  /** Every upload request counts per minute; a new reservation also counts against the site's hourly allowance. */
   const limited = async (principal: ReturnType<typeof principalOf>, reservation = false) => {
-    const limits = await readSiteLimits(services.deps, services.deps.db)
-    await services.limiter.enforce([
-      { policy: POLICIES.uploadUser, subject: principal.userId },
-      ...(reservation
-        ? [
-            {
-              policy: {
-                name: 'upload.hour.user',
-                limit: limits.uploadsPerHour,
-                windowMs: 3_600_000,
-              },
-              subject: principal.userId,
-            },
-          ]
-        : []),
-    ])
+    const checks = [{ policy: POLICIES.uploadUser as LimitPolicy, subject: principal.userId }]
+    if (reservation) {
+      // The site setting is read only where it is used: sending the bytes of a reserved upload does not need it.
+      const limits = await readSiteLimits(services.deps, services.deps.db)
+      checks.push({
+        policy: { name: 'upload.hour.user', limit: limits.uploadsPerHour, windowMs: 3_600_000 },
+        subject: principal.userId,
+      })
+    }
+    await services.limiter.enforce(checks)
   }
   app.openapi(reservationRoute, async (c) => {
     const p = principalOf(c)
     await limited(p, true)
     return c.json(
-      await reserveUpload(
-        services.deps,
-        p,
-        c.req.valid('json'),
-        c.req.header('Idempotency-Key') ?? '',
-      ),
+      await reserveUpload(services.deps, p, c.req.valid('json'), idempotencyKeyOf(c)),
       200,
     )
   })
@@ -193,7 +184,7 @@ export function attachmentRoutes(app: OpenAPIHono<HttpEnv>, services: Services):
   app.openapi(cancelRoute, async (c) => {
     const pending = await cancelUpload(services.deps, principalOf(c), c.req.valid('param').id)
     if (pending) return c.json(pending, 202)
-    return c.json({ status: 'ok' as const }, 200)
+    return c.json(OK, 200)
   })
   app.openapi(contentRoute, async (c) => {
     const p = principalOf(c)

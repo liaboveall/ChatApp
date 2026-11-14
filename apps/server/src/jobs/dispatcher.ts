@@ -9,7 +9,13 @@ import type { WorkKind } from '@chatapp/contracts'
 import type { Queue } from 'bullmq'
 import type { Deps } from '../domain/deps.ts'
 import { deliverAdminNotification } from '../domain/notifications.ts'
-import { claimReadyWork, completeWork, failWork } from '../domain/work-queue.ts'
+import {
+  type ClaimedWork,
+  claimReadyWork,
+  completeWorkMany,
+  failWork,
+  type WorkLease,
+} from '../domain/work-queue.ts'
 import type { Logger } from '../lib/logger.ts'
 import { describeError } from '../lib/logger.ts'
 import type { EventBus } from '../realtime/bus.ts'
@@ -18,7 +24,10 @@ import { DEFAULT_JOB_OPTIONS, type WorkJobData } from './queues.ts'
 
 export type Dispatcher = {
   start(): void
-  /** Best-effort immediate scan (a wake hint arrived); the periodic scan is what guarantees progress. */
+  /**
+   * Best-effort immediate scan (a wake hint arrived); the periodic scan is what guarantees progress. A hint that arrives
+   * while a scan is running is remembered and answered with another scan as soon as that one ends.
+   */
   wake(): void
   stop(): Promise<void>
   /** One scan; exposed for tests. Returns how many items were claimed. */
@@ -38,13 +47,66 @@ export function createDispatcher(parts: {
   intervalMs?: number
   batch?: number
   kinds?: readonly WorkKind[]
+  /** The least time between two scans asked for by `wake`, so a burst of hints becomes one scan and not one each. */
+  wakeDelayMs?: number
 }): Dispatcher {
-  const { deps, bus, emailQueue, log } = parts
+  const { deps, bus, log } = parts
   const intervalMs = parts.intervalMs ?? 1000
   const batch = parts.batch ?? 50
+  const wakeDelayMs = parts.wakeDelayMs ?? 20
   let timer: ReturnType<typeof setTimeout> | undefined
   let running: Promise<number> | undefined
   let stopped = true
+  /** A hint that arrived while a scan was running: what it announced may have committed after that scan's claim. */
+  let wakeRequested = false
+  /** When the last scan ended (monotonic), to space the scans that hints ask for. */
+  let lastEndedAt = Number.NEGATIVE_INFINITY
+
+  /** Where a kind of work goes: the queue (absent where this process does not run it), the job name, and its priority. */
+  function routeOf(work: ClaimedWork): {
+    queue: Queue<WorkJobData> | undefined
+    job: string
+    unavailable: string
+    priority?: number
+  } | null {
+    switch (work.kind) {
+      case 'agent':
+        return { queue: parts.agentQueue, job: 'run', unavailable: 'agent queue unavailable' }
+      case 'embedding':
+        return {
+          queue:
+            typeof work.payload.modelVersion === 'string'
+              ? parts.embeddingQueues?.get(work.payload.modelVersion)
+              : undefined,
+          job: 'index',
+          unavailable: 'embedding generation unavailable',
+          priority: work.payload.backfill ? 10 : 1,
+        }
+      case 'scheduled':
+        return {
+          queue: parts.scheduledQueue,
+          job: 'deliver',
+          unavailable: 'scheduled queue unavailable',
+        }
+      case 'push':
+        return { queue: parts.pushQueue, job: 'deliver', unavailable: 'push queue unavailable' }
+      case 'media':
+        return { queue: parts.mediaQueue, job: 'process', unavailable: 'media queue unavailable' }
+      case 'email':
+        return { queue: parts.emailQueue, job: 'deliver', unavailable: 'email queue unavailable' }
+      default:
+        return null
+    }
+  }
+
+  const dispatchFailed = (work: ClaimedWork, error: unknown): void => {
+    // The item stays leased and comes back when the lease expires.
+    log.warn('dispatcher.dispatch_failed', {
+      workId: work.id,
+      kind: work.kind,
+      ...describeError(error),
+    })
+  }
 
   async function tick(): Promise<number> {
     const claimed = await claimReadyWork(deps, {
@@ -52,64 +114,35 @@ export function createDispatcher(parts: {
       kinds: parts.kinds,
       embeddingVersions: deps.embeddings ? [deps.embeddings.modelVersion] : [],
     })
+    // Realtime hints are published here and are done once published. They are marked done together, in one statement:
+    // a burst of hints is one commit, not one per hint. A crash in between publishes them again, which clients absorb
+    // (versions merge), exactly as a crash between one publish and its own completion always could.
+    const published: WorkLease[] = []
     for (const work of claimed) {
       try {
         if (work.kind === 'notification') {
           await deliverAdminNotification(deps, { id: work.id, leaseEpoch: work.leaseEpoch })
-        } else if (work.kind === 'realtime') {
+          continue
+        }
+        if (work.kind === 'realtime') {
           const event = busEventFromWork(work)
           if (event) await bus.publish(event)
-          await completeWork(deps, { id: work.id, leaseEpoch: work.leaseEpoch })
-        } else if (work.kind === 'agent') {
-          if (!parts.agentQueue) throw new Error('agent queue unavailable')
-          await parts.agentQueue.add(
-            'run',
-            { workId: work.id, leaseEpoch: work.leaseEpoch },
-            { ...DEFAULT_JOB_OPTIONS, jobId: `${work.id}-${work.deliverySeq}` },
-          )
-        } else if (work.kind === 'embedding') {
-          const queue =
-            typeof work.payload.modelVersion === 'string'
-              ? parts.embeddingQueues?.get(work.payload.modelVersion)
-              : undefined
-          if (!queue) throw new Error('embedding generation unavailable')
-          await queue.add(
-            'index',
-            { workId: work.id, leaseEpoch: work.leaseEpoch },
-            {
-              ...DEFAULT_JOB_OPTIONS,
-              jobId: `${work.id}-${work.deliverySeq}`,
-              priority: work.payload.backfill ? 10 : 1,
-            },
-          )
-        } else if (work.kind === 'scheduled') {
-          if (!parts.scheduledQueue) throw new Error('scheduled queue unavailable')
-          await parts.scheduledQueue.add(
-            'deliver',
-            { workId: work.id, leaseEpoch: work.leaseEpoch },
-            { ...DEFAULT_JOB_OPTIONS, jobId: `${work.id}-${work.deliverySeq}` },
-          )
-        } else if (work.kind === 'push') {
-          if (!parts.pushQueue) throw new Error('push queue unavailable')
-          await parts.pushQueue.add(
-            'deliver',
-            { workId: work.id, leaseEpoch: work.leaseEpoch },
-            { ...DEFAULT_JOB_OPTIONS, jobId: `${work.id}-${work.deliverySeq}` },
-          )
-        } else if (work.kind === 'media') {
-          if (!parts.mediaQueue) throw new Error('media queue unavailable')
-          await parts.mediaQueue.add(
-            'process',
-            { workId: work.id, leaseEpoch: work.leaseEpoch },
-            { ...DEFAULT_JOB_OPTIONS, jobId: `${work.id}-${work.deliverySeq}` },
-          )
-        } else if (work.kind === 'email') {
-          await emailQueue.add(
-            'deliver',
-            { workId: work.id, leaseEpoch: work.leaseEpoch },
-            { ...DEFAULT_JOB_OPTIONS, jobId: `${work.id}-${work.deliverySeq}` },
-          )
+          published.push({ id: work.id, leaseEpoch: work.leaseEpoch })
+          continue
         }
+        const route = routeOf(work)
+        if (!route) continue
+        if (!route.queue) throw new Error(route.unavailable)
+        // A new job id for every redelivery, so a retained finished job never swallows it.
+        await route.queue.add(
+          route.job,
+          { workId: work.id, leaseEpoch: work.leaseEpoch },
+          {
+            ...DEFAULT_JOB_OPTIONS,
+            jobId: `${work.id}-${work.deliverySeq}`,
+            ...(route.priority !== undefined ? { priority: route.priority } : {}),
+          },
+        )
       } catch (error) {
         if (work.kind === 'notification')
           await failWork(
@@ -117,28 +150,36 @@ export function createDispatcher(parts: {
             { id: work.id, leaseEpoch: work.leaseEpoch },
             { kind: work.kind, errorCode: 'notification_delivery_failed' },
           )
-        // The item stays leased and comes back when the lease expires.
-        log.warn('dispatcher.dispatch_failed', {
-          workId: work.id,
-          kind: work.kind,
-          ...describeError(error),
-        })
+        dispatchFailed(work, error)
       }
     }
+    await completeWorkMany(deps, published)
     return claimed.length
   }
 
   function schedule(delay: number): void {
     if (stopped) return
     timer = setTimeout(() => {
+      timer = undefined
+      wakeRequested = false
       running = tick()
-        .catch((error) => {
-          log.error('dispatcher.tick_failed', describeError(error))
-          return 0
-        })
-        .finally(() => {
+        .then(
+          (claimed) => ({ claimed, failed: false }),
+          (error) => {
+            log.error('dispatcher.tick_failed', describeError(error))
+            return { claimed: 0, failed: true }
+          },
+        )
+        .then(({ claimed, failed }) => {
           running = undefined
-          schedule(intervalMs)
+          lastEndedAt = performance.now()
+          // A full batch means more is waiting, and a hint that came in during the scan may be about work this scan
+          // did not see: either way the next scan does not wait for the interval (docs/03 section 7). After a failed
+          // scan it does, so a database that is away is not hammered.
+          if (failed) schedule(intervalMs)
+          else if (claimed >= batch) schedule(0)
+          else schedule(wakeRequested ? wakeDelayMs : intervalMs)
+          return claimed
         })
     }, delay)
   }
@@ -149,9 +190,15 @@ export function createDispatcher(parts: {
       schedule(0)
     },
     wake() {
-      if (stopped || running) return
+      if (stopped) return
+      if (running) {
+        wakeRequested = true
+        return
+      }
       if (timer) clearTimeout(timer)
-      schedule(0)
+      // At once when nothing was scanned lately; otherwise as soon as the spacing allows. A stream of finished jobs, each
+      // announcing itself, therefore costs a bounded number of scans, and a lone hint costs no wait at all.
+      schedule(Math.max(0, wakeDelayMs - (performance.now() - lastEndedAt)))
     },
     async stop() {
       stopped = true

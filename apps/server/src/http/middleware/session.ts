@@ -30,7 +30,13 @@ export function authenticate(
   return authenticateSession(services, sdkHeaders(c, services.config.origin), options)
 }
 
-/** Requires a valid session and sets `principal`; a dead session answers 401 and tells the browser to drop its cookie. */
+/**
+ * Requires a valid session and sets `principal`; a dead session answers 401 and tells the browser to drop its cookie.
+ *
+ * A request is authenticated once. Patterns overlap easily (`/api/x/*` also matches `/api/x`, and `/api/me/*` covers every
+ * module mounted below it), so a guard that finds the principal already set by an earlier one only passes the request on:
+ * no second session read, no second hit on the per-person limit. The first guard to match decides the cookie effects.
+ */
 export function requireSession(
   services: Services,
   options: { cookieEffects?: boolean } = {},
@@ -38,6 +44,7 @@ export function requireSession(
   const names = cookieNames(services.config.origin)
   const secure = services.config.origin.startsWith('https://')
   return async (c, next) => {
+    if (c.get('principal')) return next()
     const result = await authenticate(services, c, { readOnly: options.cookieEffects === false })
     if (!result.principal) {
       if (result.staleCookie && options.cookieEffects !== false)

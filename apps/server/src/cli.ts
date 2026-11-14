@@ -13,6 +13,7 @@ import { createDatabase } from '@chatapp/db/client'
 import { runMigrations } from '@chatapp/db/migrate'
 import { sdkPasswords } from './auth/passwords.ts'
 import { readSecret } from './cli/secret-prompt.ts'
+import { domainConfig } from './config/domain.ts'
 import { type Config, ConfigError, loadConfig } from './config/index.ts'
 import {
   type CheckedIdentity,
@@ -85,16 +86,7 @@ function cliDeps(config: Config, db: Deps['db']): Deps {
     db,
     clock: systemClock,
     newId: uuidv7,
-    config: {
-      origin: config.origin,
-      timezone: config.timezone,
-      auth: {
-        tokenEncryptionKey: config.auth.tokenEncryptionKey,
-        cursorKey: config.auth.cursorKey,
-        restoreEpoch: config.auth.restoreEpoch,
-      },
-      product: config.product,
-    },
+    config: domainConfig(config),
     passwords: sdkPasswords,
     log: silentLogger,
   }

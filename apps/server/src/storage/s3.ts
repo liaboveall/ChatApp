@@ -106,8 +106,14 @@ export function createBlobStore(
       }
     },
     async stat(key) {
-      if (!(await client.exists(key))) return null
-      return { size: (await client.file(key).stat()).size }
+      // One HEAD. A key that is not there is an answer (the store says NoSuchKey); anything else, an outage or refused
+      // credentials, stays an error for the caller, as it was.
+      try {
+        return { size: (await client.file(key).stat()).size }
+      } catch (error) {
+        if ((error as { code?: unknown } | null)?.code === 'NoSuchKey') return null
+        throw error
+      }
     },
     read(key, start, end) {
       const file = client.file(key)

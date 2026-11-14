@@ -43,9 +43,8 @@ import { readSiteLimits, readSitePolicy } from './site-policy.ts'
 import { inTransaction } from './tx.ts'
 import { enqueueWork } from './work.ts'
 
+/** How many may wait per person is a site setting (`limits.maxFutureTasksPerUser`), read where a task is made or offered. */
 export const TASK_LIMITS = {
-  /** Reminders and scheduled messages still to run, per person (docs/01 section 7). */
-  maxFuturePerUser: 100,
   maxAheadMs: 365 * 86_400_000,
   /** A task more than this late fails instead of being delivered (docs/04). */
   graceMs: 24 * 3_600_000,

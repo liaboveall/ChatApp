@@ -2,6 +2,7 @@
 import { createDatabase } from '@chatapp/db/client'
 import { Queue } from 'bullmq'
 import { sdkPasswords } from '../auth/passwords.ts'
+import { domainConfig } from '../config/domain.ts'
 import { loadConfig } from '../config/index.ts'
 import type { Deps } from '../domain/deps.ts'
 import { recoverExpiredWork } from '../domain/work-queue.ts'
@@ -42,12 +43,7 @@ const deps: Deps = {
   newId: uuidv7,
   passwords: sdkPasswords,
   log,
-  config: {
-    origin: config.origin,
-    timezone: config.timezone,
-    auth: config.auth,
-    product: config.product,
-  },
+  config: domainConfig(config),
   embeddings: createEmbeddingClient(settings),
 }
 const options = {

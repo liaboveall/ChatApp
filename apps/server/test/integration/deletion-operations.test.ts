@@ -300,6 +300,24 @@ test('orphan cleanup journals a system intent and cannot erase a live object dur
   ).toBe(0)
 })
 
+test('an upload whose own deletion is still waiting does not stop the cleanup of everything else', async () => {
+  const { alice, upload, attachmentId } = await readyFile()
+  offsite.store.unavailable = true
+  // The uploader cancels; without the offsite journal the request stays pending and holds the attachment.
+  expect((await alice.del<DeletionOperation>(`/api/uploads/${upload.uploadId}`)).status).toBe(202)
+  // A day later the same file is also an orphan the cleanup would retire. It cannot prepare a second deletion of a
+  // target that is already held, and that must cost this run only this one file: the run still completes, so the
+  // objects that are due are still deleted and the capacity they held is still released.
+  app.clock.advance(25 * 60 * 60_000)
+  expect(await cleanupAttachments(app.services.deps)).toEqual({ retired: 0, deleted: 1 })
+  expect(
+    (
+      await app.services.deps.db.select().from(attachments).where(eq(attachments.id, attachmentId))
+    )[0]?.status,
+  ).toBe('ready')
+  offsite.store.unavailable = false
+})
+
 test('overlapping broad and source deletions cannot create a frozen dependency cycle during an offsite outage', async () => {
   const alice = await person(app, 'alice'),
     bob = await person(app, 'bob'),

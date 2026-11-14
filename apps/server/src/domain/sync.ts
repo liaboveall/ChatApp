@@ -21,7 +21,6 @@ import {
   conversationMembers,
   conversations,
   type DbOrTx,
-  messageHidden,
   messages,
   userChanges,
   userConversationStates,
@@ -37,7 +36,7 @@ import {
 import { cursorExpiry, decodeCursor, encodeCursor } from './cursor.ts'
 import type { Deps } from './deps.ts'
 import { loadMe } from './me.ts'
-import { latestMessages, projectMessages, type Viewer } from './messages.ts'
+import { hiddenMark, latestMessages, projectMessages, type Viewer } from './messages.ts'
 import { loadNotificationsByIds } from './notifications.ts'
 import type { SessionPrincipal } from './principal.ts'
 
@@ -177,32 +176,19 @@ export async function getConversationChanges(
       if (entry.messageId !== null) latestChange.set(entry.messageId, entry.changeSeq)
     }
     const ids = [...latestChange.keys()]
-    const rows =
+    // The messages with the reader's own "deleted for me" mark beside each, in one statement.
+    const found =
       ids.length > 0
         ? await tx
-            .select()
+            .select({ row: messages, hidden: hiddenMark(tx, principal.userId) })
             .from(messages)
             .where(and(eq(messages.conversationId, conversationId), inArray(messages.id, ids)))
         : []
-    const hidden = new Set(
-      ids.length > 0
-        ? (
-            await tx
-              .select({ messageId: messageHidden.messageId })
-              .from(messageHidden)
-              .where(
-                and(
-                  eq(messageHidden.userId, principal.userId),
-                  inArray(messageHidden.messageId, ids),
-                ),
-              )
-          ).map((row) => row.messageId)
-        : [],
-    )
-    const existing = new Set(rows.map((row) => row.id))
+    const existing = new Set(found.map(({ row }) => row.id))
     // What the reader may see: after their boundary and not hidden. History before they joined is simply not there.
-    const visible = rows
-      .filter((row) => row.seq > member.visibleFromSeq && !hidden.has(row.id))
+    const visible = found
+      .filter(({ row, hidden }) => row.seq > member.visibleFromSeq && !hidden)
+      .map(({ row }) => row)
       .sort((a, b) => a.seq - b.seq)
     const projected = await projectMessages(tx, viewer, visible)
     const tombstones = ids
@@ -410,39 +396,53 @@ export async function getSyncHeads(
   deps: Deps,
   principal: SessionPrincipal,
 ): Promise<SyncHeadsResponse> {
-  return await deps.db.transaction(async (tx) => {
-    const mine = await userSeq(tx, principal.userId)
-    const rows = await tx
-      .select({
-        id: conversations.id,
-        membershipId: conversationMembers.membershipId,
-        lastChangeSeq: conversations.lastChangeSeq,
-        metadataVersion: conversations.metadataVersion,
-        membershipVersion: conversations.membershipVersion,
-        stateVersion: conversationMembers.stateVersion,
-        viewerVersion: userConversationStates.viewerVersion,
-      })
-      .from(conversationMembers)
-      .innerJoin(conversations, eq(conversations.id, conversationMembers.conversationId))
-      .leftJoin(
-        userConversationStates,
-        and(
-          eq(userConversationStates.conversationId, conversationMembers.conversationId),
-          eq(userConversationStates.userId, conversationMembers.userId),
-        ),
-      )
-      .where(eq(conversationMembers.userId, principal.userId))
-      .orderBy(asc(conversations.id))
-    return {
-      userChangeSeq: mine.seq,
-      conversations: rows.map((row) => ({
-        id: row.id,
-        membershipId: row.membershipId,
-        lastChangeSeq: row.lastChangeSeq,
-        metadataVersion: row.metadataVersion,
-        membershipVersion: row.membershipVersion,
-        viewerVersion: row.viewerVersion ?? row.stateVersion,
-      })),
-    }
-  }, SNAPSHOT)
+  // One statement is one snapshot: the person's own head and the head of each of their conversations are read together,
+  // with no transaction around them. This is the poll every open client repeats, so it stays a single round trip.
+  const rows = await deps.db
+    .select({
+      userChangeSeq: users.userChangeSeq,
+      id: conversations.id,
+      membershipId: conversationMembers.membershipId,
+      lastChangeSeq: conversations.lastChangeSeq,
+      metadataVersion: conversations.metadataVersion,
+      membershipVersion: conversations.membershipVersion,
+      stateVersion: conversationMembers.stateVersion,
+      viewerVersion: userConversationStates.viewerVersion,
+    })
+    .from(users)
+    .leftJoin(conversationMembers, eq(conversationMembers.userId, users.id))
+    .leftJoin(conversations, eq(conversations.id, conversationMembers.conversationId))
+    .leftJoin(
+      userConversationStates,
+      and(
+        eq(userConversationStates.conversationId, conversationMembers.conversationId),
+        eq(userConversationStates.userId, conversationMembers.userId),
+      ),
+    )
+    .where(eq(users.id, principal.userId))
+    .orderBy(asc(conversations.id))
+  const mine = rows[0]
+  if (!mine) throw new AppError('UNAUTHENTICATED', 'Session is no longer valid')
+  const heads: SyncHeadsResponse['conversations'] = []
+  for (const row of rows) {
+    // Somebody in no conversation at all still has their own row here, with nothing joined to it.
+    if (
+      row.id === null ||
+      row.membershipId === null ||
+      row.lastChangeSeq === null ||
+      row.metadataVersion === null ||
+      row.membershipVersion === null ||
+      row.stateVersion === null
+    )
+      continue
+    heads.push({
+      id: row.id,
+      membershipId: row.membershipId,
+      lastChangeSeq: row.lastChangeSeq,
+      metadataVersion: row.metadataVersion,
+      membershipVersion: row.membershipVersion,
+      viewerVersion: row.viewerVersion ?? row.stateVersion,
+    })
+  }
+  return { userChangeSeq: mine.userChangeSeq, conversations: heads }
 }

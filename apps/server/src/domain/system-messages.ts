@@ -43,5 +43,15 @@ export async function appendSystemMessage(
     messageId: id,
     changeSeq,
     kind: 'message_created',
+    // A system line has no text to index: saying so here spares the read-back of the row just written.
+    inserted: {
+      id,
+      body: null,
+      kind: 'system',
+      status: 'sent',
+      recalledAt: null,
+      deletedAt: null,
+      contentVersion: 1,
+    },
   })
 }

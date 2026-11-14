@@ -9,7 +9,7 @@
 | `main` | 原 v2 源码及本次维护整理，后续开发主线 |
 | `archive/v1` | 原 main：`98413524714a16a904f1ddef16c5bd59ea83fc8e` |
 | `v1-legacy` | 已有的 v1 归档标签，指向同一旧 main 提交 |
-| `v2-pre-cleanup-2026-10-20` | 清理前完整 v2：`ccc908c6fe382777cc0574b0cfcc4d81ee6c10f7` |
+| `v2-pre-cleanup-2026-10-20` | 清理前完整 v2：`d5f6af7663e73d738156747e5092c0a4e7dff7fc` |
 
 v2 是旧 main 的后代，主线提升通过快进完成，不重写提交历史。`v2` 的清理前状态由标签保留，后续只使用 `main` 维护。
 
@@ -50,7 +50,7 @@ git show v2-pre-cleanup-2026-10-20:docs/31-prelaunch-operations-2026-10-13.md
 
 ## 2026-10-20：视觉测试的日期漂移
 
-原提交 `b36c607` 的 [e2e 工作流](https://github.com/liaboveall/ChatApp/actions/runs/39374966432) 中，真实服务 E2E、组件回归、媒体浏览器链与 edge-config 通过；visual 为 138 通过、2 失败，其他工作流通过。
+原提交 `2a60aa0` 的 [e2e 工作流](https://github.com/liaboveall/ChatApp/actions/runs/39374966432) 中，真实服务 E2E、组件回归、媒体浏览器链与 edge-config 通过；visual 为 138 通过、2 失败，其他工作流通过。
 
 失败发生在邀请码页面的明暗主题：夹具的第二张邀请码于 2026-10-20 到期，组件读取真实 `Date.now()`，文字从“已用完”变为“已过期”，与基线相差 112 / 101 像素。本地官方 Playwright 镜像复现了同样的 2 项失败；原 CI 差异图、日志和本地复现保存在 Git 忽略的 `.test-runs/ci-postlaunch-39374966432/attempt-1/`。
 
@@ -67,7 +67,7 @@ git show v2-pre-cleanup-2026-10-20:docs/31-prelaunch-operations-2026-10-13.md
 
 移除 e2e、security、eval 的全部 `schedule` 触发；提交、PR 和原有手动入口保留，真实 provider eval 仅手动运行。
 
-关闭定时任务的提交 `b9cefcf` 触发了正常的 push CI。[安全扫描](https://github.com/liaboveall/ChatApp/actions/runs/40147629519) 检出锁文件中 8 个包版本的 23 条漏洞记录，其中包括 Storybook 的 Critical 告警。该提交未更改依赖；扫描数据库更新后，既有锁定版本也可能产生新的失败。
+关闭定时任务的提交 `0a5dd6f` 触发了正常的 push CI。[安全扫描](https://github.com/liaboveall/ChatApp/actions/runs/40147629519) 检出锁文件中 8 个包版本的 23 条漏洞记录，其中包括 Storybook 的 Critical 告警。该提交未更改依赖；扫描数据库更新后，既有锁定版本也可能产生新的失败。
 
 - Storybook 及其配套包升级至 10.6.2，Vite 至 8.3.3，Zod 至 4.6.6，Nodemailer 至 10.1.4。
 - 按原依赖范围更新 fast-uri、serialize-javascript，以及 Undici 的 7.x / 8.x 两条依赖链；未升级其他无关依赖。
@@ -83,7 +83,7 @@ git show v2-pre-cleanup-2026-10-20:docs/31-prelaunch-operations-2026-10-13.md
 
 ## 2026-10-25：镜像漏洞与截图就绪状态
 
-提交 `53e027b` 的依赖安全检查通过，但 [images](https://github.com/liaboveall/ChatApp/actions/runs/40148255487) 的 Trivy 仍检出镜像内 5 条 High 记录：Nginx 1.30.5 的 3 条，以及运维镜像内 Go 1.27.2 和 `klauspost/compress` 1.18.6 的各 1 条。[visual](https://github.com/liaboveall/ChatApp/actions/runs/40148255488/job/121034203968) 的 428 像素差异则全部位于未完成高亮的 TypeScript 代码。
+提交 `ba77ec9` 的依赖安全检查通过，但 [images](https://github.com/liaboveall/ChatApp/actions/runs/40148255487) 的 Trivy 仍检出镜像内 5 条 High 记录：Nginx 1.30.5 的 3 条，以及运维镜像内 Go 1.27.2 和 `klauspost/compress` 1.18.6 的各 1 条。[visual](https://github.com/liaboveall/ChatApp/actions/runs/40148255488/job/121034203968) 的 428 像素差异则全部位于未完成高亮的 TypeScript 代码。
 
 - Nginx 更新到 1.30.6，Go 编译镜像更新到 1.27.3，均锁定已核验的多架构 digest；restic 保持 0.19.1，压缩库更新到 1.18.7，启动 smoke 同步检查实际编译器版本。
 - 本地 x64 Nginx / ops 镜像实际构建成功，Trivy 0.75.0 复扫的 High/Critical 均为 0；ops 非 root 启动、restic、PostgreSQL 客户端和运维入口启动通过。原扫描报告保留，未新增忽略项或降低安全门槛。
@@ -96,7 +96,7 @@ git show v2-pre-cleanup-2026-10-20:docs/31-prelaunch-operations-2026-10-13.md
 
 ## 2026-11-12：CI 不再扫描镜像漏洞
 
-提交 `ced834d` 的 [images](https://github.com/liaboveall/ChatApp/actions/runs/43201268317) 中，两个原生镜像的构建与 smoke 均通过，`trivy` 作业在运维镜像检出 56 条 High：14 个 2026-11-09 发布的 krb5 CVE，各计入 4 个 Debian 13 krb5 库（`1.21.3-5+deb13u1`，经 PostgreSQL 客户端的 libpq 引入）。Debian trixie 当时对这 14 个 CVE 均无修复版本。
+提交 `121d19c` 的 [images](https://github.com/liaboveall/ChatApp/actions/runs/43201268317) 中，两个原生镜像的构建与 smoke 均通过，`trivy` 作业在运维镜像检出 56 条 High：14 个 2026-11-09 发布的 krb5 CVE，各计入 4 个 Debian 13 krb5 库（`1.21.3-5+deb13u1`，经 PostgreSQL 客户端的 libpq 引入）。Debian trixie 当时对这 14 个 CVE 均无修复版本。
 
 维护者决定不处理该结果，并从 `images` 工作流移除 `trivy` 作业。依赖漏洞（OSV Scanner、`bun audit`）和密钥（gitleaks）仍由 `security` 工作流扫描。`scripts/production-scan.ts` 保留，发布流程中的手动镜像扫描（docs/10）不变，在 Debian 修复前同样会报告这批 krb5 记录。
 
@@ -110,3 +110,65 @@ git show v2-pre-cleanup-2026-10-20:docs/31-prelaunch-operations-2026-10-13.md
 - 本地 `bun run check` 通过：后端 / 脚本 703 项，前端 750 项。改动只涉及部署工具、文档和 Nginx 注释，没有运行浏览器组件回归和 M3 媒体链，由 CI 执行。
 
 旧版部署轮次的 postflight 断言封闭策略，并要求清单外来源返回 403；下一轮部署须先改为按实际策略核验。应用镜像和数据库没有变化。
+
+## 2026-11-14：后端性能与结构整理
+
+前端重构之后对后端做的一轮整理。先分区审读 `apps/server` 与 `packages/db`，只改经核实的问题；行为修复先写会失败的测试再改。改动提交在 `feat/liquid-glass-redesign`（基于 `a46ac73`，该分支此前没有改过任何后端文件），随界面重构一起经 PR 合并到 `main`。
+
+**请求与鉴权**
+
+- 会话守卫对一个请求只执行一次。Hono 的 `/api/x/*` 也匹配 `/api/x`，各路由模块又分别登记，导致 `GET /api/me`、`/api/conversations`、`/api/notifications`、`/api/users`、`/api/reminders`、`/api/scheduled-messages` 鉴权两次，`/api/me/memories` 三次；每次多一轮 session 查询，并重复计入每人限流（记忆写入的专属限额也被计两次）。守卫现在发现 principal 已建立就放行，各模块只登记一个路径模式。
+- 写事务里对 origin 与 session 的复核由两条语句并为一条；每请求与每连接的会话校验只取用到的列，不再读整行用户资料或 session 令牌。
+- 限流脚本注册为命令（EVALSHA），多项限流一次往返完成。
+
+**消息与同步**
+
+- 发送：新消息不再回读自身并清空不存在的向量；提及写入由三条语句减为一条查询加一条插入；成员行的已读位置或取消隐藏与版本号在同一条语句写入；私信对端只读一次；没有提及时不查助手账号。
+- 读取：非加锁的权限加载为一条语句；会话详情一次查询；sync heads 单条语句、不开事务；变更流和消息详情把“对我隐藏”并入消息查询；消息分页多取一行，省去一到两次探测。
+
+**后台任务与实时**
+
+- dispatcher：扫描期间到达的唤醒不再丢失；领满一批立即续扫；worker 的消费者完成任务后唤醒它；realtime 提示批量标记完成。队列与消费者挂上 `error` / `failed` 监听，错误经允许字段日志输出；停止时各消费者并行关闭。
+- 一条消息的推送任务为全部收件人批量写入；“全部标为已读”由每条两条语句改为总共三条。
+- 网关：客户端在握手读取期间自行断开时不再被登记为在线；presence 续期一次发出并防重入；Agent 文本增量的授权按批读取全部在线成员的成员关系。
+
+**缺陷修复（各有回归测试）**
+
+- 新举报的通知始终显示为“来源不可见”，现按规格对管理员给出 `reportId`；不再是管理员的人看不到也不计数。
+- Agent 用量：自带密钥的未知结果调用被从站点额度的预占中扣减，数值变负，前端按契约解析失败。
+- 因成员变化被取消的运行保留“等待审批”标记，既不能审批也不能重新生成。
+- 准备提醒或定时消息时用的是固定的 100，而不是站点设置的任务上限。
+- 存储清理中一个附件因其他删除未结算而被拒绝时，整轮中止，到期对象不删除、容量不释放。
+- 预算提醒会发给被封禁或未验证的管理员；管理员筛选条件统一为一处。
+
+**结构**
+
+- 路由共用的请求体、成功响应与幂等键读取集中在 `http/routes/helpers.ts`；`config/domain.ts` 统一生成交给 domain 的配置（此前三个入口把含认证 SDK 密钥的整个 `auth` 对象传入）；附件预览种类的 SQL 片段、通知偏好换算、邀请码哈希各归一处。
+- 对象 `stat` 由两次 HEAD 减为一次（已对本地 Garage 核实缺失键的错误码）；站点存储锁省去每次的空插入；上传内容请求不再读取用不到的站点策略。
+
+**验证**
+
+- 基线（改动前）：后端单元 703 项通过；集成 820 项中 23 项因本机 Garage 管理端口未绑定而失败，重启容器后这三个文件 41 项全部通过。
+- 改动后：`bun run check` 通过（后端与脚本单元 704 项、前端单元 801 项），生产构建通过；集成 / 安全 / 契约 / 实时 832 项全部通过（真实 PostgreSQL、Valkey、Garage）；OpenAPI 快照未变。新增 13 项测试、扩充 1 项，其中复现缺陷的各项均已在旧实现上确认失败。开发环境的 worker 容器在新装配下正常启动，无告警日志。
+- 真实服务浏览器场景（`bun run test:e2e`，三种浏览器共 391 项）：372 项通过、18 项跳过、1 项失败。失败的是 WebKit 上的 `late-answers.spec.ts:320`，60 秒超时；失败快照里消息的右键菜单没有关闭，保存编辑的请求尚未发出。该用例单独在 WebKit 重跑 4 次全部通过，Chromium 在同一轮中通过。
+- 未做：查询计划与耗时没有实测，语句数来自代码阅读；没有运行故障套件、隔离媒体链、网关（edge）套件、嵌入与真实模型评测；未部署。以上是提交前的本地结果，CI 以该提交的最终作业为准。
+
+**留待决定**
+
+以下来自同一轮审读，涉及删除保障、迁移或较大改写，没有动：
+
+- 异地删除 journal 每次受理都重读整条链（D-084 的取舍）；删除冻结触发器在无锁时仍逐行执行（需新迁移）。
+- `validateAgentSources` 按来源逐条查询，每次租约校验约几十条语句，是 Agent 路径上最大的一项；批量化要改动租约核心。
+- `messages_conversation_change_idx` 没有查询使用，删除前应先看生产的 `pg_stat_user_indexes`。
+- 工作项在队列中等待超过 60 秒会被记一次失败尝试，积压时可能误入死信；先在生产查 `last_error_code = 'lease_expired'`。
+- 推送服务的 `Retry-After` 被解析后未使用；搜索持有用户行锁；`gateway.ts`、`push.ts`、`agent-runs.ts`、`attachment-processing.ts` 的拆分。
+
+## 2026-11-14：提交说明改写
+
+维护者要求提交记录只保留本人账号。此前 83 个提交的说明末尾带有工具写入的共同作者行；没有任何提交的作者或提交者是其他人。
+
+- 用 `git filter-branch --msg-filter` 只删除这一行。提交的文件树、作者、提交者和时间不变；不含该行的提交，说明逐字节保留。
+- 从 v2 的第一个提交起，共 112 个提交的哈希随之改变。v1 的 14 个提交、`archive/v1` 和 `v1-legacy` 没有变化。
+- `main` 与当时的 PR 分支强制推送。归档标签 `v2-pre-cleanup-2026-10-20` 改为指向内容相同的新提交 `d5f6af7`（原为 `ccc908c`），标签说明、打标签的人和时间不变。
+- 本文件引用的提交哈希已换成新值。此前链接的 CI 运行是在同一批提交的旧哈希上执行的，运行页面显示的仍是旧哈希。
+- 改写前后逐个提交核对：126 个提交一一对应，文件树、作者、提交者和时间一致，83 条说明只少这一行。改写前的全部分支和标签另存为本地 bundle，与新旧哈希对照表一起由维护者保管，不在仓库内。

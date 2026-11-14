@@ -7,6 +7,7 @@ import { createDatabase } from '@chatapp/db/client'
 import { createAuth } from './auth/better-auth.ts'
 import { sdkPasswords } from './auth/passwords.ts'
 import { loadAiConfig } from './config/ai.ts'
+import { domainConfig } from './config/domain.ts'
 import { type Config, ConfigError, loadConfig } from './config/index.ts'
 import { loadJournalSettings } from './config/journal.ts'
 import { withPhysicalDeletion } from './domain/backups.ts'
@@ -71,18 +72,7 @@ async function main(): Promise<void> {
     db: database.db,
     clock: systemClock,
     newId: uuidv7,
-    config: {
-      origin: config.origin,
-      timezone: config.timezone,
-      auth: {
-        tokenEncryptionKey: config.auth.tokenEncryptionKey,
-        cursorKey: config.auth.cursorKey,
-        restoreEpoch: config.auth.restoreEpoch,
-      },
-      product: config.product,
-      ai: aiPolicy,
-      aiKeyEncryptionKey: config.aiKeyEncryptionKey,
-    },
+    config: domainConfig(config, { ai: aiPolicy, memberAiKeys: true }),
     blobs: createBlobStore(config.s3, {
       physicalDeletion: (remove) => withPhysicalDeletion({ db: database.db }, remove),
     }),

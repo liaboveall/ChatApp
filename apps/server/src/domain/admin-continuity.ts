@@ -1,7 +1,8 @@
 /** All operations that remove an administrator serialize before acquiring user locks. */
 import { AppError } from '@chatapp/contracts'
 import { deletionLocks, type Tx, users } from '@chatapp/db'
-import { and, eq, isNull, lte, ne, or, sql } from 'drizzle-orm'
+import { and, eq, isNull, ne, sql } from 'drizzle-orm'
+import { accountAllowsSessionWhere } from './sessions.ts'
 
 export async function lockAdminRoles(tx: Tx): Promise<void> {
   await tx.execute(sql`select pg_advisory_xact_lock(hashtext('chatapp.admin.roles'))`)
@@ -19,11 +20,7 @@ export async function requireAdminSuccessor(tx: Tx, departingId: string, now: Da
     .where(
       and(
         eq(users.role, 'admin'),
-        eq(users.isBot, false),
-        or(eq(users.banned, false), lte(users.banExpires, now)),
-        isNull(users.deletedAt),
-        eq(users.activationStatus, 'active'),
-        eq(users.emailVerified, true),
+        accountAllowsSessionWhere(now),
         ne(users.id, departingId),
         isNull(deletionLocks.operationId),
       ),

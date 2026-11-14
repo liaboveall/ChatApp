@@ -448,6 +448,9 @@ export async function getAgentUsage(deps: Deps, principal: SessionPrincipal): Pr
       .where(
         and(
           eq(aiCallAttempts.status, 'unknown'),
+          // Only calls on the site key hold a reservation of the site accounts. A member's own key reserves nothing
+          // there, so its unknown calls are not part of what these accounts show as reserved.
+          eq(aiCallAttempts.keySource, 'site'),
           sql`(${aiCallAttempts.day} = ${period.day} or ${aiCallAttempts.month} = ${period.month})`,
         ),
       )

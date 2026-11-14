@@ -40,10 +40,25 @@ import {
   type Tx,
   users,
 } from '@chatapp/db'
-import { and, asc, desc, eq, gt, inArray, lt, notExists, sql } from 'drizzle-orm'
+import {
+  and,
+  asc,
+  desc,
+  eq,
+  exists,
+  gt,
+  gte,
+  inArray,
+  lt,
+  ne,
+  notExists,
+  or,
+  type SQL,
+  sql,
+} from 'drizzle-orm'
 import { fingerprint } from '../lib/crypto.ts'
 import { enqueueRunForSource } from './agent-runs.ts'
-import { attachmentDto, lockStorage } from './attachment-common.ts'
+import { attachmentDto, firstAttachmentKind, lockStorage } from './attachment-common.ts'
 import { writeAudit } from './audit.ts'
 import { type ConversationRow, enforce, loadAccess, type MemberRow } from './authorize.ts'
 import {
@@ -86,6 +101,15 @@ const hiddenFromViewer = (db: DbOrTx, viewerId: string) =>
       .from(messageHidden)
       .where(and(eq(messageHidden.userId, viewerId), eq(messageHidden.messageId, messages.id))),
   )
+
+/** The viewer's own "deleted for me" mark, as a column beside the message it is read with. */
+export const hiddenMark = (db: DbOrTx, viewerId: string) =>
+  sql<boolean>`${exists(
+    db
+      .select({ one: sql`1` })
+      .from(messageHidden)
+      .where(and(eq(messageHidden.userId, viewerId), eq(messageHidden.messageId, messages.id))),
+  )}`
 
 /** The messages of a conversation this viewer may see: after their boundary, and not deleted for them. */
 export function visibleTo(db: DbOrTx, viewer: Viewer, conversationId: string) {
@@ -156,22 +180,17 @@ export async function projectMessages(
         senderId: messages.senderId,
         kind: messages.kind,
         excerpt: messages.body,
-        attachmentKind: sql<
-          'image' | 'video' | 'audio' | 'file' | null
-        >`(select a.kind from ${attachments} a where a.message_id = "messages"."id" and a.status = 'ready' and a.privacy_class = 'standard' order by a.position limit 1)`,
+        attachmentKind: firstAttachmentKind,
         recalledAt: messages.recalledAt,
         deletedAt: messages.deletedAt,
+        hidden: hiddenMark(db, viewer.userId),
       })
       .from(messages)
       .where(inArray(messages.id, replyIds))
-    for (const row of found) targets.set(row.id, row)
-    const marks = await db
-      .select({ messageId: messageHidden.messageId })
-      .from(messageHidden)
-      .where(
-        and(eq(messageHidden.userId, viewer.userId), inArray(messageHidden.messageId, replyIds)),
-      )
-    for (const mark of marks) hidden.add(mark.messageId)
+    for (const { hidden: mark, ...row } of found) {
+      targets.set(row.id, row)
+      if (mark) hidden.add(row.id)
+    }
   }
 
   // Resolve only visible, live reply targets; hidden history cannot add people to the response.
@@ -222,23 +241,25 @@ export async function projectMessages(
   }
 
   const rowIds = rows.filter((row) => !row.recalledAt && !row.deletedAt).map((row) => row.id)
-  const [files, mentioned] = rowIds.length
-    ? await Promise.all([
-        db
-          .select()
-          .from(attachments)
-          .where(
-            and(
-              inArray(attachments.messageId, rowIds),
-              eq(attachments.status, 'ready'),
-              eq(attachments.purpose, 'message'),
-              eq(attachments.privacyClass, 'standard'),
-            ),
-          )
-          .orderBy(asc(attachments.position)),
-        db.select().from(messageMentions).where(inArray(messageMentions.messageId, rowIds)),
-      ])
-    : [[], []]
+  // One after the other: outside a transaction two statements at once would take two pooled connections for one
+  // request (docs/03 section 10).
+  const files = rowIds.length
+    ? await db
+        .select()
+        .from(attachments)
+        .where(
+          and(
+            inArray(attachments.messageId, rowIds),
+            eq(attachments.status, 'ready'),
+            eq(attachments.purpose, 'message'),
+            eq(attachments.privacyClass, 'standard'),
+          ),
+        )
+        .orderBy(asc(attachments.position))
+    : []
+  const mentioned = rowIds.length
+    ? await db.select().from(messageMentions).where(inArray(messageMentions.messageId, rowIds))
+    : []
   const projected: Message[] = rows.map((row) => {
     const gone = row.recalledAt !== null || row.deletedAt !== null
     return {
@@ -339,62 +360,69 @@ export async function listMessages(
   const limit = query.limit ?? LIMITS.messagePageDefault
   const where = visibleTo(deps.db, viewer, conversationId)
 
-  let rows: MessageRow[]
-  // Where the page would have started and ended if it were empty, so the two flags still make sense then.
-  let lo: number
-  let hi: number
-  if (query.beforeSeq !== undefined) {
-    rows = (
-      await deps.db
-        .select()
-        .from(messages)
-        .where(and(where, lt(messages.seq, query.beforeSeq)))
-        .orderBy(desc(messages.seq))
-        .limit(limit)
-    ).reverse()
-    lo = rows[0]?.seq ?? query.beforeSeq
-    hi = rows[rows.length - 1]?.seq ?? query.beforeSeq - 1
-  } else if (query.afterSeq !== undefined) {
-    rows = await deps.db
+  // A page asks for one row more than it returns on the side it pages towards: the extra row is the answer to "is there
+  // more that way", so only the far side still needs a probe of its own.
+  const older = async (belowSeq: number, count: number) => {
+    const found = await deps.db
       .select()
       .from(messages)
-      .where(and(where, gt(messages.seq, query.afterSeq)))
-      .orderBy(asc(messages.seq))
-      .limit(limit)
-    lo = rows[0]?.seq ?? query.afterSeq + 1
-    hi = rows[rows.length - 1]?.seq ?? query.afterSeq
-  } else if (query.aroundSeq !== undefined) {
-    const half = Math.floor(limit / 2)
-    const older =
-      half > 0
-        ? (
-            await deps.db
-              .select()
-              .from(messages)
-              .where(and(where, lt(messages.seq, query.aroundSeq)))
-              .orderBy(desc(messages.seq))
-              .limit(half)
-          ).reverse()
-        : []
-    const newer = await deps.db
+      .where(and(where, lt(messages.seq, belowSeq)))
+      .orderBy(desc(messages.seq))
+      .limit(count + 1)
+    return { rows: found.slice(0, count).reverse(), more: found.length > count }
+  }
+  const newer = async (condition: SQL, count: number) => {
+    const found = await deps.db
       .select()
       .from(messages)
-      .where(and(where, sql`${messages.seq} >= ${query.aroundSeq}`))
+      .where(and(where, condition))
       .orderBy(asc(messages.seq))
-      .limit(limit - older.length)
-    rows = [...older, ...newer]
-    lo = rows[0]?.seq ?? query.aroundSeq
-    hi = rows[rows.length - 1]?.seq ?? query.aroundSeq - 1
-  } else {
-    rows = (await latestMessages(deps.db, viewer, conversationId, limit)).rows
-    lo = rows[0]?.seq ?? 0
-    hi = rows[rows.length - 1]?.seq ?? Number.MAX_SAFE_INTEGER
+      .limit(count + 1)
+    return { rows: found.slice(0, count), more: found.length > count }
   }
 
-  const [hasMoreBefore, hasMoreAfter] = await Promise.all([
-    anyVisible(deps.db, viewer, conversationId, lt(messages.seq, lo)),
-    anyVisible(deps.db, viewer, conversationId, gt(messages.seq, hi)),
-  ])
+  let rows: MessageRow[]
+  let hasMoreBefore: boolean
+  let hasMoreAfter: boolean
+  if (query.beforeSeq !== undefined) {
+    const page = await older(query.beforeSeq, limit)
+    rows = page.rows
+    hasMoreBefore = page.more
+    // An empty page ends just below the anchor, so the flag still makes sense then.
+    const hi = rows[rows.length - 1]?.seq ?? query.beforeSeq - 1
+    hasMoreAfter = await anyVisible(deps.db, viewer, conversationId, gt(messages.seq, hi))
+  } else if (query.afterSeq !== undefined) {
+    const page = await newer(gt(messages.seq, query.afterSeq), limit)
+    rows = page.rows
+    hasMoreAfter = page.more
+    const lo = rows[0]?.seq ?? query.afterSeq + 1
+    hasMoreBefore = await anyVisible(deps.db, viewer, conversationId, lt(messages.seq, lo))
+  } else if (query.aroundSeq !== undefined) {
+    const half = Math.floor(limit / 2)
+    const before = half > 0 ? await older(query.aroundSeq, half) : null
+    const after = await newer(
+      gte(messages.seq, query.aroundSeq),
+      limit - (before?.rows.length ?? 0),
+    )
+    rows = [...(before?.rows ?? []), ...after.rows]
+    hasMoreAfter = after.more
+    // A page of one has no older half to look at, so it asks.
+    hasMoreBefore = before
+      ? before.more
+      : await anyVisible(
+          deps.db,
+          viewer,
+          conversationId,
+          lt(messages.seq, rows[0]?.seq ?? query.aroundSeq),
+        )
+  } else {
+    const page = await latestMessages(deps.db, viewer, conversationId, limit)
+    rows = page.rows
+    hasMoreBefore = page.hasMoreBefore
+    // The newest page ends at the newest message the viewer may see.
+    hasMoreAfter = false
+  }
+
   const projected = await projectMessages(deps.db, viewer, rows)
   return { ...projected, hasMoreBefore, hasMoreAfter }
 }
@@ -406,8 +434,13 @@ export async function getMessage(
   messageId: string,
 ): Promise<MessageEnvelope> {
   const missing = () => new AppError('NOT_FOUND', 'Message not found')
-  const [row] = await deps.db.select().from(messages).where(eq(messages.id, messageId)).limit(1)
-  if (!row) throw missing()
+  const [found] = await deps.db
+    .select({ row: messages, hidden: hiddenMark(deps.db, principal.userId) })
+    .from(messages)
+    .where(eq(messages.id, messageId))
+    .limit(1)
+  if (!found) throw missing()
+  const { row, hidden } = found
   let member: MemberRow
   try {
     member = await memberOf(deps.db, deps, principal, row.conversationId)
@@ -415,12 +448,9 @@ export async function getMessage(
     if (error instanceof AppError && (error.status === 403 || error.status === 404)) throw missing()
     throw error
   }
+  // Before the reader's boundary, or deleted by them for themselves: not theirs to open.
+  if (hidden || row.seq <= member.visibleFromSeq) throw missing()
   const viewer: Viewer = { userId: principal.userId, visibleFromSeq: member.visibleFromSeq }
-  const [visible] = await deps.db
-    .select({ id: messages.id })
-    .from(messages)
-    .where(and(eq(messages.id, messageId), visibleTo(deps.db, viewer, row.conversationId)))
-  if (!visible) throw missing()
   const projected = await projectMessages(deps.db, viewer, [row])
   const message = projected.messages[0]
   if (!message) throw missing()
@@ -532,15 +562,33 @@ export async function writeMessage(
   }
 
   enforce(access, rights, 'send_message', now)
-  const peerId =
-    conversation.kind === 'dm' ? await directPeerOf(tx, actor.userId, conversationId) : null
+  // The other side of a direct message, read once: whether they can still receive, and whether this message has to
+  // bring the conversation back into their list. Their user row is locked by the caller and the conversation by this
+  // transaction, so neither answer can change before the end of it.
+  let peer: { userId: string; membershipId: string; hiddenAt: Date | null } | undefined
   if (conversation.kind === 'dm') {
-    const [peer] = peerId ? await tx.select().from(users).where(eq(users.id, peerId)) : []
-    if (!peer || peer.deletedAt !== null) {
+    const [other] = await tx
+      .select({
+        userId: conversationMembers.userId,
+        membershipId: conversationMembers.membershipId,
+        hiddenAt: conversationMembers.hiddenAt,
+        deletedAt: users.deletedAt,
+      })
+      .from(conversationMembers)
+      .innerJoin(users, eq(users.id, conversationMembers.userId))
+      .where(
+        and(
+          eq(conversationMembers.conversationId, conversationId),
+          ne(conversationMembers.userId, actor.userId),
+        ),
+      )
+      .limit(1)
+    if (!other || other.deletedAt !== null) {
       throw new AppError('FORBIDDEN', 'The other person can no longer receive messages', {
         details: { reason: 'peer_unavailable' },
       })
     }
+    peer = other
   }
 
   let replyToId: string | null = null
@@ -605,12 +653,13 @@ export async function writeMessage(
       .set({ messageId: id, conversationId, position, version: sql`${attachments.version} + 1` })
       .where(eq(attachments.id, attachmentId))
   }
-  await replaceMentions(tx, id, conversationId, body)
+  await insertMentions(tx, id, conversationId, body)
   await recordMessageChange(tx, deps, {
     conversationId,
     messageId: id,
     changeSeq,
     kind: 'message_created',
+    inserted: row,
   })
   // Who this concerns is worked out after the commit, from the message as it then stands (docs/03 section 5.1 step 4).
   if (conversation.kind !== 'agent')
@@ -620,54 +669,27 @@ export async function writeMessage(
   // write brings a direct message they had hidden back into view.
   const interactive = options.executionSource === 'interactive'
   if (interactive || member.hiddenAt) {
-    await tx
-      .update(conversationMembers)
-      .set({
-        ...(interactive
-          ? { lastReadSeq: sql`greatest(${conversationMembers.lastReadSeq}, ${seq})` }
-          : {}),
-        ...(member.hiddenAt ? { hiddenAt: null } : {}),
-      })
-      .where(
-        and(
-          eq(conversationMembers.conversationId, conversationId),
-          eq(conversationMembers.userId, actor.userId),
-        ),
-      )
     await recordViewerChange(tx, deps, {
       userId: actor.userId,
       conversationId,
       membershipId: member.membershipId,
       state: 'active',
+      memberPatch: {
+        ...(interactive
+          ? { lastReadSeq: sql`greatest(${conversationMembers.lastReadSeq}, ${seq})` }
+          : {}),
+        ...(member.hiddenAt ? { hiddenAt: null } : {}),
+      },
     })
   }
-  if (conversation.kind === 'dm' && peerId) {
-    const [peerMember] = await tx
-      .select()
-      .from(conversationMembers)
-      .where(
-        and(
-          eq(conversationMembers.conversationId, conversationId),
-          eq(conversationMembers.userId, peerId),
-        ),
-      )
-    if (peerMember?.hiddenAt) {
-      await tx
-        .update(conversationMembers)
-        .set({ hiddenAt: null })
-        .where(
-          and(
-            eq(conversationMembers.conversationId, conversationId),
-            eq(conversationMembers.userId, peerId),
-          ),
-        )
-      await recordViewerChange(tx, deps, {
-        userId: peerId,
-        conversationId,
-        membershipId: peerMember.membershipId,
-        state: 'active',
-      })
-    }
+  if (peer?.hiddenAt) {
+    await recordViewerChange(tx, deps, {
+      userId: peer.userId,
+      conversationId,
+      membershipId: peer.membershipId,
+      state: 'active',
+      memberPatch: { hiddenAt: null },
+    })
   }
   return { row, created: true, conversation, member, viewer, userRole: actor.role }
 }
@@ -792,11 +814,22 @@ async function sendAs(
       ['group', 'channel'].includes(conversation.kind) &&
       conversation.settings.agentEnabled !== false
     ) {
-      const [bot] = await tx
-        .select({ id: users.id })
-        .from(users)
-        .where(and(eq(users.username, deps.config.product.agentUsername), eq(users.isBot, true)))
-      if (bot && mentionIds(row.body ?? '').includes(bot.id))
+      // Most messages mention nobody, and then there is nothing to look up.
+      const mentioned = mentionIds(row.body ?? '')
+      const [bot] =
+        mentioned.length > 0
+          ? await tx
+              .select({ id: users.id })
+              .from(users)
+              .where(
+                and(
+                  eq(users.username, deps.config.product.agentUsername),
+                  eq(users.isBot, true),
+                  inArray(users.id, mentioned),
+                ),
+              )
+          : []
+      if (bot)
         await enqueueRunForSource(tx, deps, principal, row, {
           trigger: 'mention',
           mode: 'fast',
@@ -950,7 +983,8 @@ export async function editMessage(
       if (body === row.body) return await envelopeOf(tx, viewer, conversationId, messageId)
 
       const changeSeq = await allocateChangeSeq(tx, deps, conversationId)
-      await replaceMentions(tx, messageId, conversationId, body)
+      await tx.delete(messageMentions).where(eq(messageMentions.messageId, messageId))
+      await insertMentions(tx, messageId, conversationId, body)
       await tx
         .update(messages)
         .set({
@@ -1237,32 +1271,38 @@ export async function hideMessage(
   })
 }
 
-/** Mentions never create notification intents on edits; M6 consumes message creation separately. */
-async function replaceMentions(
-  tx: DbOrTx,
-  messageId: string,
-  conversationId: string,
-  body: string,
-) {
-  await tx.delete(messageMentions).where(eq(messageMentions.messageId, messageId))
+/**
+ * Records whom a body mentions: members of the conversation and the assistant, nobody else. A new message has no rows
+ * yet; an edit deletes the old ones first. Mentions never create notification intents on edits; M6 consumes message
+ * creation separately.
+ */
+async function insertMentions(tx: DbOrTx, messageId: string, conversationId: string, body: string) {
   const ids = mentionIds(body)
   if (!ids.length) return
-  const members = await tx
-    .select({ id: conversationMembers.userId })
-    .from(conversationMembers)
-    .where(
-      and(
-        eq(conversationMembers.conversationId, conversationId),
-        inArray(conversationMembers.userId, ids),
-      ),
-    )
-  const bots = await tx
+  const accepted = await tx
     .select({ id: users.id })
     .from(users)
-    .where(and(eq(users.isBot, true), inArray(users.id, ids)))
-  const accepted = [...new Set([...members, ...bots].map((row) => row.id))]
+    .where(
+      and(
+        inArray(users.id, ids),
+        or(
+          eq(users.isBot, true),
+          exists(
+            tx
+              .select({ one: sql`1` })
+              .from(conversationMembers)
+              .where(
+                and(
+                  eq(conversationMembers.conversationId, conversationId),
+                  eq(conversationMembers.userId, users.id),
+                ),
+              ),
+          ),
+        ),
+      ),
+    )
   if (accepted.length)
-    await tx.insert(messageMentions).values(accepted.map((userId) => ({ messageId, userId })))
+    await tx.insert(messageMentions).values(accepted.map(({ id }) => ({ messageId, userId: id })))
 }
 async function withdrawAttachments(tx: import('@chatapp/db').Tx, deps: Deps, messageId: string) {
   await tx

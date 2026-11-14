@@ -47,12 +47,12 @@ import {
 import { directPeerOf, normalizeBody, visibleTo, writeMessage } from './messages.ts'
 import type { DelegatedPrincipal } from './principal.ts'
 import { accountAllowsSession } from './sessions.ts'
+import { readSiteLimits } from './site-policy.ts'
 import {
   cancelTaskRow,
   createReminderTask,
   createScheduledMessageTask,
   futureTaskCount,
-  TASK_LIMITS,
   taskTimeProblem,
 } from './tasks.ts'
 
@@ -111,6 +111,19 @@ const invalid = (code: string): PreparedEffect => ({ kind: 'invalid', code })
  * Where the run may act: a run limited to the current conversation acts only there (A2), a full-scope run wherever the
  * person may. Never into an assistant conversation.
  */
+/**
+ * Whether the person already has as many tasks waiting as the site allows. The limit is the site's current setting, the
+ * one the task itself is created under, so an approval card is never offered for something that cannot be carried out.
+ */
+async function taskLimitReached(
+  db: DbOrTx,
+  deps: Pick<Deps, 'config'>,
+  userId: string,
+): Promise<boolean> {
+  const limits = await readSiteLimits(deps, db)
+  return (await futureTaskCount(db, userId)) >= limits.maxFutureTasksPerUser
+}
+
 async function targetProblem(
   db: DbOrTx,
   deps: Pick<Deps, 'clock'>,
@@ -210,7 +223,7 @@ export async function resolveUsernames(
  */
 export async function prepareEffect(
   db: DbOrTx,
-  deps: Pick<Deps, 'clock'>,
+  deps: Pick<Deps, 'clock' | 'config'>,
   run: AgentRunRow,
   actor: EffectActor,
   tool: string,
@@ -279,8 +292,7 @@ export async function prepareEffect(
       )
       if (time.kind === 'invalid') return invalid(time.code)
       if (time.kind === 'choose') return { kind: 'choose', time: time.time }
-      if ((await futureTaskCount(db, actor.userId)) >= TASK_LIMITS.maxFuturePerUser)
-        return invalid('TASK_LIMIT')
+      if (await taskLimitReached(db, deps, actor.userId)) return invalid('TASK_LIMIT')
       return {
         kind: 'ready',
         required,
@@ -341,8 +353,7 @@ export async function prepareEffect(
       if (time.kind === 'invalid') return invalid(time.code)
       // An ordinary reminder only affects the person and runs at once; a repeated time needs their choice first.
       if (time.kind === 'choose') return { kind: 'choose', time: time.time }
-      if ((await futureTaskCount(db, actor.userId)) >= TASK_LIMITS.maxFuturePerUser)
-        return invalid('TASK_LIMIT')
+      if (await taskLimitReached(db, deps, actor.userId)) return invalid('TASK_LIMIT')
       return {
         kind: 'ready',
         required: false,

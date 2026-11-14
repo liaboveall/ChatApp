@@ -34,7 +34,7 @@ import type { SessionPrincipal } from './principal.ts'
 import { accountAllowsSession, lockAndRevalidate } from './sessions.ts'
 import { readSiteLimits } from './site-policy.ts'
 import { inTransaction } from './tx.ts'
-import { loadUserSummaries, toUserSummary } from './users.ts'
+import { loadUserSummaries, summaryColumns, toUserSummary } from './users.ts'
 
 const DAY_MS = 86_400_000
 
@@ -83,7 +83,7 @@ export async function listMembers(
       }
 
       const rows = await tx
-        .select({ member: conversationMembers, rank: roleRank, user: users })
+        .select({ member: conversationMembers, rank: roleRank, user: summaryColumns })
         .from(conversationMembers)
         .innerJoin(users, eq(users.id, conversationMembers.userId))
         .where(
@@ -396,7 +396,7 @@ export async function listBans(
   // Same people as may lift a ban; for anyone else the answer is the one of any other forbidden action.
   await requireAccess(deps.db, actor, conversationId, 'unban', { now })
   const rows = await deps.db
-    .select({ ban: conversationBans, user: users })
+    .select({ ban: conversationBans, user: summaryColumns })
     .from(conversationBans)
     .innerJoin(users, eq(users.id, conversationBans.userId))
     .where(eq(conversationBans.conversationId, conversationId))
@@ -505,7 +505,7 @@ export async function updateConversationMember(
     const [row] = await tx
       .select({
         member: conversationMembers,
-        user: users,
+        user: summaryColumns,
         membershipVersion: conversations.membershipVersion,
       })
       .from(conversationMembers)

@@ -7,6 +7,7 @@ import {
   agentRuns,
   attachments,
   authorizationOrigins,
+  conversationMembers,
   conversations,
   type DbOrTx,
   executionDelegations,
@@ -328,14 +329,35 @@ export async function authorizeAgentDelta(
       )
         throw staleLease()
       const refs = recipients.filter((r) => r.restoreEpoch === deps.config.auth.restoreEpoch)
-      const sessions = await validateSessions(deps, refs)
+      // Read on this transaction's connection: a batch is authorized with one connection, not two.
+      const sessions = await validateSessions({ ...deps, db: tx }, refs)
+      const listening = refs.filter((ref) => sessions.has(ref.sessionId))
       const authorized = new Set<string>()
-      for (const ref of refs) {
-        if (!sessions.has(ref.sessionId)) continue
-        const access = await loadAccess(tx, ref.userId, delta.conversationId)
-        if (!access.member || message.seq <= access.member.visibleFromSeq) continue
-        if (access.conversation.kind === 'agent' && access.conversation.ownerId !== ref.userId)
-          continue
+      if (listening.length === 0) return authorized
+      // The conversation once, and the memberships of everybody listening in one reading, however many people are
+      // online and however many tabs each has open: this runs for every batch of text that is sent.
+      const [conversation] = await tx
+        .select({ kind: conversations.kind, ownerId: conversations.ownerId })
+        .from(conversations)
+        .where(eq(conversations.id, delta.conversationId))
+      if (!conversation) throw new AppError('NOT_FOUND', 'Conversation not found')
+      const members = await tx
+        .select({
+          userId: conversationMembers.userId,
+          visibleFromSeq: conversationMembers.visibleFromSeq,
+        })
+        .from(conversationMembers)
+        .where(
+          and(
+            eq(conversationMembers.conversationId, delta.conversationId),
+            inArray(conversationMembers.userId, [...new Set(listening.map((ref) => ref.userId))]),
+          ),
+        )
+      const visibleFrom = new Map(members.map((member) => [member.userId, member.visibleFromSeq]))
+      for (const ref of listening) {
+        const boundary = visibleFrom.get(ref.userId)
+        if (boundary === undefined || message.seq <= boundary) continue
+        if (conversation.kind === 'agent' && conversation.ownerId !== ref.userId) continue
         authorized.add(ref.sessionId)
       }
       return authorized
@@ -376,6 +398,9 @@ export async function invalidateConversationRuns(
     .update(agentRuns)
     .set({
       status: 'cancelled',
+      // A run that was waiting for a decision is not waiting any more: its requests are closed just below, and a run
+      // that still said so could neither be answered nor started again.
+      pendingApproval: false,
       cancelRequestedAt: deps.clock.now(),
       finishedAt: deps.clock.now(),
       leaseEpoch: sql`${agentRuns.leaseEpoch} + 1`,

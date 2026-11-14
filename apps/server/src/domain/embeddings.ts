@@ -65,16 +65,53 @@ export async function embedQuery(deps: Deps, text: string): Promise<number[]> {
   return v
 }
 
+/** What decides whether a message is indexed, and under which content version. */
+export type IndexableMessage = Pick<
+  typeof messages.$inferSelect,
+  'id' | 'body' | 'kind' | 'status' | 'recalledAt' | 'deletedAt' | 'contentVersion'
+>
+
 /** Every send/edit records an identifier-only intent, including models being backfilled. Withdrawal removes all versions. */
 export async function enqueueMessageEmbedding(
   db: DbOrTx,
   deps: Pick<Deps, 'clock'>,
   id: string,
 ): Promise<void> {
-  const [row] = await db.select().from(messages).where(eq(messages.id, id))
+  const [row] = await db
+    .select({
+      id: messages.id,
+      body: messages.body,
+      kind: messages.kind,
+      status: messages.status,
+      recalledAt: messages.recalledAt,
+      deletedAt: messages.deletedAt,
+      contentVersion: messages.contentVersion,
+    })
+    .from(messages)
+    .where(eq(messages.id, id))
   await db.delete(messageEmbeddings).where(eq(messageEmbeddings.messageId, id))
+  if (row) await enqueueIndexing(db, deps, row)
+}
+
+/**
+ * The same intent for a message this transaction has just inserted: the caller holds the row, and a new message has no
+ * vectors of an older version to remove, so nothing is read back or cleared. A system line costs no statement at all.
+ */
+export async function enqueueNewMessageEmbedding(
+  db: DbOrTx,
+  deps: Pick<Deps, 'clock'>,
+  row: IndexableMessage,
+): Promise<void> {
+  await enqueueIndexing(db, deps, row)
+}
+
+async function enqueueIndexing(
+  db: DbOrTx,
+  deps: Pick<Deps, 'clock'>,
+  row: IndexableMessage,
+): Promise<void> {
   if (
-    !row?.body ||
+    !row.body ||
     row.kind === 'system' ||
     row.status !== 'sent' ||
     row.recalledAt ||
@@ -89,8 +126,8 @@ export async function enqueueMessageEmbedding(
   for (const model of models)
     await enqueueWork(db, deps, {
       kind: 'embedding',
-      dedupeKey: `embedding:${id}:${row.contentVersion}:${model.version}`,
-      entityId: id,
+      dedupeKey: `embedding:${row.id}:${row.contentVersion}:${model.version}`,
+      entityId: row.id,
       entityVersion: row.contentVersion,
       payload: { modelVersion: model.version, dimension: model.dimension, target: 'message' },
     })

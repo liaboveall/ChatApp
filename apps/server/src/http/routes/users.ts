@@ -37,7 +37,7 @@ const profileRoute = createRoute({
 export function userRoutes(app: OpenAPIHono<HttpEnv>, services: Services): void {
   const { deps, limiter } = services
   const guard = requireSession(services)
-  for (const path of ['/api/users', '/api/users/*']) app.use(path, guard)
+  app.use('/api/users/*', guard)
 
   app.openapi(searchRoute, async (c) => {
     const principal = principalOf(c)

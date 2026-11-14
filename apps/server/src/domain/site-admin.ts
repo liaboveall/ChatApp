@@ -26,7 +26,7 @@ import { lockAdminRoles, requireAdminSuccessor } from './admin-continuity.ts'
 import { budgetPeriod } from './agent-budget.ts'
 import { lockStorage } from './attachment-common.ts'
 import { writeAudit } from './audit.ts'
-import { requireAccess } from './authorize.ts'
+import { conversationFacts, decide, requireAccess } from './authorize.ts'
 import { revokeLiveChallenges } from './challenges.ts'
 import { recordUserChange } from './changes.ts'
 import { archiveConversation, restoreConversation } from './conversations.ts'
@@ -192,10 +192,15 @@ export async function adminCatalog(
         )
         .orderBy(desc(conversations.createdAt), desc(conversations.id))
         .limit(query.limit + 1)
-      for (const { row } of rows)
-        await requireAccess(tx, { userId: principal.userId, siteRole: 'admin' }, row.id, 'view', {
-          now: deps.clock.now(),
+      // The policy is asked about the rows in hand: loading each conversation again, and the administrator's membership
+      // of it, would be two more queries per row for an answer that does not depend on membership.
+      for (const { row } of rows) {
+        const decision = decide('view', {
+          conversation: conversationFacts(row),
+          actor: { userId: principal.userId, siteRole: 'admin', member: null },
         })
+        if (!decision.allowed) throw new AppError('NOT_FOUND', 'Conversation not found')
+      }
       return {
         conversations: rows.slice(0, query.limit).map(({ row, name }) => ({
           id: row.id,

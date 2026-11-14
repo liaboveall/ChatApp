@@ -134,6 +134,7 @@ export class Gateway {
   readonly #streams = new Map<string, Promise<void>>()
   #timers: ReturnType<typeof setInterval>[] = []
   #checking: Promise<void> | undefined
+  #renewing = false
   readonly #inFlight = new Set<Promise<unknown>>()
 
   constructor(
@@ -362,6 +363,9 @@ export class Gateway {
 
   closed(connection: Connection, code: number): void {
     if (connection.closed && !this.#byId.has(connection.id)) return
+    // The socket is gone whoever closed it. The start-up reads of a connection look at this flag before they join
+    // presence and greet: a client that leaves in the middle of them must not be announced as online afterwards.
+    connection.closed = true
     this.#unregister(connection)
     this.#log.info('ws.closed', {
       connectionId: connection.id,
@@ -796,18 +800,27 @@ export class Gateway {
 
   async #renewPresence(): Promise<void> {
     const services = this.#services
-    if (!services) return
-    for (const connection of [...this.#byId.values()]) {
-      if (connection.closed || !connection.inPresence) continue
-      try {
-        const change = await services.presence.renew(
-          { userId: connection.identity.userId, connectionId: connection.id },
-          this.#now(),
-        )
-        this.#announce(connection.identity.userId, change)
-      } catch {
-        // The next heartbeat tries again; a dead connection simply expires.
-      }
+    // One pass at a time: while Valkey is slow a second heartbeat would only queue the same renewals behind the first.
+    if (!services || this.#renewing) return
+    this.#renewing = true
+    try {
+      // Sent together, answered in order: one wait for the whole process instead of one round trip per connection.
+      await Promise.all(
+        [...this.#byId.values()].map(async (connection) => {
+          if (connection.closed || !connection.inPresence) return
+          try {
+            const change = await services.presence.renew(
+              { userId: connection.identity.userId, connectionId: connection.id },
+              this.#now(),
+            )
+            this.#announce(connection.identity.userId, change)
+          } catch {
+            // The next heartbeat tries again; a dead connection simply expires.
+          }
+        }),
+      )
+    } finally {
+      this.#renewing = false
     }
   }
 

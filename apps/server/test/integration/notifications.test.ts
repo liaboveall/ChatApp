@@ -12,13 +12,32 @@ import type {
   NotificationPage,
   UserChangesResponse,
 } from '@chatapp/contracts'
-import { appSettings, budgetAccounts, notifications, users } from '@chatapp/db'
-import { eq } from 'drizzle-orm'
+import {
+  appSettings,
+  budgetAccounts,
+  notifications,
+  userChanges,
+  users,
+  workItems,
+} from '@chatapp/db'
+import { asc, eq } from 'drizzle-orm'
 import { notifyBudgetThresholds } from '../../src/domain/agent-budget.ts'
-import { createNotification, purgeExpiredNotifications } from '../../src/domain/notifications.ts'
+import {
+  createNotification,
+  deliverAdminNotification,
+  purgeExpiredNotifications,
+} from '../../src/domain/notifications.ts'
+import { claimReadyWork } from '../../src/domain/work-queue.ts'
 import { openTestDatabases, type TestDatabases, truncateAll } from '../support/db.ts'
 import { createTestApp, type TestApp } from '../support/http.ts'
-import { createConversation, errorCode, openDm, type Person, person } from '../support/people.ts'
+import {
+  createConversation,
+  errorCode,
+  key,
+  openDm,
+  type Person,
+  person,
+} from '../support/people.ts'
 import { drainPush } from '../support/push.ts'
 
 let dbs: TestDatabases
@@ -446,6 +465,98 @@ describe('budget alerts (docs/01 section 7)', () => {
     })
     await notifyBudgetThresholds(app.services.deps)
     expect((await centre(admin)).body.items).toHaveLength(0)
+  })
+})
+
+describe('a new report (docs/01 section 3: administrators are told)', () => {
+  async function reported() {
+    const { alice, bob, group } = await world()
+    const admin = await person(app, 'root', { role: 'admin' })
+    const sent = await say(alice, group.id, 'something to look at')
+    const receipt = await bob.post<{ reportId: string }>(
+      '/api/reports',
+      { messageId: sent.body.message.id, reason: 'spam' },
+      key(),
+    )
+    expect(receipt.status).toBe(200)
+    const deps = app.services.deps
+    for (const work of await claimReadyWork(deps, { limit: 100, kinds: ['notification'] }))
+      await deliverAdminNotification(deps, work)
+    return { admin, bob, reportId: receipt.body.reportId }
+  }
+
+  test('an administrator is shown which report was opened, and nothing of its content', async () => {
+    const { admin, bob, reportId } = await reported()
+    const page = await centre(admin)
+    expect(page.body.unreadCount).toBe(1)
+    expect(page.body.items).toHaveLength(1)
+    expect(page.body.items[0]).toMatchObject({
+      type: 'report_opened',
+      data: { available: true, reportId },
+    })
+    expect(JSON.stringify(page.body.items[0])).not.toContain('something to look at')
+    // The reporter is told nothing; the entry is the administrators'.
+    expect((await centre(bob)).body.items).toHaveLength(0)
+  })
+
+  test('somebody who is no longer an administrator neither sees nor counts it', async () => {
+    const { admin } = await reported()
+    await dbs.owner.db.update(users).set({ role: 'user' }).where(eq(users.id, admin.id))
+    const gone = await centre(admin)
+    expect(gone.body.items).toHaveLength(0)
+    expect(gone.body.unreadCount).toBe(0)
+  })
+})
+
+describe('marking many at once', () => {
+  test('every entry takes the next number of my log, in order, and one hint is queued', async () => {
+    const alice = await person(app, 'alice')
+    const deps = app.services.deps
+    const ids: string[] = []
+    for (const name of ['one', 'two', 'three']) {
+      const made = await deps.db.transaction((tx) =>
+        createNotification(tx, deps, {
+          userId: alice.id,
+          type: 'reminder',
+          dedupeKey: `test:${name}`,
+          data: {},
+        }),
+      )
+      ids.push(made.id)
+    }
+    const [was] = await dbs.owner.db.select().from(users).where(eq(users.id, alice.id))
+    const head = was?.userChangeSeq ?? 0
+    const hintsBefore = await dbs.owner.db
+      .select()
+      .from(workItems)
+      .where(eq(workItems.kind, 'realtime'))
+
+    const marked = await alice.post<MarkNotificationsReadResponse>('/api/notifications/read', {
+      all: true,
+    })
+    expect(marked.status).toBe(200)
+    expect(marked.body.unreadCount).toBe(0)
+
+    const log = await dbs.owner.db
+      .select()
+      .from(userChanges)
+      .where(eq(userChanges.userId, alice.id))
+      .orderBy(asc(userChanges.changeSeq))
+    const mine = log.filter((entry) => entry.changeSeq > head)
+    expect(mine.map((entry) => entry.changeSeq)).toEqual([head + 1, head + 2, head + 3])
+    expect(mine.map((entry) => entry.entityType)).toEqual([
+      'notification',
+      'notification',
+      'notification',
+    ])
+    expect(new Set(mine.map((entry) => entry.entityId))).toEqual(new Set(ids))
+    const [user] = await dbs.owner.db.select().from(users).where(eq(users.id, alice.id))
+    expect(user?.userChangeSeq).toBe(head + 3)
+    const hintsAfter = await dbs.owner.db
+      .select()
+      .from(workItems)
+      .where(eq(workItems.kind, 'realtime'))
+    expect(hintsAfter.length - hintsBefore.length).toBe(1)
   })
 })
 

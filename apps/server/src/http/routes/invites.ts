@@ -1,7 +1,6 @@
 import {
   createdInviteSchema,
   createInviteRequestSchema,
-  errorBodySchema,
   inviteCheckRequestSchema,
   inviteCheckResponseSchema,
   inviteRegistrationSchema,
@@ -15,12 +14,7 @@ import { rateLimitIpKey } from '../../lib/ip.ts'
 import type { HttpEnv, Services } from '../context.ts'
 import { principalOf, requireSession } from '../middleware/session.ts'
 import { POLICIES } from '../policies.ts'
-
-const json = <T extends z.ZodType>(schema: T, description: string) => ({
-  description,
-  content: { 'application/json': { schema } },
-})
-const err = (description: string) => json(errorBodySchema, description)
+import { err, json, jsonBody, OK } from './helpers.ts'
 
 const checkRoute = createRoute({
   method: 'post',
@@ -28,7 +22,7 @@ const checkRoute = createRoute({
   tags: ['invites'],
   summary: 'Is this invitation code usable? The code travels in the body, never in the URL.',
   request: {
-    body: { required: true, content: { 'application/json': { schema: inviteCheckRequestSchema } } },
+    body: jsonBody(inviteCheckRequestSchema),
   },
   responses: {
     200: json(inviteCheckResponseSchema, 'Usable'),
@@ -129,11 +123,11 @@ export function inviteRoutes(app: OpenAPIHono<HttpEnv>, services: Services): voi
 
   app.openapi(revokeRoute, async (c) => {
     await revokeInvite(services.deps, principalOf(c), c.req.valid('param').id)
-    return c.json({ status: 'ok' as const }, 200)
+    return c.json(OK, 200)
   })
 
   app.openapi(revokeRegistrationRoute, async (c) => {
     await revokeRegistration(services.deps, principalOf(c), c.req.valid('param').useId)
-    return c.json({ status: 'ok' as const }, 200)
+    return c.json(OK, 200)
   })
 }

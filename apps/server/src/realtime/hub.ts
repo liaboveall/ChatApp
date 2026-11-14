@@ -28,8 +28,4 @@ export class Hub<C> {
   count(topic: string): number {
     return this.#topics.get(topic)?.size ?? 0
   }
-
-  get topicCount(): number {
-    return this.#topics.size
-  }
 }

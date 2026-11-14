@@ -516,7 +516,7 @@ export async function cleanupAttachments(
     .limit(100)
   let retired = 0,
     deleted = 0
-  for (const { a: head } of expired) {
+  async function retireExpired(head: (typeof expired)[number]['a']): Promise<void> {
     await inTransaction(deps.db, async (tx) => {
       await lockUsers(tx, [head.uploaderId])
       await lockStorage(tx)
@@ -553,6 +553,15 @@ export async function cleanupAttachments(
       )
       if (pointers.length) return
       if (!(await retireAttachment(tx, deps, a.id))) retired++
+    })
+  }
+  for (const { a: head } of expired) {
+    await retireExpired(head).catch((error) => {
+      // Another deletion of the same target has to settle first (an account or a conversation being deleted, the
+      // uploader's own cancellation). That attachment waits for the next run; the others, and the physical deletion and
+      // the release of capacity below, must not wait with it.
+      if (error instanceof AppError && error.code === 'VERSION_CONFLICT') return
+      throw error
     })
   }
   const pending = await deps.db

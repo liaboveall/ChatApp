@@ -172,12 +172,14 @@ export function createPresenceStore(valkey: Valkey, prefix: string): PresenceSto
       if (focus.conversationId === null) {
         await valkey.hdel(key, `f:${c.connectionId}`)
       } else {
-        await valkey.hset(
-          key,
-          `f:${c.connectionId}`,
-          `${focus.conversationId}|${focus.foreground ? 1 : 0}`,
-        )
-        await valkey.expire(key, KEY_TTL_SECONDS)
+        // One round trip for the field and the key's lifetime.
+        const replies = await valkey
+          .pipeline()
+          .hset(key, `f:${c.connectionId}`, `${focus.conversationId}|${focus.foreground ? 1 : 0}`)
+          .expire(key, KEY_TTL_SECONDS)
+          .exec()
+        const failed = replies?.find(([error]) => error !== null)?.[0]
+        if (failed) throw failed
       }
     },
     async viewing(userId, conversationId, now) {

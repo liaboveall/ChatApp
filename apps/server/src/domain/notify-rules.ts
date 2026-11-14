@@ -59,6 +59,28 @@ export function isMuted(
   return member.muteMode === 'until' && member.mutedUntil !== null && member.mutedUntil > now
 }
 
+/**
+ * A person's preferences for one conversation, from what is stored: the account's settings and their member row.
+ * No member row (a conversation that is gone, or an event that belongs to none) leaves only the account switches to decide.
+ */
+export function preferencesOf(
+  settings: Record<string, unknown>,
+  member: {
+    level: NotifyLevel
+    muteMode: 'off' | 'until' | 'forever'
+    mutedUntil: Date | null
+  } | null,
+  now: Date,
+): NotifyPreferences {
+  const account = pushSettingsOf(settings)
+  return {
+    pushEnabled: account.pushEnabled,
+    assistantEnabled: account.assistantEnabled,
+    level: member?.level ?? 'all',
+    muted: member ? isMuted(member, now) : false,
+  }
+}
+
 /** The account-level settings that govern push, read from `users.settings` with their defaults. */
 export function pushSettingsOf(settings: Record<string, unknown>): {
   pushEnabled: boolean

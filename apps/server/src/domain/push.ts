@@ -28,7 +28,6 @@ import {
 import {
   agentApprovals,
   agentRuns,
-  attachments,
   authorizationOrigins,
   conversationMembers,
   conversations,
@@ -43,19 +42,20 @@ import { and, count, eq, gt, inArray, lt, or, sql } from 'drizzle-orm'
 import type { PushMessage, PushOutcome } from '../runtime/push.ts'
 import { EndpointError } from '../runtime/push-endpoints.ts'
 import { validSubscriptionKeys } from '../runtime/web-push.ts'
+import { firstAttachmentKind } from './attachment-common.ts'
 import type { Deps } from './deps.ts'
 import { createNotification } from './notifications.ts'
 import {
   decideNotification,
-  isMuted,
   type NotifyEvent,
   type NotifyPreferences,
+  preferencesOf,
   pushSettingsOf,
 } from './notify-rules.ts'
 import type { SessionPrincipal } from './principal.ts'
 import { accountAllowsSession, lockAndRevalidate } from './sessions.ts'
 import { inTransaction } from './tx.ts'
-import { enqueueWork } from './work.ts'
+import { enqueueWork, enqueueWorkMany, type WorkInput } from './work.ts'
 
 const MAX_USER_AGENT = 200
 /** After this many pushes in a row that the push service refused for good, the subscription is dropped. */
@@ -269,23 +269,34 @@ export async function loadPreferences(
           ),
         )
     : []
-  const settings = pushSettingsOf(user.settings)
-  return {
-    pushEnabled: settings.pushEnabled,
-    assistantEnabled: settings.assistantEnabled,
-    // No membership (a conversation that is gone) leaves only the account switches to decide.
-    level: member?.level ?? 'all',
-    muted: member ? isMuted(member, now) : false,
-  }
+  return preferencesOf(user.settings, member ?? null, now)
 }
 
 const DELIVER_EVENTS = ['plain', 'mention', 'reply', 'approval', 'reminder', 'test'] as const
 type DeliverEvent = (typeof DELIVER_EVENTS)[number]
 
+type SubscriptionRef = { id: string; userId: string; bindingVersion: number }
+
 /**
- * One push task per subscription of the person, when the truth table says this event pushes (docs/01 section 4.8). The
- * tasks only name the subscription, the binding it was made for and what happened; everything is checked again when they run.
+ * The task that sends one event to one subscription. It only names the subscription, the binding it was made for and what
+ * happened; everything is checked again when it runs. One task per event, entity and binding, whoever asks how often.
  */
+function deliverTask(event: NotifyEvent, entityId: string, sub: SubscriptionRef): WorkInput {
+  return {
+    kind: 'push',
+    dedupeKey: `push:${event}:${entityId}:${sub.id}:${sub.bindingVersion}`,
+    entityId,
+    payload: {
+      stage: 'deliver',
+      event,
+      subscriptionId: sub.id,
+      bindingVersion: sub.bindingVersion,
+      userId: sub.userId,
+    },
+  }
+}
+
+/** One push task per subscription of the person, when the truth table says this event pushes (docs/01 section 4.8). */
 export async function enqueuePushes(
   tx: DbOrTx,
   deps: Pick<Deps, 'clock'>,
@@ -299,23 +310,18 @@ export async function enqueuePushes(
 ): Promise<number> {
   if (!decideNotification(input.event, input.prefs).push) return 0
   const subs = await tx
-    .select({ id: pushSubscriptions.id, bindingVersion: pushSubscriptions.bindingVersion })
+    .select({
+      id: pushSubscriptions.id,
+      userId: pushSubscriptions.userId,
+      bindingVersion: pushSubscriptions.bindingVersion,
+    })
     .from(pushSubscriptions)
     .where(eq(pushSubscriptions.userId, input.userId))
-  for (const sub of subs) {
-    await enqueueWork(tx, deps, {
-      kind: 'push',
-      dedupeKey: `push:${input.event}:${input.entityId}:${sub.id}:${sub.bindingVersion}`,
-      entityId: input.entityId,
-      payload: {
-        stage: 'deliver',
-        event: input.event,
-        subscriptionId: sub.id,
-        bindingVersion: sub.bindingVersion,
-        userId: input.userId,
-      },
-    })
-  }
+  await enqueueWorkMany(
+    tx,
+    deps,
+    subs.map((sub) => deliverTask(input.event, input.entityId, sub)),
+  )
   return subs.length
 }
 
@@ -406,8 +412,11 @@ export type DeriveOutcome = 'done' | 'skipped'
 
 /**
  * Turns one written message into entries and push tasks. Idempotent: the entry has a dedupe key per person and message, the
- * push tasks one per message and subscription, so running it again after a crash adds nothing. Every recipient is handled
- * in a transaction of its own (it takes only that person's lock).
+ * push tasks one per message and subscription, so running it again after a crash adds nothing.
+ *
+ * Somebody who is named or answered gets an entry in their centre, written in a transaction of their own (it takes only
+ * that person's lock) together with their push tasks. Everybody else gets push tasks at most, which touch nobody's row:
+ * those are written for all of them at once, so a message to a large channel costs a few statements, not a few per member.
  */
 export async function deriveMessageNotifications(
   deps: Deps,
@@ -492,25 +501,51 @@ export async function deriveMessageNotifications(
       ),
     )
 
-  for (const recipient of recipients) {
+  const concerned = recipients.flatMap((recipient) => {
     const event: NotifyEvent = mentioned.includes(recipient.userId)
       ? 'mention'
       : repliedTo === recipient.userId
         ? 'reply'
         : 'plain'
-    const settings = pushSettingsOf(recipient.settings)
-    const prefs: NotifyPreferences = {
-      pushEnabled: settings.pushEnabled,
-      assistantEnabled: settings.assistantEnabled,
-      level: recipient.level,
-      muted: isMuted(recipient, now),
+    const decision = decideNotification(event, preferencesOf(recipient.settings, recipient, now))
+    return decision.site || decision.push ? [{ userId: recipient.userId, event, decision }] : []
+  })
+
+  // The subscriptions of everybody who is to be pushed, in one reading. Nothing is locked: a task names the binding it
+  // was made for, and delivery checks that binding again.
+  const pushed = concerned.filter((who) => who.decision.push).map((who) => who.userId)
+  const subscriptions = new Map<string, SubscriptionRef[]>()
+  for (let start = 0; start < pushed.length; start += 1000) {
+    const found = await deps.db
+      .select({
+        id: pushSubscriptions.id,
+        userId: pushSubscriptions.userId,
+        bindingVersion: pushSubscriptions.bindingVersion,
+      })
+      .from(pushSubscriptions)
+      .where(inArray(pushSubscriptions.userId, pushed.slice(start, start + 1000)))
+    for (const sub of found) {
+      const mine = subscriptions.get(sub.userId) ?? []
+      mine.push(sub)
+      subscriptions.set(sub.userId, mine)
     }
-    const decision = decideNotification(event, prefs)
-    if (!decision.site && !decision.push) continue
+  }
+  const tasksOf = (who: (typeof concerned)[number]): WorkInput[] =>
+    who.decision.push
+      ? (subscriptions.get(who.userId) ?? []).map((sub) => deliverTask(who.event, messageId, sub))
+      : []
+
+  const plain: WorkInput[] = []
+  for (const who of concerned) {
+    const { event } = who
+    if (event !== 'mention' && event !== 'reply') {
+      plain.push(...tasksOf(who))
+      continue
+    }
     await inTransaction(deps.db, async (tx) => {
-      if (decision.site && (event === 'mention' || event === 'reply')) {
+      if (who.decision.site) {
         await createNotification(tx, deps, {
-          userId: recipient.userId,
+          userId: who.userId,
           type: event,
           dedupeKey: `msg:${messageId}`,
           data: {
@@ -520,9 +555,10 @@ export async function deriveMessageNotifications(
           },
         })
       }
-      await enqueuePushes(tx, deps, { userId: recipient.userId, event, prefs, entityId: messageId })
+      await enqueueWorkMany(tx, deps, tasksOf(who))
     })
   }
+  await enqueueWorkMany(deps.db, deps, plain)
   return 'done'
 }
 
@@ -785,9 +821,7 @@ async function describeTarget(
       deletedAt: messages.deletedAt,
       conversationKind: conversations.kind,
       conversationName: conversations.name,
-      attachmentKind: sql<
-        'image' | 'video' | 'audio' | 'file' | null
-      >`(select a.kind from ${attachments} a where a.message_id = "messages"."id" and a.status = 'ready' and a.privacy_class = 'standard' order by a.position limit 1)`,
+      attachmentKind: firstAttachmentKind,
     })
     .from(messages)
     .innerJoin(conversations, eq(conversations.id, messages.conversationId))

@@ -14,7 +14,6 @@ import {
   truncateCodePoints,
 } from '@chatapp/contracts'
 import {
-  attachments,
   conversationBans,
   conversationMembers,
   conversations,
@@ -39,6 +38,7 @@ import {
   sql,
 } from 'drizzle-orm'
 import { alias } from 'drizzle-orm/pg-core'
+import { firstAttachmentKind } from './attachment-common.ts'
 import { toUserSummary } from './users.ts'
 
 export function viewsQuery(db: DbOrTx, viewerId: string) {
@@ -55,11 +55,7 @@ export function viewsQuery(db: DbOrTx, viewerId: string) {
       >`coalesce((select jsonb_object_agg(u.id, u.name) from ${users} u join ${messageMentions} mm on mm.user_id = u.id where mm.message_id = "messages"."id"), '{}'::jsonb)`.as(
         'mention_names',
       ),
-      attachmentKind: sql<
-        'image' | 'video' | 'audio' | 'file' | null
-      >`(select a.kind from ${attachments} a where a.message_id = "messages"."id" and a.status = 'ready' and a.privacy_class = 'standard' order by a.position limit 1)`.as(
-        'attachment_kind',
-      ),
+      attachmentKind: firstAttachmentKind.as('attachment_kind'),
       recalledAt: messages.recalledAt,
       deletedAt: messages.deletedAt,
     })
@@ -271,6 +267,27 @@ export async function loadConversation(
 ): Promise<Conversation | null> {
   const [row] = await viewsQuery(db, viewerId).where(eq(conversations.id, conversationId)).limit(1)
   return row ? toConversationDto(row, now) : null
+}
+
+/**
+ * One conversation together with the two rows the access policy is decided on. A read that has to ask "may this person
+ * see it at all" before answering gets both from the view query, instead of loading the same rows once for the policy
+ * and once more for the answer.
+ */
+export async function loadConversationForPolicy(
+  db: DbOrTx,
+  viewerId: string,
+  conversationId: string,
+  now: Date,
+): Promise<{
+  conversation: ViewRow['conversation']
+  member: ViewRow['member']
+  dto: Conversation
+} | null> {
+  const [row] = await viewsQuery(db, viewerId).where(eq(conversations.id, conversationId)).limit(1)
+  return row
+    ? { conversation: row.conversation, member: row.member, dto: toConversationDto(row, now) }
+    : null
 }
 
 /** Several conversations at once, for the sync feeds: one query, however many entries a page of the log names. */

@@ -30,6 +30,7 @@ import { writeAudit } from './audit.ts'
 import { issueChallenge } from './challenges.ts'
 import type { Deps } from './deps.ts'
 import { assertIdempotencyKey, claimIdempotency, completeIdempotency } from './idempotency.ts'
+import { hashInviteCode } from './invites.ts'
 import { checkPassword } from './password-policy.ts'
 import type { SessionPrincipal } from './principal.ts'
 import { accountAllowsSession, lockAndRevalidate } from './sessions.ts'
@@ -92,7 +93,7 @@ export async function registerAccount(deps: Deps, input: RegisterInput): Promise
 
   // Hash before taking any lock, and always, so a known email costs the same time as a new one.
   const passwordHash = await deps.passwords.hash(input.password)
-  const codeHash = sha256Hex(`invite:${inviteCode}`)
+  const codeHash = hashInviteCode(inviteCode)
   const requestHash = sha256Hex(
     JSON.stringify({ v: 1, email, username: input.username, name: input.displayName }),
   )

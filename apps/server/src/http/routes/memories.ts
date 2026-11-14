@@ -18,17 +18,15 @@ import { POLICIES } from '../policies.ts'
 import { accessErrors, err, idParam, json } from './helpers.ts'
 
 export function memoryRoutes(app: OpenAPIHono<HttpEnv>, services: Services) {
-  app.use('/api/me/memories', requireSession(services))
+  // One pattern each: `/api/me/memories/*` also matches the collection, and a second registration would count a write twice.
   app.use('/api/me/memories/*', requireSession(services))
-  const limitWrite = async (c: import('hono').Context<HttpEnv>, next: import('hono').Next) => {
+  app.use('/api/me/memories/*', async (c, next) => {
     if (c.req.method !== 'GET')
       await services.limiter.enforce([
         { policy: POLICIES.memoryWriteUser, subject: principalOf(c).userId },
       ])
     await next()
-  }
-  app.use('/api/me/memories', limitWrite)
-  app.use('/api/me/memories/*', limitWrite)
+  })
   const errors = {
     ...accessErrors,
     409: err('Memory changed'),

@@ -39,6 +39,7 @@ import { bumpConversation, recordViewerChange } from './changes.ts'
 import {
   loadChannelsPage,
   loadConversation,
+  loadConversationForPolicy,
   loadLiveConversations,
   loadOwnedArchived,
 } from './conversation-views.ts'
@@ -113,14 +114,16 @@ export async function getConversation(
   conversationId: string,
 ): Promise<Conversation> {
   const now = deps.clock.now()
-  await requireAccess(
-    deps.db,
+  // One query: the row the answer is built from carries the conversation and the membership the policy is decided on.
+  const view = await loadConversationForPolicy(deps.db, principal.userId, conversationId, now)
+  if (!view) throw new AppError('NOT_FOUND', 'Conversation not found')
+  enforce(
+    { conversation: view.conversation, member: view.member, target: null, targetNamed: false },
     { userId: principal.userId, siteRole: principal.role },
-    conversationId,
     'view',
-    { now },
+    now,
   )
-  return await viewOrGone(deps.db, principal.userId, conversationId, now)
+  return view.dto
 }
 
 export async function discoverChannels(
@@ -359,20 +362,12 @@ export async function openDirectMessage(
     if (pair) {
       const access = await loadAccess(tx, principal.userId, pair.conversationId, { lock: true })
       if (access.member?.hiddenAt) {
-        await tx
-          .update(conversationMembers)
-          .set({ hiddenAt: null })
-          .where(
-            and(
-              eq(conversationMembers.conversationId, pair.conversationId),
-              eq(conversationMembers.userId, principal.userId),
-            ),
-          )
         await recordViewerChange(tx, deps, {
           userId: principal.userId,
           conversationId: pair.conversationId,
           membershipId: access.member.membershipId,
           state: 'active',
+          memberPatch: { hiddenAt: null },
         })
       }
       return {
@@ -961,21 +956,13 @@ export async function updateMyConversationSettings(
     if (Object.keys(set).length === 0)
       return await viewOrGone(tx, principal.userId, conversationId, now)
 
-    await tx
-      .update(conversationMembers)
-      .set(set)
-      .where(
-        and(
-          eq(conversationMembers.conversationId, conversationId),
-          eq(conversationMembers.userId, principal.userId),
-        ),
-      )
     const hidden = set.hiddenAt !== undefined ? set.hiddenAt !== null : member.hiddenAt !== null
     await recordViewerChange(tx, deps, {
       userId: principal.userId,
       conversationId,
       membershipId: member.membershipId,
       state: hidden ? 'hidden' : 'active',
+      memberPatch: set,
     })
     return await viewOrGone(tx, principal.userId, conversationId, now)
   })
@@ -1003,20 +990,14 @@ export async function markConversationRead(
 
     const target = Math.min(seq, access.conversation.lastSeq)
     if (target > member.lastReadSeq) {
-      await tx
-        .update(conversationMembers)
-        .set({ lastReadSeq: sql`greatest(${conversationMembers.lastReadSeq}, ${target})` })
-        .where(
-          and(
-            eq(conversationMembers.conversationId, conversationId),
-            eq(conversationMembers.userId, principal.userId),
-          ),
-        )
       await recordViewerChange(tx, deps, {
         userId: principal.userId,
         conversationId,
         membershipId: member.membershipId,
         state: member.hiddenAt ? 'hidden' : 'active',
+        memberPatch: {
+          lastReadSeq: sql`greatest(${conversationMembers.lastReadSeq}, ${target})`,
+        },
       })
     }
     return await viewOrGone(tx, principal.userId, conversationId, now)

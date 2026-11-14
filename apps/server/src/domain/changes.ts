@@ -19,9 +19,14 @@ import {
   users,
 } from '@chatapp/db'
 import { and, eq, sql } from 'drizzle-orm'
+import type { PgUpdateSetSource } from 'drizzle-orm/pg-core'
 import { invalidateConversationRuns } from './agent-access.ts'
 import type { Deps } from './deps.ts'
-import { enqueueMessageEmbedding } from './embeddings.ts'
+import {
+  enqueueMessageEmbedding,
+  enqueueNewMessageEmbedding,
+  type IndexableMessage,
+} from './embeddings.ts'
 import { enqueueWork } from './work.ts'
 
 /**
@@ -171,6 +176,11 @@ export async function recordMessageChange(
     messageId: string
     changeSeq: number
     kind: ConversationChangeKind
+    /**
+     * The row, when this transaction has just inserted it. Its search-index intent is then worked out from what the
+     * caller holds; otherwise the message is read back and the vectors of its older versions are removed first.
+     */
+    inserted?: IndexableMessage
   },
 ): Promise<void> {
   await tx.insert(conversationChanges).values({
@@ -180,7 +190,8 @@ export async function recordMessageChange(
     kind: change.kind,
     createdAt: deps.clock.now(),
   })
-  await enqueueMessageEmbedding(tx, deps, change.messageId)
+  if (change.inserted) await enqueueNewMessageEmbedding(tx, deps, change.inserted)
+  else await enqueueMessageEmbedding(tx, deps, change.messageId)
   await enqueueHint(tx, deps, {
     event: 'message.changed',
     conversationId: change.conversationId,
@@ -320,10 +331,52 @@ export async function recordNotificationChange(
 }
 
 /**
+ * The same for several entries of one person at once ("mark all read"): each still takes its own number of the person's
+ * log, in the order given, but the numbers are allocated in one statement and the log entries written in another, and
+ * one hint (for the last entry) wakes the other devices. The caller holds the user's row lock.
+ */
+export async function recordNotificationChanges(
+  tx: DbOrTx,
+  deps: Pick<Deps, 'clock'>,
+  change: { userId: string; notificationIds: readonly string[] },
+): Promise<void> {
+  const count = change.notificationIds.length
+  const lastId = change.notificationIds[count - 1]
+  if (lastId === undefined) return
+  const [row] = await tx
+    .update(users)
+    .set({ userChangeSeq: sql`${users.userChangeSeq} + ${count}` })
+    .where(eq(users.id, change.userId))
+    .returning({ last: users.userChangeSeq })
+  if (!row) throw new Error('user vanished while allocating personal change numbers')
+  const first = row.last - count + 1
+  const now = deps.clock.now()
+  await tx.insert(userChanges).values(
+    change.notificationIds.map((notificationId, index) => ({
+      userId: change.userId,
+      changeSeq: first + index,
+      entityType: 'notification' as const,
+      entityId: notificationId,
+      operation: 'upsert' as const,
+      createdAt: now,
+    })),
+  )
+  await enqueueHint(tx, deps, {
+    event: 'notification',
+    userId: change.userId,
+    notificationId: lastId,
+    userChangeSeq: row.last,
+  })
+}
+
+/**
  * A change of one person's relation to one conversation: joining, leaving, role, silence, preferences, read position.
  * Allocates the person's next number, makes it the viewer version of the relation (the same value goes to the
  * member row), appends the log entry and queues the hint. Leaving writes the `removed` tombstone first and the caller
  * deletes the member row afterwards (docs/04 user_conversation_states). Returns the new viewer version.
+ *
+ * What changed on the member row itself (read position, preferences, hiding) travels as `memberPatch` and is written
+ * by the statement that stamps the row with the new version: one write of the row, and the two cannot come apart.
  */
 export async function recordViewerChange(
   tx: DbOrTx,
@@ -335,8 +388,12 @@ export async function recordViewerChange(
     state: ConversationState
     /** The set of conversations the person is in changed (join or leave): live subscriptions must be recomputed. */
     membershipChanged?: boolean
+    /** Columns of the person's member row that change with this; never with `removed`, where the row is going away. */
+    memberPatch?: PgUpdateSetSource<typeof conversationMembers>
   },
 ): Promise<number> {
+  if (change.state === 'removed' && change.memberPatch)
+    throw new Error('a removed relation has no member row to change')
   const now = deps.clock.now()
   const seq = await allocateUserChange(tx, change.userId)
   await tx
@@ -361,7 +418,7 @@ export async function recordViewerChange(
   if (change.state !== 'removed') {
     await tx
       .update(conversationMembers)
-      .set({ stateVersion: seq })
+      .set({ ...change.memberPatch, stateVersion: seq })
       .where(
         and(
           eq(conversationMembers.conversationId, change.conversationId),

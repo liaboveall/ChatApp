@@ -1,13 +1,11 @@
 /** Conversation routes (docs/05 section 3.3): listing, creating, opening, joining, leaving, archiving, my own settings. */
 import {
-  AppError,
   channelsPageSchema,
   channelsQuerySchema,
   conversationListQuerySchema,
   conversationListResponseSchema,
   conversationSchema,
   createConversationRequestSchema,
-  IDEMPOTENCY_KEY_HEADER,
   okResponseSchema,
   openDmRequestSchema,
   patchConversationMeRequestSchema,
@@ -35,12 +33,16 @@ import {
 import type { HttpEnv, Services } from '../context.ts'
 import { principalOf, requireSession } from '../middleware/session.ts'
 import { POLICIES } from '../policies.ts'
-import { accessErrors, err, guardedErrors, idParam, json } from './helpers.ts'
-
-const body = <T extends Parameters<typeof json>[0]>(schema: T) => ({
-  required: true as const,
-  content: { 'application/json': { schema } },
-})
+import {
+  accessErrors,
+  err,
+  guardedErrors,
+  idParam,
+  json,
+  jsonBody,
+  OK,
+  requireIdempotencyKey,
+} from './helpers.ts'
 
 const listRoute = createRoute({
   method: 'get',
@@ -59,7 +61,7 @@ const createRouteDef = createRoute({
   tags: ['conversations'],
   summary: 'Create a channel or a group (Idempotency-Key required)',
   security: [{ cookieAuth: [] }],
-  request: { body: body(createConversationRequestSchema) },
+  request: { body: jsonBody(createConversationRequestSchema) },
   responses: {
     201: json(conversationSchema, 'Created'),
     200: json(conversationSchema, 'The same request was made before: the conversation it created'),
@@ -76,7 +78,7 @@ const dmRoute = createRoute({
   tags: ['conversations'],
   summary: 'Open (or create) the direct message with another member',
   security: [{ cookieAuth: [] }],
-  request: { body: body(openDmRequestSchema) },
+  request: { body: jsonBody(openDmRequestSchema) },
   responses: {
     201: json(conversationSchema, 'Created'),
     200: json(conversationSchema, 'Already existed'),
@@ -116,7 +118,7 @@ const patchRoute = createRoute({
   tags: ['conversations'],
   summary: 'Name, description and settings; conditional on metadataVersion',
   security: [{ cookieAuth: [] }],
-  request: { params: idParam, body: body(patchConversationRequestSchema) },
+  request: { params: idParam, body: jsonBody(patchConversationRequestSchema) },
   responses: {
     200: json(conversationSchema, 'Changed'),
     409: err('Stale metadataVersion, a live channel has the name, or the conversation is archived'),
@@ -190,7 +192,7 @@ const transferRoute = createRoute({
   tags: ['conversations'],
   summary: 'Hand ownership to another member (owner only)',
   security: [{ cookieAuth: [] }],
-  request: { params: idParam, body: body(transferRequestSchema) },
+  request: { params: idParam, body: jsonBody(transferRequestSchema) },
   responses: {
     200: json(conversationSchema, 'Transferred'),
     409: err('The member list changed'),
@@ -205,7 +207,7 @@ const patchMeRoute = createRoute({
   tags: ['conversations'],
   summary: 'My notification level, mute, pin and hide; conditional on viewerVersion',
   security: [{ cookieAuth: [] }],
-  request: { params: idParam, body: body(patchConversationMeRequestSchema) },
+  request: { params: idParam, body: jsonBody(patchConversationMeRequestSchema) },
   responses: {
     200: json(conversationSchema, 'Changed'),
     409: err('Stale viewerVersion'),
@@ -220,7 +222,7 @@ const readRoute = createRoute({
   tags: ['conversations'],
   summary: 'Move my read position forward (it never moves back)',
   security: [{ cookieAuth: [] }],
-  request: { params: idParam, body: body(readRequestSchema) },
+  request: { params: idParam, body: jsonBody(readRequestSchema) },
   responses: {
     200: json(conversationSchema, 'The conversation with my new position'),
     ...accessErrors,
@@ -230,8 +232,8 @@ const readRoute = createRoute({
 export function conversationRoutes(app: OpenAPIHono<HttpEnv>, services: Services): void {
   const { deps, limiter } = services
   const guard = requireSession(services)
-  for (const path of ['/api/conversations', '/api/conversations/*', '/api/channels'])
-    app.use(path, guard)
+  // A trailing `/*` also matches the collection itself, so one pattern guards `/api/conversations` and all below it.
+  for (const path of ['/api/conversations/*', '/api/channels']) app.use(path, guard)
 
   app.openapi(listRoute, async (c) => {
     const { archived } = c.req.valid('query')
@@ -244,13 +246,12 @@ export function conversationRoutes(app: OpenAPIHono<HttpEnv>, services: Services
   app.openapi(createRouteDef, async (c) => {
     const principal = principalOf(c)
     await limiter.enforce([{ policy: POLICIES.conversationCreateUser, subject: principal.userId }])
-    const key = c.req.header(IDEMPOTENCY_KEY_HEADER)
-    if (key === undefined) {
-      throw new AppError('VALIDATION_FAILED', 'Idempotency-Key header is required', {
-        details: { field: 'idempotencyKey' },
-      })
-    }
-    const result = await createConversation(deps, principal, c.req.valid('json'), key)
+    const result = await createConversation(
+      deps,
+      principal,
+      c.req.valid('json'),
+      requireIdempotencyKey(c),
+    )
     return c.json(result.conversation, result.created ? 201 : 200)
   })
 
@@ -298,7 +299,7 @@ export function conversationRoutes(app: OpenAPIHono<HttpEnv>, services: Services
 
   app.openapi(leaveRoute, async (c) => {
     await leaveConversation(deps, principalOf(c), c.req.valid('param').id)
-    return c.json({ status: 'ok' as const }, 200)
+    return c.json(OK, 200)
   })
 
   app.openapi(transferRoute, async (c) =>

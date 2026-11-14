@@ -7,6 +7,7 @@ import { afterAll, beforeAll, beforeEach, describe, expect, test } from 'bun:tes
 import {
   agentContexts,
   agentRuns,
+  aiCallAttempts,
   aiUsageDaily,
   auditLogs,
   budgetAccounts,
@@ -149,6 +150,18 @@ describe('runs on an own key (AT-29, D-080, A15)', () => {
     expect(usage.keySource).toBe('user')
     expect(usage.own.inputTokens).toBeGreaterThan(0)
     expect(usage.daily.settled).toBe(0)
+
+    // A call on the member's own key that ended without a known result (a Stop in mid-stream) never reserved anything
+    // of the site allowance, so it must not be taken off what the site accounts hold: the figures stay at zero, not below.
+    const marked = await dbs.owner.db
+      .update(aiCallAttempts)
+      .set({ status: 'unknown' })
+      .where(eq(aiCallAttempts.keySource, 'user'))
+      .returning({ reservedTokens: aiCallAttempts.reservedTokens })
+    expect(marked.some((attempt) => attempt.reservedTokens > 0)).toBe(true)
+    const after = await getAgentUsage(deps, alice)
+    expect(after.daily).toMatchObject({ reserved: 0, unknown: 0 })
+    expect(after.monthly).toMatchObject({ reservedMicroUsd: 0, unknownMicroUsd: 0 })
   })
 
   test('private own-key content never reaches a site run, neither as history nor through any tool', async () => {

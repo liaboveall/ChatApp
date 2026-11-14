@@ -22,13 +22,8 @@ const errors = { ...accessErrors, 422: err('Invalid request') }
 
 export function taskRoutes(app: OpenAPIHono<HttpEnv>, services: Services): void {
   const { deps } = services
-  for (const path of [
-    '/api/reminders',
-    '/api/reminders/*',
-    '/api/scheduled-messages',
-    '/api/scheduled-messages/*',
-  ])
-    app.use(path, requireSession(services))
+  const guard = requireSession(services)
+  for (const path of ['/api/reminders/*', '/api/scheduled-messages/*']) app.use(path, guard)
   app.openapi(
     createRoute({
       method: 'get',
