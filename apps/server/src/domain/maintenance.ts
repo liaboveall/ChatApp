@@ -18,6 +18,7 @@ import {
 } from '@chatapp/db'
 import { and, eq, inArray, isNull, lt, notExists, or, sql } from 'drizzle-orm'
 import type { Deps } from './deps.ts'
+import { keepAlive } from './tx.ts'
 
 const DAY_MS = 86_400_000
 const BATCH = 1000
@@ -232,9 +233,10 @@ export async function runMaintenanceTask(
       sql`select pg_try_advisory_xact_lock(hashtext(${'chatapp.maintenance.'} || ${name})) as acquired`,
     )
     if (result[0]?.acquired) {
-      // Work uses separate short transactions; keep this lock connection alive during storage I/O.
+      // Work uses separate short transactions. This connection only holds the lock, so it is kept alive on both
+      // sides: the server's idle limit is lifted, and the client's is met with a heartbeat.
       await tx.execute(sql`set local idle_in_transaction_session_timeout = 0`)
-      await run()
+      await keepAlive(tx, run)
     }
   })
 }

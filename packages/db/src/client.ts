@@ -16,6 +16,13 @@ export type DatabaseOptions = {
   max?: number
   /** Shown in pg_stat_activity, so a stuck connection can be traced to a process. */
   applicationName?: string
+  /**
+   * Seconds without traffic after which the client closes a connection. It applies to every connection, also to one
+   * that is inside a transaction or waiting for a statement to answer, and whatever was queued behind that connection
+   * fails with it. A transaction that waits on something other than the database has to keep its connection busy
+   * (`keepAlive` in the server's domain/tx.ts).
+   */
+  idleTimeoutSeconds?: number
   /** Server-side guards against runaway queries and forgotten transactions (milliseconds). */
   statementTimeoutMs?: number
   lockTimeoutMs?: number
@@ -32,7 +39,7 @@ export function createDatabase(url: string, options: DatabaseOptions = {}): Data
   const client = new SQL({
     url,
     max: options.max ?? 10,
-    idleTimeout: 30,
+    idleTimeout: options.idleTimeoutSeconds ?? 30,
     connectionTimeout: 10,
     connection: {
       application_name: options.applicationName ?? 'chatapp',

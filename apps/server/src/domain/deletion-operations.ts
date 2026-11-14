@@ -11,6 +11,7 @@ import { deletionFingerprint } from './deletion-journal.ts'
 import type { Deps } from './deps.ts'
 import type { SessionPrincipal } from './principal.ts'
 import { lockAndRevalidate } from './sessions.ts'
+import { keepAlive } from './tx.ts'
 
 type Row = typeof deletionOperations.$inferSelect
 type TargetType = typeof deletionLocks.$inferInsert.targetType
@@ -182,84 +183,88 @@ export async function dispatchDeletions(
     )
     if (!result[0]?.acquired) return 0
     await guard.execute(sql`set local idle_in_transaction_session_timeout = 0`)
-    const rows = await deps.db
-      .select()
-      .from(deletionOperations)
-      .where(
-        and(
-          inArray(deletionOperations.status, ['prepared', 'journaled']),
-          onlyId ? eq(deletionOperations.id, onlyId) : undefined,
-        ),
-      )
-      .orderBy(asc(deletionOperations.createdAt), asc(deletionOperations.id))
-      .limit(50)
-    let completed = 0
-    for (const row of rows) {
-      try {
-        if (row.status === 'prepared') {
-          const accepted = await deps.deletionJournal?.append({
-            operationId: row.id,
-            actorId: row.actorId,
-            intent: row.intent,
-            acceptedAt: deps.clock.now().toISOString(),
-            preparedAt: row.createdAt.toISOString(),
-          })
-          if (!accepted) return completed
-          if (
-            deletionFingerprint({
-              actorId: accepted.record.actorId,
-              intent: accepted.record.intent,
-            }) !== row.requestHash
-          )
-            throw new Error('deletion acceptance mismatch')
-          await deps.db
-            .update(deletionOperations)
-            .set({
-              status: 'journaled',
-              journalEpoch: accepted.record.writerEpoch,
-              journalSeq: accepted.record.seq,
-              journalHash: accepted.hash,
-              version: sql`${deletionOperations.version} + 1`,
-            })
-            .where(
-              and(eq(deletionOperations.id, row.id), eq(deletionOperations.status, 'prepared')),
-            )
-        }
-        await deps.db.transaction(async (tx) => {
-          const [current] = await tx
-            .select()
-            .from(deletionOperations)
-            .where(eq(deletionOperations.id, row.id))
-            .for('update')
-          if (!current || current.status === 'applied') return
-          if (current.status !== 'journaled') throw new Error('deletion not accepted')
-          // SQL guards admit only the stored irreversible operation, never a caller-supplied bypass flag.
-          await tx.execute(
-            sql`select set_config('chatapp.deletion_operation', ${current.id}, true)`,
-          )
-          await apply(tx, deps, current.intent, current.actorId)
-          await tx
-            .update(deletionOperations)
-            .set({
-              status: 'applied',
-              appliedAt: deps.clock.now(),
-              version: sql`${deletionOperations.version} + 1`,
-            })
-            .where(eq(deletionOperations.id, current.id))
-          await tx.delete(deletionLocks).where(eq(deletionLocks.operationId, current.id))
-          await advanceAppliedWatermark(tx, deps)
-        })
-        completed++
-      } catch {
-        // Unknown network outcome never changes to failed and never unfreezes the target. The next scan reconciles.
-        deps.log.warn('deletion.pending', { reason: 'offsite_or_apply_unavailable' })
-        if (deps.clock.now().getTime() - row.createdAt.getTime() > 60_000)
-          deps.log.error('deletion.overdue', { reason: 'pending_over_60_seconds' })
-        break
-      }
-    }
-    return completed
+    // The guard only holds the lock while the offsite journal is read and written, which can take long. Without the
+    // heartbeat the client drops the idle connection, the lock goes with it, and the next scan starts a second writer
+    // beside this one: both then re-read the whole chain and overwrite each other's head.
+    return await keepAlive(guard, () => dispatchLocked(deps, apply, onlyId))
   })
+}
+
+async function dispatchLocked(deps: Deps, apply: ApplyDeletion, onlyId?: string): Promise<number> {
+  const journal = deps.deletionJournal
+  if (!journal) return 0
+  const rows = await deps.db
+    .select()
+    .from(deletionOperations)
+    .where(
+      and(
+        inArray(deletionOperations.status, ['prepared', 'journaled']),
+        onlyId ? eq(deletionOperations.id, onlyId) : undefined,
+      ),
+    )
+    .orderBy(asc(deletionOperations.createdAt), asc(deletionOperations.id))
+    .limit(50)
+  let completed = 0
+  for (const row of rows) {
+    try {
+      if (row.status === 'prepared') {
+        const accepted = await journal.append({
+          operationId: row.id,
+          actorId: row.actorId,
+          intent: row.intent,
+          acceptedAt: deps.clock.now().toISOString(),
+          preparedAt: row.createdAt.toISOString(),
+        })
+        if (
+          deletionFingerprint({
+            actorId: accepted.record.actorId,
+            intent: accepted.record.intent,
+          }) !== row.requestHash
+        )
+          throw new Error('deletion acceptance mismatch')
+        await deps.db
+          .update(deletionOperations)
+          .set({
+            status: 'journaled',
+            journalEpoch: accepted.record.writerEpoch,
+            journalSeq: accepted.record.seq,
+            journalHash: accepted.hash,
+            version: sql`${deletionOperations.version} + 1`,
+          })
+          .where(and(eq(deletionOperations.id, row.id), eq(deletionOperations.status, 'prepared')))
+      }
+      await deps.db.transaction(async (tx) => {
+        const [current] = await tx
+          .select()
+          .from(deletionOperations)
+          .where(eq(deletionOperations.id, row.id))
+          .for('update')
+        if (!current || current.status === 'applied') return
+        if (current.status !== 'journaled') throw new Error('deletion not accepted')
+        // SQL guards admit only the stored irreversible operation, never a caller-supplied bypass flag.
+        await tx.execute(sql`select set_config('chatapp.deletion_operation', ${current.id}, true)`)
+        await apply(tx, deps, current.intent, current.actorId)
+        await tx
+          .update(deletionOperations)
+          .set({
+            status: 'applied',
+            appliedAt: deps.clock.now(),
+            version: sql`${deletionOperations.version} + 1`,
+          })
+          .where(eq(deletionOperations.id, current.id))
+        await tx.delete(deletionLocks).where(eq(deletionLocks.operationId, current.id))
+        await advanceAppliedWatermark(tx, deps)
+      })
+      completed++
+    } catch {
+      // Unknown network outcome never changes to failed and never unfreezes the target. The next scan reconciles.
+      deps.log.warn('deletion.pending', { reason: 'offsite_or_apply_unavailable' })
+      if (deps.clock.now().getTime() - row.createdAt.getTime() > 60_000)
+        deps.log.error('deletion.overdue', { reason: 'pending_over_60_seconds' })
+      break
+    }
+  }
+  return completed
 }
 
 export async function advanceAppliedWatermark(tx: Tx, deps: Deps): Promise<void> {

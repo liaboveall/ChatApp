@@ -56,6 +56,11 @@ function canonical(value: unknown): string {
 }
 const sha = (bytes: Uint8Array) => createHash('sha256').update(bytes).digest('hex')
 
+/** A walk over more records than this fetches them together first; a shorter one reads them one after another. */
+const PREFETCH_ABOVE = 24
+/** How many record objects are requested at once when a long stretch of the chain is read. */
+const PARALLEL_READS = 32
+
 export class EncryptedDeletionJournal implements DeletionJournal {
   private readonly headKey: string
   constructor(
@@ -181,6 +186,45 @@ export class EncryptedDeletionJournal implements DeletionJournal {
     const { head } = await this.head()
     return (await this.readCheckpoint(head))?.floor ?? { seq: 0, hash: JOURNAL_GENESIS }
   }
+  /**
+   * The bytes of every record object under the prefix, requested many at a time. Only a faster way to get them: the
+   * walk below still takes each record by the hash the chain names and checks its bytes against that hash, so an object
+   * that is missing here, unlinked (an orphan candidate) or altered changes nothing about what is accepted. Anything this
+   * could not fetch is read again by the walk, which is where an unavailable store or a damaged record is reported.
+   */
+  private async prefetchRecords(): Promise<Map<string, Uint8Array>> {
+    const prefix = `${this.options.prefix}records/`
+    const found = new Map<string, Uint8Array>()
+    const keys: string[] = []
+    try {
+      const cursors = new Set<string>()
+      let cursor: string | undefined
+      do {
+        const page = await this.options.store.list(prefix, cursor)
+        keys.push(...page.keys)
+        cursor = page.cursor
+        if (cursor && cursors.has(cursor)) break
+        if (cursor) cursors.add(cursor)
+      } while (cursor)
+    } catch {
+      return found
+    }
+    let next = 0
+    const reader = async () => {
+      for (let key = keys[next++]; key !== undefined; key = keys[next++]) {
+        const hash = key.slice(prefix.length)
+        if (!/^[a-f0-9]{64}$/.test(hash)) continue
+        try {
+          const object = await this.options.store.read(key)
+          if (object) found.set(hash, object.bytes)
+        } catch {
+          // Left to the walk.
+        }
+      }
+    }
+    await Promise.all(Array.from({ length: Math.min(PARALLEL_READS, keys.length) }, reader))
+    return found
+  }
   private async readSinceHead(
     anchor: JournalAnchor,
     head: JournalHead,
@@ -197,9 +241,18 @@ export class EncryptedDeletionJournal implements DeletionJournal {
       throw new JournalError('integrity')
     let currentHash = head.hash
     const reverse: AcceptedDeletion[] = []
+    // The chain can only be followed from the newest record back, one hash at a time. Over a long stretch that is
+    // thousands of requests in a row (minutes against a remote store), so the objects are fetched together first.
+    const fetched =
+      head.seq - anchor.seq > PREFETCH_ABOVE
+        ? await this.prefetchRecords()
+        : new Map<string, Uint8Array>()
     for (let seq = head.seq; seq > anchor.seq; seq--) {
-      const result = await this.options.store.read(this.recordKey(currentHash))
-      if (!result || sha(result.bytes) !== currentHash) throw new JournalError('integrity')
+      const bytes =
+        fetched.get(currentHash) ??
+        (await this.options.store.read(this.recordKey(currentHash)))?.bytes
+      if (!bytes || sha(bytes) !== currentHash) throw new JournalError('integrity')
+      const result = { bytes }
       const parsed = journalRecordSchema.safeParse(this.decrypt('record', result.bytes))
       if (!parsed.success || parsed.data.seq !== seq) throw new JournalError('integrity')
       reverse.push({ record: parsed.data, hash: currentHash })
@@ -215,12 +268,28 @@ export class EncryptedDeletionJournal implements DeletionJournal {
       actorId: input.actorId,
       intent,
     })
+    // What the previous pass of this call established. Records are immutable and named by their hash, so the chain up to
+    // a head that was checked a moment ago is not read again: the next pass reads what was added since and requires it
+    // to link to that head. Anything else (another floor, a head that is not ahead of it) is read in full.
+    let known: { floor: JournalAnchor; head: JournalAnchor; records: AcceptedDeletion[] } | null =
+      null
     for (let attempt = 0; attempt <= 8; attempt++) {
       const { head, etag } = await this.head()
       // Reconcile only the trusted chain: an orphan candidate or an untrusted operation index is never acceptance.
       const checkpoint = await this.readCheckpoint(head)
       const floor = checkpoint?.floor ?? { seq: 0, hash: JOURNAL_GENESIS }
-      const records = await this.readSinceHead(floor, head)
+      const prior: typeof known = known
+      const continues =
+        prior !== null &&
+        prior.floor.seq === floor.seq &&
+        prior.floor.hash === floor.hash &&
+        (head.seq > prior.head.seq ||
+          (head.seq === prior.head.seq && head.hash === prior.head.hash))
+      const records: AcceptedDeletion[] =
+        prior !== null && continues
+          ? [...prior.records, ...(await this.readSinceHead(prior.head, head))]
+          : await this.readSinceHead(floor, head)
+      known = { floor, head: { seq: head.seq, hash: head.hash }, records }
       const accepted = records.find((item) => item.record.operationId === input.operationId)
       if (accepted) {
         const record = accepted.record

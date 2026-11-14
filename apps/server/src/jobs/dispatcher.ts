@@ -12,6 +12,7 @@ import { deliverAdminNotification } from '../domain/notifications.ts'
 import {
   type ClaimedWork,
   claimReadyWork,
+  completeWork,
   completeWorkMany,
   failWork,
   type WorkLease,
@@ -153,7 +154,18 @@ export function createDispatcher(parts: {
         dispatchFailed(work, error)
       }
     }
-    await completeWorkMany(deps, published)
+    try {
+      await completeWorkMany(deps, published)
+    } catch (error) {
+      // One row the database refuses (its conversation was frozen by a deletion after the claim) fails the statement
+      // for all of them. The others are completed one by one; the refused one keeps its lease and comes back later.
+      log.warn('dispatcher.complete_batch_failed', describeError(error))
+      for (const lease of published) {
+        await completeWork(deps, lease).catch((failure) =>
+          log.warn('dispatcher.complete_failed', { workId: lease.id, ...describeError(failure) }),
+        )
+      }
+    }
     return claimed.length
   }
 

@@ -1,5 +1,5 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, test } from 'bun:test'
-import { workItems } from '@chatapp/db'
+import { deletionLocks, deletionOperations, workItems } from '@chatapp/db'
 import { eq } from 'drizzle-orm'
 import { enqueueWork } from '../../src/domain/work.ts'
 import {
@@ -303,5 +303,121 @@ describe('dispatcher scheduling (docs/03 section 7: normal traffic never waits f
     }
     const rows = await dbs.owner.db.select().from(workItems)
     expect(rows.map((item) => item.status)).toEqual(['done', 'done', 'done', 'done', 'done'])
+  })
+})
+
+describe('work of a target that a pending deletion holds (D-084 freeze)', () => {
+  /** A deletion that was prepared and not yet applied: the database refuses every write to rows of its target. */
+  async function freeze(type: 'message' | 'conversation', targetId: string) {
+    const operationId = crypto.randomUUID()
+    await dbs.owner.db.insert(deletionOperations).values({
+      id: operationId,
+      actorId: null,
+      action: 'message_recall',
+      targetKey: `${type}:${targetId}`,
+      intent: {} as never,
+      requestHash: 'x'.repeat(64),
+      status: 'prepared',
+      createdAt: new Date(),
+    })
+    await dbs.owner.db.insert(deletionLocks).values({ targetType: type, targetId, operationId })
+    return async () => {
+      await dbs.owner.db.delete(deletionLocks).where(eq(deletionLocks.operationId, operationId))
+    }
+  }
+
+  test('the frozen item waits; everything else is still claimed, and it is claimed once the deletion is through', async () => {
+    const deps = makeDeps(dbs.app.db)
+    const messageId = deps.newId()
+    const frozen = await enqueueWork(deps.db, deps, {
+      kind: 'push',
+      dedupeKey: `notify:${messageId}`,
+      entityId: messageId,
+      payload: { stage: 'message' },
+    })
+    const other = await enqueueWork(deps.db, deps, {
+      kind: 'realtime',
+      dedupeKey: 'rt:other',
+      entityId: deps.newId(),
+      payload: { event: 'auth.revoked' },
+    })
+    const release = await freeze('message', messageId)
+    // The row itself cannot be written while its message is held.
+    await expect(
+      (async () =>
+        await dbs.app.db
+          .update(workItems)
+          .set({ attempts: 1 })
+          .where(eq(workItems.id, frozen.id)))(),
+    ).rejects.toThrow()
+
+    const claimed = await claimReadyWork(deps, { limit: 50 })
+    expect(claimed.map((item) => item.id)).toEqual([other.id])
+    expect((await row(frozen.id))?.status).toBe('pending')
+
+    await release()
+    const later = await claimReadyWork(deps, { limit: 50 })
+    expect(later.map((item) => item.id)).toEqual([frozen.id])
+  })
+
+  test('recovery of expired leases leaves a frozen item alone and still recovers the others', async () => {
+    const deps = makeDeps(dbs.app.db)
+    const conversationId = deps.newId()
+    const held = await enqueueWork(deps.db, deps, {
+      kind: 'realtime',
+      dedupeKey: 'rt:held',
+      entityId: conversationId,
+      payload: { event: 'auth.revoked' },
+    })
+    const free = await enqueueWork(deps.db, deps, { kind: 'email', dedupeKey: 'email:free' })
+    expect(await claimReadyWork(deps, { limit: 50 })).toHaveLength(2)
+    const release = await freeze('conversation', conversationId)
+    deps.clock.advance(WORK_LIMITS.dispatchLeaseMs + 1000)
+    expect(await recoverExpiredWork(deps)).toEqual({ requeued: 1, dead: 0 })
+    expect((await row(free.id))?.status).toBe('retry')
+    expect((await row(held.id))?.status).toBe('leased')
+    await release()
+    expect(await recoverExpiredWork(deps)).toEqual({ requeued: 1, dead: 0 })
+    expect((await row(held.id))?.status).toBe('retry')
+  })
+
+  test('a hint that is frozen after it was claimed does not keep the hints published with it from being completed', async () => {
+    const deps = makeDeps(dbs.app.db)
+    const conversationId = deps.newId()
+    const held = await enqueueWork(deps.db, deps, {
+      kind: 'realtime',
+      dedupeKey: 'rt:late-freeze',
+      entityId: conversationId,
+      payload: { event: 'auth.revoked' },
+    })
+    const others = []
+    for (const name of ['a', 'b', 'c'])
+      others.push(
+        await enqueueWork(deps.db, deps, {
+          kind: 'realtime',
+          dedupeKey: `rt:${name}`,
+          entityId: deps.newId(),
+          payload: { event: 'auth.revoked' },
+        }),
+      )
+    let release: (() => Promise<void>) | undefined
+    const published: BusEvent[] = []
+    const dispatcher = createDispatcher({
+      deps,
+      bus: {
+        publish: async (event: BusEvent) => {
+          // The deletion is prepared while this batch is being published, after the claim.
+          if (published.length === 0) release = await freeze('conversation', conversationId)
+          published.push(event)
+        },
+      } as never,
+      emailQueue: {} as never,
+      log: deps.log,
+    })
+    expect(await dispatcher.tick()).toBe(4)
+    expect(published).toHaveLength(4)
+    for (const item of others) expect((await row(item.id))?.status).toBe('done')
+    expect((await row(held.id))?.status).toBe('leased')
+    await release?.()
   })
 })

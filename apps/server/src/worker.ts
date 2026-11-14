@@ -80,7 +80,12 @@ async function main(): Promise<void> {
   const embeddingConfig = embeddingSettings(process.env)
   const { apiKey: _apiKey, ...aiPolicy } = ai
 
-  const database = createDatabase(config.databaseUrl, { max: 6, applicationName: 'chatapp-worker' })
+  // Room for the maintenance tasks' lock-holding transactions (up to six at a time) beside the consumers and the
+  // dispatcher: with a pool of six those transactions alone could take every connection.
+  const database = createDatabase(config.databaseUrl, {
+    max: 12,
+    applicationName: 'chatapp-worker',
+  })
   log.info('worker.starting', { reason: 'database' })
   await assertDatabaseReady(database.db, config, log)
   await assertRestoreUnlocked(database.db)

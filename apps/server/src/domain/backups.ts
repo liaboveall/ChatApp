@@ -10,6 +10,7 @@ import {
 import { and, eq, gt, sql } from 'drizzle-orm'
 import { JOURNAL_GENESIS } from './deletion-journal.ts'
 import type { Deps } from './deps.ts'
+import { keepAlive } from './tx.ts'
 
 const physicalLock = sql`hashtext('chatapp.backup.physical-delete')`
 export class BackupError extends Error {
@@ -43,7 +44,7 @@ export async function withPhysicalDeletion(
       )
       .limit(1)
     if (barrier[0]) return false
-    await remove()
+    await keepAlive(tx, remove)
     return true
   })
 }

@@ -1,4 +1,5 @@
 import type { Db, Tx } from '@chatapp/db'
+import { sql } from 'drizzle-orm'
 import { isRetryableTransactionError } from '../lib/pg-error.ts'
 
 /**
@@ -21,4 +22,33 @@ export async function inTransaction<T>(
     }
   }
   throw lastError
+}
+
+/**
+ * Runs work that is not database work (object storage, the offsite journal) while a transaction stays open around it,
+ * usually to hold an advisory lock.
+ *
+ * The database client closes any connection that carried no traffic for 30 seconds, whether or not a transaction is
+ * open on it. The transaction then fails, its lock is gone while the work it guarded is still running, and every
+ * statement that was queued behind that connection fails at the same moment. A small query at intervals keeps the
+ * connection in use for as long as the work takes. The server-side idle limit of such a transaction is lifted
+ * separately by its owner (`set local idle_in_transaction_session_timeout = 0`).
+ */
+export async function keepAlive<T>(tx: Tx, work: () => Promise<T>, everyMs = 10_000): Promise<T> {
+  let beating = false
+  const timer = setInterval(() => {
+    if (beating) return
+    beating = true
+    // A failure here is the transaction's own failure and surfaces where its owner next uses it.
+    void Promise.resolve(tx.execute(sql`select 1`))
+      .catch(() => undefined)
+      .finally(() => {
+        beating = false
+      })
+  }, everyMs)
+  try {
+    return await work()
+  } finally {
+    clearInterval(timer)
+  }
 }

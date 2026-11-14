@@ -4,7 +4,7 @@
  * job redelivered later) cannot overwrite newer state, and a lost queue job is recovered by lease expiry.
  */
 import type { WorkKind } from '@chatapp/contracts'
-import { workItems } from '@chatapp/db'
+import { deletionLocks, workItems } from '@chatapp/db'
 import { and, asc, eq, inArray, isNotNull, lt, lte, sql } from 'drizzle-orm'
 import type { Deps } from './deps.ts'
 import { inTransaction } from './tx.ts'
@@ -44,6 +44,15 @@ export function backoffMs(attempts: number): number {
   return Math.min(5_000 * 4 ** Math.max(attempts - 1, 0), 300_000)
 }
 
+/**
+ * Work whose entity is held by a deletion that has not been applied yet. The database refuses every write to such a
+ * row (the freeze of D-084, `chatapp_guard_deletion_children`), and one refused row fails the whole statement it is in.
+ * A claim or a recovery that included it would fail for every other item too, and with it everything this process
+ * dispatches: realtime hints, pushes, assistant runs, media. So these items are left exactly as they are until the
+ * deletion has been applied and its lock is gone; the kinds are the ones the trigger checks for this table.
+ */
+const notFrozen = sql`not exists (select 1 from ${deletionLocks} held where held.target_id = ${workItems.entityId} and held.target_type in ('attachment', 'conversation', 'message', 'memory'))`
+
 /** Dispatcher step: lease ready items (SKIP LOCKED, so several dispatchers never collide) and bump delivery_seq. */
 export async function claimReadyWork(
   deps: Deps,
@@ -58,6 +67,7 @@ export async function claimReadyWork(
         and(
           inArray(workItems.status, ['pending', 'retry']),
           lte(workItems.availableAt, now),
+          notFrozen,
           options.kinds ? inArray(workItems.kind, [...options.kinds]) : undefined,
           options.embeddingVersions === undefined
             ? undefined
@@ -235,7 +245,13 @@ export async function recoverExpiredWork(
     const expired = await tx
       .select({ id: workItems.id, kind: workItems.kind, attempts: workItems.attempts })
       .from(workItems)
-      .where(and(inArray(workItems.status, ['leased', 'running']), lt(workItems.leaseUntil, now)))
+      .where(
+        and(
+          inArray(workItems.status, ['leased', 'running']),
+          lt(workItems.leaseUntil, now),
+          notFrozen,
+        ),
+      )
       .orderBy(asc(workItems.id))
       .limit(limit)
       .for('update', { skipLocked: true })

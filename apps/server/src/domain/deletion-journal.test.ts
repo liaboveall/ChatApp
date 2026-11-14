@@ -306,3 +306,103 @@ describe('independent encrypted deletion journal', () => {
     await expect(journal.append(operation())).rejects.toThrow('journal_integrity')
   })
 })
+
+/** Counts what an operation costs against the remote store and how much of it runs side by side. */
+class MeteredStore extends Store {
+  recordReads = 0
+  inFlight = 0
+  widest = 0
+  listFails = false
+  override async read(key: string) {
+    if (!key.includes('/records/')) return await super.read(key)
+    this.recordReads += 1
+    this.inFlight += 1
+    this.widest = Math.max(this.widest, this.inFlight)
+    // Yield as a network read would, so reads issued together overlap.
+    await new Promise((resolve) => setTimeout(resolve, 1))
+    this.inFlight -= 1
+    return await super.read(key)
+  }
+  override async list(prefix: string) {
+    if (this.listFails) throw new Error('synthetic list failure')
+    return await super.list(prefix)
+  }
+}
+
+describe('reading a long chain (a deletion must not take minutes to accept)', () => {
+  const LENGTH = 80
+  async function longChain() {
+    const store = new MeteredStore()
+    const options = {
+      store,
+      prefix: 'journal/test/',
+      writerEpoch: randomUUID(),
+      currentKeyVersion: 1,
+      keys: new Map([[1, randomBytes(32)]]),
+    }
+    const journal = new EncryptedDeletionJournal(options)
+    await journal.initialize()
+    const accepted = []
+    for (let i = 0; i < LENGTH; i += 1) accepted.push(await journal.append(operation()))
+    store.recordReads = 0
+    store.widest = 0
+    return { store, journal, accepted }
+  }
+
+  test('an append reads each earlier record once, many at a time, and accepts exactly what a full walk would', async () => {
+    const { store, journal, accepted } = await longChain()
+    const next = operation()
+    const result = await journal.append(next)
+    expect(result.record).toMatchObject({ seq: LENGTH + 1, operationId: next.operationId })
+    expect(result.record.previousHash).toBe(accepted[LENGTH - 1]?.hash ?? '')
+    // One pass over the chain, the read-back of the new record, and the new record again when the second pass confirms
+    // it; the old code walked the whole chain twice, one request after another.
+    expect(store.recordReads).toBeLessThanOrEqual(LENGTH + 4)
+    expect(store.widest).toBeGreaterThan(8)
+    // The replay a restore would do sees the same chain, in order, with nothing skipped.
+    const replay = await journal.readSince(genesis)
+    expect(replay.map((item) => item.hash)).toEqual([
+      ...accepted.map((item) => item.hash),
+      result.hash,
+    ])
+    // Repeating the same operation finds it instead of writing another record.
+    expect((await journal.append(next)).hash).toBe(result.hash)
+    expect((await journal.head()).head.seq).toBe(LENGTH + 1)
+  })
+
+  test('a record that is missing or altered deep in a long chain still stops the writer and the replay', async () => {
+    for (const damage of ['missing', 'altered'] as const) {
+      const { store, journal, accepted } = await longChain()
+      const victim = `journal/test/records/${accepted[10]?.hash}`
+      const other = store.objects.get(`journal/test/records/${accepted[11]?.hash}`)
+      if (!other) throw new Error('fixture record missing')
+      if (damage === 'missing') store.objects.delete(victim)
+      else store.objects.set(victim, other)
+      await expect(journal.append(operation())).rejects.toThrow('journal_integrity')
+      await expect(journal.readSince(genesis)).rejects.toThrow('journal_integrity')
+      expect((await journal.head()).head.seq).toBe(LENGTH)
+    }
+  })
+
+  test('an orphan candidate among the fetched objects is not part of the chain', async () => {
+    const { store, journal, accepted } = await longChain()
+    // A candidate that was written but never linked: the head CAS is refused once.
+    store.failHead = true
+    const stranded = operation()
+    await expect(journal.append(stranded)).rejects.toThrow()
+    store.failHead = false
+    expect(store.objects.size).toBeGreaterThan(LENGTH + 1)
+    const replay = await journal.readSince(genesis)
+    expect(replay.map((item) => item.hash)).toEqual(accepted.map((item) => item.hash))
+    // The same operation is then accepted once, as the next record.
+    expect((await journal.append(stranded)).record.seq).toBe(LENGTH + 1)
+  })
+
+  test('when the store cannot list, the chain is walked record by record as before', async () => {
+    const { store, journal } = await longChain()
+    store.listFails = true
+    const result = await journal.append(operation())
+    expect(result.record.seq).toBe(LENGTH + 1)
+    expect(store.widest).toBe(1)
+  })
+})
