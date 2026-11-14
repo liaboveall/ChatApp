@@ -1,0 +1,162 @@
+/* Test fixture for markdown-classes.spec.ts, never part of the application.
+
+   What Tailwind would build for the class names the Markdown library (Streamdown 2.7) writes on what it renders in a
+   message (paragraphs, lists, quotes, inline code, code blocks), were each of them named somewhere in this package.
+   Only the ones that need no colour of the library's theme: those cannot be built here. The test adds this to a page
+   and expects the message to look exactly as before.
+
+   It is a stylesheet on purpose. Tailwind reads every file of the package for class names except stylesheets, so the
+   names can be written out here without becoming part of the build; in the test's own source they would. */
+@layer utilities {
+  /* Not one of the library's names: the test reads this back to know the sheet was applied. */
+  .library-utilities-fixture {
+    padding-top: 7px;
+  }
+  .relative {
+    position: relative;
+  }
+  .absolute {
+    position: absolute;
+  }
+  .block {
+    display: block;
+  }
+  .flex {
+    display: flex;
+  }
+  .flex-col {
+    flex-direction: column;
+  }
+  .shrink-0 {
+    flex-shrink: 0;
+  }
+  .items-center {
+    align-items: center;
+  }
+  .gap-2 {
+    gap: 0.5rem;
+  }
+  .w-full {
+    width: 100%;
+  }
+  .h-8 {
+    height: 2rem;
+  }
+  .top-2 {
+    top: 0.5rem;
+  }
+  .right-2 {
+    right: 0.5rem;
+  }
+  .z-10 {
+    z-index: 10;
+  }
+  .my-4 {
+    margin-block: 1rem;
+  }
+  .ml-1 {
+    margin-left: 0.25rem;
+  }
+  .p-1 {
+    padding: 0.25rem;
+  }
+  .p-2 {
+    padding: 0.5rem;
+  }
+  .p-4 {
+    padding: 1rem;
+  }
+  .px-1\.5 {
+    padding-inline: 0.375rem;
+  }
+  .py-1 {
+    padding-block: 0.25rem;
+  }
+  .border {
+    border-style: solid;
+    border-width: 1px;
+  }
+  .rounded-md {
+    border-radius: 0.375rem;
+  }
+  .rounded-xl {
+    border-radius: 0.75rem;
+  }
+  .overflow-x-auto {
+    overflow-x: auto;
+  }
+  .overflow-y-auto {
+    overflow-y: auto;
+  }
+  .pointer-events-none {
+    pointer-events: none;
+  }
+  .pointer-events-auto {
+    pointer-events: auto;
+  }
+  .cursor-pointer {
+    cursor: pointer;
+  }
+  .transition-all {
+    transition-property: all;
+    transition-duration: 150ms;
+    transition-timing-function: cubic-bezier(0.4, 0, 0.2, 1);
+  }
+  .text-xs {
+    font-size: 0.75rem;
+    line-height: 1rem;
+  }
+  .text-sm {
+    font-size: 0.875rem;
+    line-height: 1.25rem;
+  }
+  .font-mono {
+    font-family: ui-monospace, monospace;
+  }
+  .lowercase {
+    text-transform: lowercase;
+  }
+  :where(.space-y-4 > :not(:last-child)) {
+    margin-block-start: 0;
+    margin-block-end: 1rem;
+  }
+  .whitespace-normal {
+    white-space: normal;
+  }
+  .list-inside {
+    list-style-position: inside;
+  }
+  .list-disc {
+    list-style-type: disc;
+  }
+  .list-decimal {
+    list-style-type: decimal;
+  }
+  .py-0\.5 {
+    padding-block: 0.125rem;
+  }
+  .pl-4 {
+    padding-left: 1rem;
+  }
+  .border-l-4 {
+    border-left-style: solid;
+    border-left-width: 4px;
+  }
+  .rounded {
+    border-radius: 0.25rem;
+  }
+  .font-semibold {
+    font-weight: 600;
+  }
+  .italic {
+    font-style: italic;
+  }
+  .bg-\[var\(--sdm-bg\,inherit\)\] {
+    background-color: var(--sdm-bg, inherit);
+  }
+  @supports (backdrop-filter: blur(1px)) {
+    .supports-\[backdrop-filter\]\:backdrop-blur {
+      backdrop-filter: blur(8px);
+    }
+  }
+}

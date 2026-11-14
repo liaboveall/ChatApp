@@ -17,7 +17,7 @@ bun run build
 | `bun run test:e2e` | 真实服务浏览器场景 | 基础服务、媒体、Playwright |
 | `bun run test:review` | 组件和审查问题回归 | 合成 HTTP 数据、Chromium / WebKit |
 | `bun run test:edge` | Nginx、TLS、安全头与代理边界 | Docker、基础服务、独占测试库 |
-| `bun run test:visual` | Storybook 截图基线 | Docker 中固定 Playwright 镜像 |
+| `bun run test:visual` | Storybook 截图基线；另有不比对截图的检查：代码高亮的加载顺序（`highlight.spec.ts`）、@提及的名字与同行文字落在同一像素行（`mention.spec.ts`；它自己用 `--force-device-scale-factor` 启动浏览器，因为 `deviceScaleFactor` 模拟的缩放不按物理像素排版，复现不了真实缩放下的错位）、消息里的 Markdown 不受渲染库自带类名影响（`markdown-classes.spec.ts`，类名清单在 `library-utilities.css`） | Docker 中固定 Playwright 镜像 |
 | `bun run test:fault` | 进程、队列、总线等故障恢复 | 自动创建并核验的隔离实例 |
 | `bun run test:media` | 无网络媒体运行时与故障 | 隔离 Docker 实例 |
 | `bun run test:attachments` | 真实上传、媒体处理、对象账本与下载 | 隔离 Docker 实例 |

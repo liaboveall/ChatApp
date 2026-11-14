@@ -1,10 +1,17 @@
 /* Message text rendered by the one safe Markdown renderer (docs/01 section 4.5, D-145). The renderer's own utility classes
-   are not part of this stylesheet's build: everything is styled here, by element and by its `data-streamdown` attribute.
+   are not meant to style anything: everything is styled here, by element and by its `data-streamdown` attribute. This
+   file is imported outside the cascade layers (app.css says why), so a property set here cannot be taken over by a
+   utility that happens to exist; visual/markdown-classes.spec.ts holds it to that.
    Colours need no new tokens: links, inline code and quotes use the tints the contrast check already covers for both
    bubbles (`on-accent` and `quote inset`, bubble-in and `accent-text`), code blocks use the code tokens. */
 
 .md {
   min-width: 0;
+}
+/* The space between the parts of a message is said once, here: the library asks for a rhythm of its own with a class
+   name on the wrapper. */
+.md > div > * {
+  margin-bottom: 0;
 }
 .md > div > * + * {
   margin-top: 6px;
@@ -59,6 +66,8 @@
   background: color-mix(in srgb, var(--shade) 10%, transparent);
   font-family: var(--font-mono);
   font-size: 0.9em;
+  /* The line keeps the height of the sentence the code stands in. */
+  line-height: inherit;
 }
 .bubble--out .md [data-streamdown="inline-code"],
 .bubble--out .md :not(pre) > code {
@@ -83,6 +92,8 @@
   --shiki-token-parameter: var(--code-fg);
   --shiki-token-punctuation: var(--code-fg);
 }
+/* A sheet of paper set into the bubble: one hairline, no frames inside it. The language is a quiet caption, the copy
+   button a fine-lined glyph that only gets a plate under the pointer. */
 .md [data-streamdown="code-block"] {
   position: relative;
   display: flex;
@@ -92,9 +103,9 @@
   margin: 6px 0 2px;
   padding: 0;
   border: 0;
-  border-radius: 14px;
+  border-radius: 12px;
   background: var(--code-bg);
-  box-shadow: inset 0 0 0 1px var(--group-edge);
+  box-shadow: inset 0 0 0 0.5px color-mix(in srgb, var(--label) 22%, transparent);
   color: var(--code-fg);
   text-align: left;
   overflow: hidden;
@@ -103,15 +114,28 @@
   display: flex;
   align-items: center;
   height: auto;
-  min-height: 28px;
-  padding: 4px 40px 0 12px;
+  min-height: 0;
+  margin: 0;
+  padding: 9px 44px 0 14px;
+  border: 0;
+  background: transparent;
   font-size: var(--fs-footnote);
   line-height: var(--lh-footnote);
   color: var(--label-secondary);
 }
+/* A block without a language has nothing to caption: no empty band above its first line. The first line then keeps
+   clear of the copy button by its own padding. */
+.md [data-streamdown="code-block-header"]:has(> span:empty) {
+  display: none;
+}
+.md [data-streamdown="code-block-header"]:has(> span:empty) ~ * pre {
+  padding-top: 11px;
+  padding-right: 44px;
+}
 .md [data-streamdown="code-block-header"] span {
   margin: 0;
   font-family: var(--font-mono);
+  letter-spacing: 0.02em;
   text-transform: lowercase;
 }
 .md [data-streamdown="code-block-actions"] {
@@ -120,8 +144,11 @@
   right: 4px;
   display: flex;
   align-items: center;
+  gap: 0;
   border: 0;
+  border-radius: 0;
   background: transparent;
+  backdrop-filter: none;
   padding: 0;
   pointer-events: auto;
 }
@@ -130,8 +157,9 @@
    the block's left edge, clipped away. The box is placed here in full, so nothing depends on which utilities exist. */
 .md [data-streamdown="code-block"] > :has(> [data-streamdown="code-block-actions"]) {
   position: absolute;
-  inset: 2px 4px auto auto;
+  inset: 4px 6px auto auto;
   z-index: 1;
+  display: block;
   width: auto;
   height: auto;
   pointer-events: none;
@@ -142,16 +170,25 @@
 .md [data-streamdown="code-block-copy-button"] {
   display: grid;
   place-items: center;
-  width: 28px;
-  height: 28px;
-  border-radius: 999px;
+  width: 26px;
+  height: 26px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
   padding: 0;
-  color: var(--label-secondary);
+  color: var(--label-tertiary);
   cursor: pointer;
   transition:
     background-color 0.16s,
     color 0.16s,
     scale var(--press-dur) var(--press-ease);
+}
+/* The glyph comes at 14px with a 2-unit stroke on a 24-unit grid, drawn for a toolbar. Here it sits beside 12.5px code:
+   a little larger and a quarter thinner, it has the weight of the letters around it. */
+.md [data-streamdown="code-block-copy-button"] svg {
+  width: 15px;
+  height: 15px;
+  stroke-width: 1.5;
 }
 .md [data-streamdown="code-block-copy-button"]:active {
   scale: 0.9;
@@ -163,7 +200,7 @@
 .md [data-streamdown="code-block-body"],
 .md [data-streamdown="code-block"] pre {
   margin: 0;
-  padding: 2px 12px 10px;
+  padding: 5px 14px 11px;
   border: 0;
   border-radius: 0;
   background: transparent;
@@ -173,6 +210,42 @@
   line-height: 18px;
   white-space: pre;
   tab-size: 2;
+  /* A long line scrolls under a slim thumb, as every other scrolling region here does (base.css). */
+  scrollbar-width: thin;
+  scrollbar-color: color-mix(in srgb, var(--label) 24%, transparent) transparent;
+}
+/* Where the scrollbar can be drawn part by part, it is a hair of a thumb and nothing else. The standard properties
+   above still leave the arrow buttons at both ends on Windows, and they take precedence over these parts wherever
+   both are understood, so they are put back to `auto` here. */
+@supports selector(::-webkit-scrollbar) {
+  .md [data-streamdown="code-block-body"],
+  .md [data-streamdown="code-block"] pre {
+    scrollbar-width: auto;
+    scrollbar-color: auto;
+  }
+  .md [data-streamdown="code-block-body"]::-webkit-scrollbar,
+  .md [data-streamdown="code-block"] pre::-webkit-scrollbar {
+    height: 9px;
+    background: transparent;
+  }
+  /* The thumb stops short of the rounded corners of the sheet. */
+  .md [data-streamdown="code-block-body"]::-webkit-scrollbar-track,
+  .md [data-streamdown="code-block"] pre::-webkit-scrollbar-track {
+    margin-inline: 11px;
+    background: transparent;
+  }
+  .md [data-streamdown="code-block-body"]::-webkit-scrollbar-thumb,
+  .md [data-streamdown="code-block"] pre::-webkit-scrollbar-thumb {
+    border: 3px solid transparent;
+    border-radius: 999px;
+    background: color-mix(in srgb, var(--label) 26%, transparent);
+    background-clip: content-box;
+  }
+  .md [data-streamdown="code-block-body"]::-webkit-scrollbar-thumb:hover,
+  .md [data-streamdown="code-block"] pre::-webkit-scrollbar-thumb:hover {
+    background: color-mix(in srgb, var(--label) 44%, transparent);
+    background-clip: content-box;
+  }
 }
 /* The body holds the <pre>: only the inner one is padded and scrolls, or the code would be inset twice. */
 .md [data-streamdown="code-block-body"]:has(> pre) {
@@ -181,9 +254,27 @@
 }
 .md [data-streamdown="code-block"] code {
   padding: 0;
+  border: 0;
   background: transparent;
   font-family: inherit;
   font-size: inherit;
+}
+/* The library writes every line of code as an element of its own with no line break between them, and leaves it to one
+   of its class names to make each a line. Said here, the code keeps its lines whether or not that utility is built. */
+.md [data-streamdown="code-block"] code > span {
+  display: block;
+}
+/* "Copied", for a screen reader only: the library hides it with a class name as well. */
+.md [data-streamdown="code-block"] output {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  border: 0;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
 }
 /* Highlighted tokens carry their colour as a custom property set from script, never as a style attribute in markup. */
 .md [data-streamdown="code-block"] span {

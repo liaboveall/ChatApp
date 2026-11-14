@@ -30,6 +30,11 @@ import {
 } from './tokens.ts'
 
 const pair = ([light, dark]: Pair): string => `light-dark(${light}, ${dark})`
+/** A veil of white of the given strength in each theme, as a colour pair. */
+const veil = ([light, dark]: readonly [number, number]): Pair => [
+  `rgb(255 255 255 / ${light})`,
+  `rgb(255 255 255 / ${dark})`,
+]
 
 /** Runtime custom properties on :root and the attribute-driven overrides. */
 function runtimeCss(): string {
@@ -53,10 +58,12 @@ function runtimeCss(): string {
     add(`a-${key}-deco`, pair(accent.deco))
     add(`a-${key}-solid`, pair(accent.solid))
     add(`a-${key}-text`, pair(accent.text))
+    add(`a-${key}-veil`, pair(veil(accent.veil)))
   }
   add('accent', `var(--a-${DEFAULT_ACCENT}-deco)`)
   add('accent-solid', `var(--a-${DEFAULT_ACCENT}-solid)`)
   add('accent-text', `var(--a-${DEFAULT_ACCENT}-text)`)
+  add('accent-veil', `var(--a-${DEFAULT_ACCENT}-veil)`)
   add('bubble-out', 'var(--accent-solid)')
   add('focus-ring', 'var(--accent-text)')
 
@@ -115,6 +122,7 @@ function runtimeCss(): string {
   --accent: var(--a-${key}-deco);
   --accent-solid: var(--a-${key}-solid);
   --accent-text: var(--a-${key}-text);
+  --accent-veil: var(--a-${key}-veil);
 }`,
     )
   }

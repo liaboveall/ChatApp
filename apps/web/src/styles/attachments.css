@@ -402,22 +402,78 @@
 
 /* ---- Mentions in a message ---- */
 
+/* A name that stands for a person is a bead of glass set into the bubble. A bubble is one flat colour, so there is
+   nothing behind the bead to blur or bend: like every pane here it is seen by its edges and by being a little lighter
+   than what it lies on. The upper edge catches the light, a hairline closes the shape, and the fill is strongest at
+   the top and eases off towards the bottom, the way a convex lens reads. No backdrop filter: a long conversation holds
+   any number of these and they must cost nothing to scroll.
+
+   The bead is a pill twice as tall as its letters (30px around 15px text), with more room at the sides than above and
+   below. It is one piece (`inline-block`): a name is never cut in two at the end of a line, the whole bead moves to the
+   next one, and only a name longer than the line wraps, inside its bead. Its height is its line height, so it is the
+   same in every font and follows the text size setting. It is taller than a line of the message, so the line that
+   carries one grows to hold it, and a pixel of air above and below keeps two beads on neighbouring lines apart.
+
+   The name must stand on the line of the sentence it is part of, and that rules out the obvious way of drawing this.
+   Nothing may push the text down from the top of its box: no padding, border or margin above or below. Chromium
+   places the text of such a box a fraction of a pixel off the baseline, and at a display scaling that is not a whole
+   number (125%, 150%, 175%; browser zoom) the page is laid out in physical pixels, so even a whole CSS pixel of
+   padding is a fraction there: the name then sits a device pixel above or below the words beside it, here and there
+   depending on where the line falls (2026-11-14, found on a display at 150%). So the box is nothing but a line of
+   text, as tall as its line height, and the glass is drawn behind it by `::before`, which may be placed anywhere
+   without moving a letter. Checked at real scalings by visual/mention.spec.ts.
+
+   The fill never moves the colour under the name by more than the contrast check allows (`mention` pairs in
+   tools/contrast.ts). In a bubble of one's own it is `--accent-veil`: as much white as that accent's fill can take
+   under white text, a token of its own for each accent and theme (design/tokens.ts). */
 .mention {
-  padding: 1px 4px;
-  border-radius: 6px;
+  --mention-top: color-mix(in srgb, var(--accent-solid) 13%, transparent);
+  --mention-bottom: color-mix(in srgb, var(--accent-solid) 7%, transparent);
+  --mention-light: light-dark(rgb(255 255 255 / 0.85), rgb(255 255 255 / 0.13));
+  --mention-shade: light-dark(rgb(60 46 24 / 0.1), rgb(0 0 0 / 0.34));
+  --mention-edge: color-mix(in srgb, var(--accent-solid) 20%, transparent);
+  --mention-cast: 0 0 0 0 transparent;
+  display: inline-block;
+  position: relative;
+  /* A stacking context of its own: the glass lies under the name and over the bubble. */
+  z-index: 0;
+  max-width: 100%;
+  padding-inline: 0.85em;
+  margin-inline: 0.14em;
+  /* The bead (2em) and a pixel of air above and below. No padding or margin in this direction: see above. */
+  line-height: calc(2em + 2px);
   color: var(--accent-text);
   font-weight: 600;
 }
-/* Me: the name stands on a tint of the accent (the pair the contrast check covers). */
-.mention[data-self="true"] {
-  background: color-mix(in srgb, var(--accent-solid) 16%, transparent);
+.mention::before {
+  content: "";
+  position: absolute;
+  inset: 1px 0;
+  z-index: -1;
+  border-radius: 1.1em;
+  background: linear-gradient(to bottom, var(--mention-top), var(--mention-bottom));
+  box-shadow:
+    inset 0 1px 0 var(--mention-light),
+    inset 0 -1px 0 var(--mention-shade),
+    0 0 0 0.5px var(--mention-edge),
+    var(--mention-cast);
 }
+/* Me: the same bead, fuller, so my own name is the one that stands out in a run of them. */
+.mention[data-self="true"] {
+  --mention-top: color-mix(in srgb, var(--accent-solid) 16%, transparent);
+  --mention-bottom: color-mix(in srgb, var(--accent-solid) 14%, transparent);
+  --mention-edge: color-mix(in srgb, var(--accent-solid) 34%, transparent);
+}
+/* In a bubble of my own the name is white on the accent, so the bead is lit instead of tinted: a pane lighter than
+   the bubble, most of all along its upper edge. Nothing in it is darker than the bubble. */
 .bubble--out .mention {
+  --mention-top: var(--accent-veil);
+  --mention-bottom: color-mix(in srgb, var(--accent-veil) 68%, transparent);
+  --mention-light: rgb(255 255 255 / 0.46);
+  --mention-shade: rgb(255 255 255 / 0.05);
+  --mention-edge: rgb(255 255 255 / 0.2);
+  --mention-cast: 0 1px 2px rgb(0 0 0 / 0.1);
   color: var(--on-accent);
-  background: var(--inset);
-  text-decoration: underline;
-  text-decoration-thickness: 1px;
-  text-underline-offset: 2px;
 }
 
 /* ---- Changing a picture (one's own, a conversation's) ---- */

@@ -221,12 +221,21 @@
 .msg__col {
   position: relative;
   display: grid;
+  /* One column that is as wide as the room given to the message and no wider. An automatic track would take the width
+     of its widest content, and a line of code does not wrap. */
+  grid-template-columns: minmax(0, 1fr);
   gap: 2px;
   max-width: 68%;
   min-width: 0;
 }
 .msg[data-who="out"] .msg__col {
   justify-items: end;
+}
+/* A message of one's own is not stretched across the column, so its width is its content's. That is capped at the
+   column: what does not wrap inside (code, a wide table) scrolls in its own block, and the bubble stays in view. */
+.msg__col > * {
+  max-width: 100%;
+  min-width: 0;
 }
 .msg--flash::before {
   content: "";

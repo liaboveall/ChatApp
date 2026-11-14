@@ -31,6 +31,11 @@ describe('the generated stylesheet', () => {
     for (const key of ACCENT_KEYS) {
       expect(css).toContain(`:root[data-accent="${key}"]`)
       expect(css).toContain(`--a-${key}-solid:`)
+      // The veil of glass set into the fill follows the chosen accent like the fill itself.
+      expect(css).toMatch(
+        new RegExp(`^\\s+--a-${key}-veil: light-dark\\(rgb\\(255 255 255 / `, 'm'),
+      )
+      expect(css).toContain(`--accent-veil: var(--a-${key}-veil);`)
     }
   })
 
@@ -76,6 +81,7 @@ describe('token data', () => {
     for (const accent of Object.values(accents)) {
       expect(accent.solid).toHaveLength(2)
       expect(accent.text).toHaveLength(2)
+      expect(accent.veil).toHaveLength(2)
     }
   })
 

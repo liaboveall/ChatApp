@@ -28,6 +28,8 @@ const DERIVE_MARGIN = 4.6
 const THEMES = ['light', 'dark'] as const
 type Theme = (typeof THEMES)[number]
 const TINT = 0.16
+/** No accent's veil (the glass of a mention in an own bubble) is stronger than this, so the nine look alike. */
+const VEIL_CAP = 0.14
 /** Share of the content surface the sidebar search field puts between its placeholder and the glass. */
 const SIDEBAR_PLATE = 0.72
 
@@ -172,6 +174,29 @@ for (const [i, theme] of THEMES.entries()) {
     // Quote block inside an own bubble: an inset that moves the bubble colour away from the text colour.
     const inset = over({ r: 0, g: 0, b: 0, a: 0.16 }, solid)
     check('气泡与实底', `${key}: on-accent / quote inset`, theme, on, inset, TEXT)
+    // A mention in an own bubble is a bead of glass: at its lightest (the upper edge of the fill) it lays the accent's
+    // veil of white under the name. The veil is a token, so a fill that changes without it fails here.
+    const veil = accent.veil[i]
+    if (veil === undefined || veil < 0 || veil > VEIL_CAP) {
+      throw new Error(`${key}: veil out of range (0 to ${VEIL_CAP})`)
+    }
+    check(
+      '气泡与实底',
+      `${key}: on-accent / mention glass`,
+      theme,
+      on,
+      over({ r: 255, g: 255, b: 255, a: veil }, solid),
+      TEXT,
+    )
+    // A mention in somebody else's bubble: accent text on the bubble under the fuller of the two tints (my own name).
+    check(
+      '强调色文字',
+      `${key}: accent-text / bubble-in + mention tint`,
+      theme,
+      text,
+      over({ ...solid, a: TINT }, token(neutral, 'bubble-in', i)),
+      TEXT,
+    )
   }
 
   // Status colours as text and as filled buttons.

@@ -65,6 +65,12 @@ export type AccentEntry = {
   solid: Pair
   /** Accent-coloured text, links, icons and focus rings: at least 4.7:1 on every surface. */
   text: Pair
+  /**
+   * How much white a pane of glass set into the fill may lay under `ACCENT_ON` text (a mention in a bubble of one's
+   * own): the most that keeps the text at 4.6:1, and never more than 0.14, so the panes of the nine accents look alike.
+   * `bun run design:contrast` checks every value and fails on one that is too much for its fill.
+   */
+  veil: readonly [light: number, dark: number]
 }
 
 /**
@@ -83,42 +89,49 @@ export const accents = {
     deco: ['#4C7DD9', '#5E8FED'],
     solid: ['#3C61A7', '#4167AD'],
     text: ['#2C4F94', '#9EBEF8'],
+    veil: [0.125, 0.09],
   },
   purple: {
     name: '紫',
     deco: ['#836DCE', '#9580E2'],
     solid: ['#604F98', '#6B5BA5'],
     text: ['#503E86', '#BEB4F1'],
+    veil: [0.14, 0.1],
   },
   pink: {
     name: '粉',
     deco: ['#C2567D', '#D7688F'],
     solid: ['#964360', '#A04C69'],
     text: ['#833250', '#EDA7BB'],
+    veil: [0.14, 0.095],
   },
   red: {
     name: '红',
     deco: ['#D24E45', '#E76157'],
     solid: ['#9F3A34', '#A9443C'],
     text: ['#8B2823', '#F8A49A'],
+    veil: [0.14, 0.12],
   },
   orange: {
     name: '橙',
     deco: ['#BF6427', '#D4763C'],
     solid: ['#944E21', '#9D562B'],
     text: ['#813C0B', '#EAAF8E'],
+    veil: [0.14, 0.09],
   },
   yellow: {
     name: '黄',
     deco: ['#A17911', '#B48B2D'],
     solid: ['#775809', '#806118'],
     text: ['#634804', '#D4BA89'],
+    veil: [0.14, 0.1],
   },
   green: {
     name: '绿',
     deco: ['#3C9467', '#50A678'],
     solid: ['#266A47', '#307250'],
     text: ['#115837', '#9ACBAE'],
+    veil: [0.14, 0.1],
   },
   // The blue-green of mineral pigment on warm silk. A hue nothing else in the interface claims (blue is information,
   // green is success and presence, red danger, orange warning, purple the assistant).
@@ -127,12 +140,14 @@ export const accents = {
     deco: ['#19919C', '#36A3AE'],
     solid: ['#106A72', '#1A7078'],
     text: ['#05585F', '#91C9D0'],
+    veil: [0.14, 0.11],
   },
   graphite: {
     name: '石墨',
     deco: ['#8A8A94', '#9A9AA4'],
     solid: ['#50505A', '#6C6C78'],
     text: ['#50505A', '#C4C4D0'],
+    veil: [0.14, 0.055],
   },
 } as const satisfies Record<string, AccentEntry>
 

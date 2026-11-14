@@ -10,6 +10,10 @@
 @import "./pages.css" layer(components);
 @import "./chat.css" layer(components);
 @import "./inspector.css" layer(components);
-@import "./markdown.css" layer(components);
+/* Not in a layer, unlike its neighbours. The Markdown library writes Tailwind class names of its own on what it renders
+   (a frame, padding, a font size). They are not meant to do anything here, but Tailwind builds any class it finds
+   named anywhere in this package, a comment in a test included, and a utility outranks the components layer: one such
+   word once gave every code block three frames. Unlayered rules outrank utilities, so what markdown.css says holds. */
+@import "./markdown.css";
 @import "./attachments.css" layer(components);
 @import "./agent.css" layer(components);
