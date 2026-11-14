@@ -1,6 +1,6 @@
 import { createVerifiedMember } from './support/api.ts'
 import { expect, test } from './support/fixtures.ts'
-import { chooseTheme, openSettings, signIn } from './support/ui.ts'
+import { chooseTheme, openSettings, pageAtRest, signIn } from './support/ui.ts'
 
 test('M5 memories: private default, explicit site consent, versioned revocation, delete and persistence', async ({
   page,
@@ -66,6 +66,7 @@ for (const scheme of ['light', 'dark'] as const) {
     await expect(form.getByText('允许站点助手使用', { exact: true })).toBeVisible()
     await expect(form.getByRole('switch', { name: '允许站点助手使用' })).not.toBeChecked()
     expect(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth)).toBe(false)
+    await pageAtRest(page)
     const result = await new AxeBuilder({ page })
       .include('[role="dialog"]')
       .withTags(['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa', 'wcag22aa'])

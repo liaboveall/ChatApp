@@ -2,6 +2,7 @@ import { useNavigate } from '@tanstack/react-router'
 import { Compass, MessageCircle, Sparkles } from 'lucide-react'
 import { useState } from 'react'
 import { AppIcon } from '@/components/brand/app-icon.tsx'
+import { Tilt } from '@/components/brand/tilt.tsx'
 import { Button } from '@/components/ui/button.tsx'
 import { NewAgentChat } from '@/features/agent/new-chat.tsx'
 import { NewConversationDialog } from '@/features/conversations/new-conversation-dialog.tsx'
@@ -15,7 +16,9 @@ export function Welcome({ name }: { name: string }) {
   const [agentOpen, setAgentOpen] = useState(false)
   return (
     <div className="welcome">
-      <AppIcon size={72} />
+      <Tilt>
+        <AppIcon size={72} />
+      </Tilt>
       <h1 className="text-large-title">{m.welcome_title({ name })}</h1>
       <p className="max-w-[44ch] text-body text-label-secondary text-balance">{m.welcome_text()}</p>
       <div className="welcome__actions">

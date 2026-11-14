@@ -63,7 +63,7 @@
     background-color 0.16s,
     color 0.16s,
     box-shadow 0.16s,
-    scale var(--dur-snappy) var(--spring-snappy);
+    scale var(--press-dur) var(--press-ease);
 }
 
 /* Press: every button gives a little under the pointer. */
@@ -189,7 +189,7 @@
   transition:
     background-color 0.16s,
     color 0.16s,
-    scale var(--dur-snappy) var(--spring-snappy);
+    scale var(--press-dur) var(--press-ease);
 }
 .icon-btn:hover {
   background: var(--fill);
@@ -707,7 +707,7 @@
   transition:
     background-color 0.16s,
     border-color 0.16s,
-    scale var(--dur-snappy) var(--spring-snappy);
+    scale var(--press-dur) var(--press-ease);
 }
 .check__box:active {
   scale: 0.9;
@@ -817,7 +817,7 @@
   box-shadow:
     0 0 0 1px var(--control-border),
     0 2px 6px rgb(0 0 0 / 0.26);
-  transition: scale var(--dur-snappy) var(--spring-snappy);
+  transition: scale var(--press-dur) var(--press-ease);
 }
 .slider:active::-webkit-slider-thumb {
   scale: 1.12;
@@ -846,6 +846,10 @@
   line-height: 20px;
   font-weight: 700;
   font-variant-numeric: tabular-nums;
+}
+/* A count that changes on screen: the new number moves into the place of the old (useTick in lib/motion.ts). */
+.badge__tick {
+  display: inline-block;
 }
 .badge--muted {
   background: var(--fill-hover);
@@ -969,13 +973,17 @@
     var(--elev-2);
   transform-origin: var(--transform-origin, center);
   transition:
-    opacity 0.12s,
-    scale 0.12s;
+    opacity 0.12s var(--ease-soft),
+    scale 0.16s var(--ease-soft);
 }
 .tooltip[data-starting-style],
 .tooltip[data-ending-style] {
   opacity: 0;
   scale: 0.94;
+}
+/* Going along a row of controls, the second tip is simply there: the wait and the entrance are for the first one. */
+.tooltip[data-instant] {
+  transition-duration: 0s;
 }
 .tooltip kbd {
   margin-left: 8px;
@@ -1017,13 +1025,18 @@
     var(--elev-2);
   pointer-events: auto;
   transition:
-    opacity var(--dur-fade) ease,
+    opacity var(--dur-fade) var(--ease-soft),
     transform var(--dur-bouncy) var(--spring-bouncy);
 }
 .toast[data-starting-style],
 .toast[data-ending-style] {
   opacity: 0;
   transform: translateY(-16px) scale(0.92);
+}
+/* It leaves the way it came, faster, without the spring's second thoughts. */
+.toast[data-ending-style] {
+  transition-duration: 0.16s;
+  transition-timing-function: var(--ease-soft);
 }
 .toast__action {
   min-height: 28px;
@@ -1052,15 +1065,17 @@
   color: var(--label);
   transform-origin: var(--transform-origin, top left);
   transition:
-    opacity 0.14s ease-out,
+    opacity 0.14s var(--ease-soft),
     transform var(--dur-snappy) var(--spring-snappy);
 }
+/* The pane grows out of its control (never from nothing); it leaves faster, and without the spring. */
 .menu[data-starting-style],
 .menu[data-ending-style] {
   opacity: 0;
   transform: scale(0.9);
 }
 .menu[data-ending-style] {
+  transform: scale(0.96);
   transition-duration: 0.1s;
 }
 .menu__group + .menu__group {
@@ -1164,7 +1179,7 @@
   box-shadow: var(--glass-ring), var(--glass-drop-lg);
   pointer-events: auto;
   transition:
-    opacity 0.16s ease-out,
+    opacity 0.16s var(--ease-soft),
     transform var(--dur-bouncy) var(--spring-bouncy);
 }
 .dialog[data-starting-style],
@@ -1173,7 +1188,9 @@
   transform: scale(0.92) translateY(8px);
 }
 .dialog[data-ending-style] {
+  transform: scale(0.97);
   transition-duration: 0.12s;
+  transition-timing-function: var(--ease-soft);
 }
 
 /* Destructive account confirmation must stay readable over the settings sheet, including nested WebKit layers. */

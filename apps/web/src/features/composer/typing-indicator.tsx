@@ -1,4 +1,6 @@
+import { AnimatePresence, motion } from 'motion/react'
 import { useEffect, useState } from 'react'
+import { springs, timing } from '@/design/tokens.ts'
 import { useUsers } from '@/lib/sync/hooks.ts'
 import { nextExpiry, typersOf, useTyping } from '@/lib/sync/typing.ts'
 import { m } from '@/paraglide/messages.js'
@@ -31,20 +33,38 @@ export function TypingIndicator({ conversationId }: { conversationId: string }) 
   }
   return (
     <div className="typing" role="status" aria-live="off" data-conversation={conversationId}>
-      {first === undefined ? null : (
-        <span className="typing__pill">
-          <span className="typing__dots" aria-hidden="true">
-            <i />
-            <i />
-            <i />
-          </span>
-          <span className="typing__label">
-            {typers.length === 1
-              ? m.typing_one({ name: name(first) })
-              : m.typing_many({ name: name(first), count: typers.length - 1 })}
-          </span>
-        </span>
-      )}
+      {/* The pill grows out of its corner and shrinks back into it. */}
+      <AnimatePresence>
+        {first === undefined ? null : (
+          <motion.span
+            key="pill"
+            className="typing__pill"
+            // It comes out of, and goes back into, the corner nearest the composer.
+            style={{ originX: 0.08, originY: 1 }}
+            initial={{ opacity: 0, scale: 0.8 }}
+            animate={{
+              opacity: 1,
+              scale: 1,
+              transition: {
+                scale: { type: 'spring', ...springs.bouncy },
+                opacity: { duration: 0.14 },
+              },
+            }}
+            exit={{ opacity: 0, scale: 0.8, transition: { duration: timing.swap / 1000 } }}
+          >
+            <span className="typing__dots" aria-hidden="true">
+              <i />
+              <i />
+              <i />
+            </span>
+            <span className="typing__label">
+              {typers.length === 1
+                ? m.typing_one({ name: name(first) })
+                : m.typing_many({ name: name(first), count: typers.length - 1 })}
+            </span>
+          </motion.span>
+        )}
+      </AnimatePresence>
     </div>
   )
 }

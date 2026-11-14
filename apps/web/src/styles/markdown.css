@@ -151,7 +151,7 @@
   transition:
     background-color 0.16s,
     color 0.16s,
-    scale var(--dur-snappy) var(--spring-snappy);
+    scale var(--press-dur) var(--press-ease);
 }
 .md [data-streamdown="code-block-copy-button"]:active {
   scale: 0.9;

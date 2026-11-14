@@ -12,6 +12,7 @@ import { Toasts } from '@/components/ui/toasts.tsx'
 import { TooltipProvider } from '@/components/ui/tooltip.tsx'
 import { startAppearance, useAppearance } from '@/lib/appearance.ts'
 import { startMonitoring } from '@/lib/monitoring.ts'
+import { watchPointer } from '@/lib/motion.ts'
 import { watchInstall } from '@/lib/pwa/install.ts'
 import { registerServiceWorker } from '@/lib/pwa/register.ts'
 import { meQuery } from '@/lib/queries.ts'
@@ -26,6 +27,7 @@ import './styles/app.css'
 document.documentElement.lang = getLocale()
 setRemindersLabel(m.conversation_reminders())
 startAppearance()
+watchPointer()
 startMonitoring()
 
 const router = createAppRouter(queryClient)

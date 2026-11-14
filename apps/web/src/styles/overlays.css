@@ -23,17 +23,18 @@
   box-shadow: var(--glass-ring), var(--glass-drop-lg);
   pointer-events: auto;
   transform-origin: top center;
+  /* Opened from the keyboard, many times a day: it is there almost at once, with no spring to sit through. */
   transition:
-    opacity 0.16s ease-out,
-    transform var(--dur-bouncy) var(--spring-bouncy);
+    opacity 0.12s var(--ease-soft),
+    transform 0.18s var(--ease-soft);
 }
 .palette[data-starting-style],
 .palette[data-ending-style] {
   opacity: 0;
-  transform: scale(0.94) translateY(-8px);
+  transform: scale(0.97) translateY(-6px);
 }
 .palette[data-ending-style] {
-  transition-duration: 0.12s;
+  transition-duration: 0.1s;
 }
 .palette__head {
   display: flex;
@@ -179,7 +180,7 @@
   box-shadow: var(--glass-ring), var(--glass-drop-lg);
   pointer-events: auto;
   transition:
-    opacity 0.16s ease-out,
+    opacity 0.18s var(--ease-soft),
     transform var(--dur-smooth) var(--spring-smooth);
 }
 .sheet[data-starting-style],
@@ -188,7 +189,9 @@
   transform: scale(0.95) translateY(10px);
 }
 .sheet[data-ending-style] {
+  transform: scale(0.98);
   transition-duration: 0.14s;
+  transition-timing-function: var(--ease-soft);
 }
 .sheet__nav {
   display: flex;
@@ -376,7 +379,7 @@
   box-shadow:
     inset 0 1px 0 rgb(255 255 255 / 0.3),
     inset 0 0 0 1px rgb(0 0 0 / 0.1);
-  transition: scale var(--dur-snappy) var(--spring-snappy);
+  transition: scale var(--press-dur) var(--press-ease);
 }
 .swatch:hover {
   scale: 1.08;

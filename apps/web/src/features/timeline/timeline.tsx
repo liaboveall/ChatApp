@@ -7,6 +7,7 @@
  */
 import type { Conversation } from '@chatapp/contracts'
 import { useQuery } from '@tanstack/react-query'
+import { AnimatePresence } from 'motion/react'
 import {
   type KeyboardEvent,
   type Ref,
@@ -42,6 +43,7 @@ import { MessageAnnouncer } from './announcer.tsx'
 import { buildItems, type TimelineItem } from './items.ts'
 import { JumpToLatest } from './jump-to-latest.tsx'
 import { type RowContext, TimelineRow } from './message-row.tsx'
+import { useArrivals } from './use-arrivals.ts'
 import { useReadPosition } from './use-read-position.ts'
 
 /** Pixels from the bottom within which the reader counts as "at the bottom". */
@@ -55,8 +57,6 @@ const TOP_CLEARANCE_PX = 80
 const COMPOSER_CLEARANCE_PX = 24
 /** How long a jump with the keyboard waits for the row it is going to, to be drawn, before it leaves the focus where it is. */
 const FOCUS_WAIT_MS = 2_000
-
-const NO_IDS: ReadonlySet<string> = new Set()
 
 type Row = { kind: 'pad-top' } | { kind: 'pad-bottom' } | { kind: 'item'; item: TimelineItem }
 
@@ -149,6 +149,13 @@ export function Timeline({ conversation, window: win, users, meId, handleRef }: 
     const count = latest.current.rows.length
     if (count > 0) handle.current?.scrollToIndex(count - 1, { align: 'end', smooth })
   }
+
+  // A message that comes (or goes out) while the reader is at the foot of a list that is already on screen makes an
+  // entrance; one that comes while they are reading further up is counted on the "jump to latest" button instead.
+  const arrivals = useArrivals(
+    built.items,
+    () => placed && stick.current && !latest.current.win.hasMoreAfter,
+  )
 
   // A feed holds articles (ARIA, and axe insists): where nobody has written yet it is a plain group until the first message.
   const hasMessages = built.items.some((item) => item.type === 'message')
@@ -487,7 +494,7 @@ export function Timeline({ conversation, window: win, users, meId, handleRef }: 
     joinedAt: conversation.me?.joinedAt ?? null,
     conversationKind: conversation.kind,
     currentId,
-    freshIds: NO_IDS,
+    arrivals,
     onRetry: (entry) => outbox.retry(entry.clientId, entry.conversationId),
     onDiscard: (entry) => outbox.discard(entry.clientId, entry.conversationId),
     onJump: (replyTo) => void jumpTo(replyTo.seq, replyTo.id),
@@ -608,9 +615,11 @@ export function Timeline({ conversation, window: win, users, meId, handleRef }: 
           </Button>
         </div>
       ) : null}
-      {!atBottom || win.hasMoreAfter ? (
-        <JumpToLatest count={behind} onClick={() => void toLatest()} />
-      ) : null}
+      <AnimatePresence>
+        {!atBottom || win.hasMoreAfter ? (
+          <JumpToLatest key="jump" count={behind} onClick={() => void toLatest()} />
+        ) : null}
+      </AnimatePresence>
       <div className="sr-only" role="status" aria-live="polite">
         {status}
       </div>

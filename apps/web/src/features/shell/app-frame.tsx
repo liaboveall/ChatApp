@@ -40,6 +40,7 @@ import { presenceLabel } from '@/features/conversations/presence-text.ts'
 import { type SettingsSection, SettingsSheet } from '@/features/settings/settings-sheet.tsx'
 import { api } from '@/lib/api.ts'
 import { useAppearance } from '@/lib/appearance.ts'
+import { repaint } from '@/lib/motion.ts'
 import { PRODUCT_NAME } from '@/lib/product.ts'
 import { useChrome } from '@/lib/shell-chrome.ts'
 import { useShell } from '@/lib/shell-state.ts'
@@ -280,7 +281,7 @@ export function AppFrame({ me, settings, onSettingsChange, onSignOut, children }
         icon: Sun,
         label: m.palette_theme_light(),
         keywords: 'light theme',
-        run: () => setTheme('theme', 'light'),
+        run: () => repaint(() => setTheme('theme', 'light'), 'fade'),
       },
       {
         id: 'theme-dark',
@@ -288,7 +289,7 @@ export function AppFrame({ me, settings, onSettingsChange, onSignOut, children }
         icon: Moon,
         label: m.palette_theme_dark(),
         keywords: 'dark theme',
-        run: () => setTheme('theme', 'dark'),
+        run: () => repaint(() => setTheme('theme', 'dark'), 'fade'),
       },
       {
         id: 'theme-system',
@@ -296,7 +297,7 @@ export function AppFrame({ me, settings, onSettingsChange, onSignOut, children }
         icon: Monitor,
         label: m.palette_theme_system(),
         keywords: 'system theme auto',
-        run: () => setTheme('theme', 'system'),
+        run: () => repaint(() => setTheme('theme', 'system'), 'fade'),
       },
       {
         id: 'sign-out',

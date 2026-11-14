@@ -1,10 +1,11 @@
 import { Bell, CheckCheck } from 'lucide-react'
-import { useEffect, useState } from 'react'
+import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { loadOlderNotices, markNoticesRead, refreshNotices } from '@/app/notifications.ts'
 import { Badge } from '@/components/ui/badge.tsx'
 import { Button, IconButton } from '@/components/ui/button.tsx'
 import { Banner, Skeleton } from '@/components/ui/feedback.tsx'
 import { Popover } from '@/components/ui/popover.tsx'
+import { play, usePop } from '@/lib/motion.ts'
 import { useNotices, useUnreadNotices } from '@/lib/notifications/store.ts'
 import { m } from '@/paraglide/messages.js'
 import { NotificationList } from './notification-list.tsx'
@@ -20,6 +21,20 @@ export function NotificationBell({ onOpenSettings, defaultOpen }: NotificationBe
   const [open, setOpen] = useState(defaultOpen ?? false)
   const unread = useUnreadNotices()
   const label = unread > 0 ? m.notice_bell_unread({ count: unread }) : m.notice_bell()
+  // A notification that comes while the bell is in sight rings it once: it swings from where it hangs and settles.
+  const bell = useRef<HTMLButtonElement>(null)
+  const count = usePop<HTMLSpanElement>(unread > 0)
+  const rung = useRef(unread)
+  useLayoutEffect(() => {
+    const more = unread > rung.current
+    rung.current = unread
+    if (!more) return
+    play(
+      bell.current?.querySelector('svg'),
+      [0, 16, -13, 9, -6, 3, 0].map((turn) => ({ rotate: `${turn}deg` })),
+      { duration: 700, easing: 'ease-out' },
+    )
+  }, [unread])
   return (
     <Popover
       open={open}
@@ -29,9 +44,15 @@ export function NotificationBell({ onOpenSettings, defaultOpen }: NotificationBe
       align="start"
       className="notices"
       trigger={
-        <IconButton label={label} icon={Bell} className="notice-bell" aria-haspopup="dialog">
+        <IconButton
+          ref={bell}
+          label={label}
+          icon={Bell}
+          className="notice-bell"
+          aria-haspopup="dialog"
+        >
           {unread > 0 ? (
-            <Badge tone="danger" className="notice-bell__count">
+            <Badge ref={count} tone="danger" className="notice-bell__count" tick>
               {unread > 99 ? '99+' : unread}
             </Badge>
           ) : null}

@@ -13,7 +13,7 @@ import {
 } from './support/chat.ts'
 import { expect, newContext, test } from './support/fixtures.ts'
 import { holdAnswer, signInInPlace, signOutInPlace, watchText } from './support/late.ts'
-import { animationsFinished, chooseTheme, signIn } from './support/ui.ts'
+import { animationsFinished, chooseTheme, pageAtRest, signIn } from './support/ui.ts'
 
 const tags = ['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa', 'wcag22aa', 'best-practice']
 let admin: APIRequestContext
@@ -32,6 +32,7 @@ async function accessible(page: Page) {
   // no sidebar.)
   const sidebar = page.locator('.sidebar')
   if ((await sidebar.count()) > 0) await animationsFinished(sidebar)
+  await pageAtRest(page)
   const result = await new AxeBuilder({ page }).withTags(tags).analyze()
   expect(
     result.violations.map((v) => ({

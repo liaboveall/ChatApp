@@ -57,3 +57,35 @@ export async function animationsFinished(locator: Locator): Promise<void> {
     )
   })
 }
+
+/**
+ * Waits until nothing on the page is on its way any more: every animation and transition that ends has ended. A check of
+ * what the page looks like at rest (the contrast of its text, for one) must not be made while a pane is still fading in:
+ * the text of a half-transparent pane has half its contrast for that moment, and that is not what the check is about.
+ *
+ * Left alone, because they never end on their own: the ones that run for ever (the lights of the wallpaper, the dots of
+ * "typing") and the ones that follow a scroll position instead of the clock (the fading ends of the narrow settings'
+ * row of sections). And the wait itself gives up after two seconds: nothing here takes that long, and a check that
+ * follows should say what it finds rather than time out in its preparation.
+ */
+export async function pageAtRest(page: Page): Promise<void> {
+  await page.evaluate(async () => {
+    const deadline = performance.now() + 2000
+    for (;;) {
+      const moving = document
+        .getAnimations()
+        .filter(
+          (animation) =>
+            animation.playState === 'running' &&
+            animation.timeline === document.timeline &&
+            animation.effect?.getComputedTiming().iterations !== Number.POSITIVE_INFINITY,
+        )
+      const left = deadline - performance.now()
+      if (moving.length === 0 || left <= 0) return
+      await Promise.race([
+        Promise.all(moving.map((animation) => animation.finished.catch(() => undefined))),
+        new Promise((resolve) => setTimeout(resolve, left)),
+      ])
+    }
+  })
+}

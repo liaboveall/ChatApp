@@ -11,6 +11,7 @@ import {
   Sparkles,
   Users,
 } from 'lucide-react'
+import { motion } from 'motion/react'
 import type { Ref } from 'react'
 import { Avatar } from '@/components/ui/avatar.tsx'
 import { IconButton } from '@/components/ui/button.tsx'
@@ -103,11 +104,17 @@ export function Sidebar({
           </MenuItem>
         </Menu>
       </div>
-      {/* Keyboard access is required when the scrolling conversation region has no focusable messages yet (WCAG 2.2). */}
-      {/* biome-ignore lint/a11y/noNoninteractiveTabindex: the named scroll region must accept keyboard scrolling even when empty. */}
-      <section className="sidebar__scroll scroll" aria-label={m.shell_sidebar_label()} tabIndex={0}>
+      {/* Keyboard access is required when the scrolling conversation region has no focusable messages yet (WCAG 2.2):
+          the named scroll region takes a tab stop of its own. `layoutScroll`: the rows inside slide to their new places
+          when the order changes, and the list's own scroll position is part of where they are. */}
+      <motion.section
+        layoutScroll
+        className="sidebar__scroll scroll"
+        aria-label={m.shell_sidebar_label()}
+        tabIndex={0}
+      >
         <SidebarList meId={me.id} currentId={currentId} />
-      </section>
+      </motion.section>
       <div className="sidebar__user">
         <button
           type="button"

@@ -1,5 +1,6 @@
 import { assistantText, type Message, type ReplyTo, type UserSummary } from '@chatapp/contracts'
 import { AlertCircle, CornerUpLeft, Ellipsis, History } from 'lucide-react'
+import type { CSSProperties } from 'react'
 import { LinkTabIndex } from '@/components/markdown/link-context.ts'
 import { MentionContext } from '@/components/markdown/mention-context.ts'
 import { MessageBody } from '@/components/markdown/message-body.tsx'
@@ -18,6 +19,7 @@ import { hasAny, type MessageActions } from '../message-actions/eligibility.ts'
 import { bubbleShape } from './bubble-shape.ts'
 import type { MessageItem, PendingItem, StartItem, TimelineItem } from './items.ts'
 import { systemText } from './system-text.ts'
+import type { RowArrival } from './use-arrivals.ts'
 
 export type RowContext = {
   /** The place of each message among the loaded ones (1-based), for `aria-posinset`. */
@@ -36,8 +38,8 @@ export type RowContext = {
   conversationKind: 'channel' | 'group' | 'dm' | 'agent'
   /** The row Tab reaches (the roving tab stop of the feed). */
   currentId: string | null
-  /** Rows that arrived while the screen was open spring in. */
-  freshIds: ReadonlySet<string>
+  /** Rows that have just arrived while the reader is at the foot of the list, by row key (docs/02 section 4.5). */
+  arrivals: ReadonlyMap<string, RowArrival>
   onRetry: (pending: PendingMessage) => void
   onDiscard: (pending: PendingMessage) => void
   onJump: (replyTo: Extract<ReplyTo, { id: string }>) => void
@@ -86,27 +88,27 @@ const nameOf = (context: RowContext, id: string | null, fallback: string): strin
 }
 
 function Separators({ item, context }: { item: TimelineItem; context: RowContext }) {
+  if (!item.after.unread && item.after.date === null) return null
   return (
-    <>
-      {item.after.unread ? (
-        <div className="unread-div" aria-hidden="true">
-          {m.timeline_new_messages()}
-        </div>
-      ) : null}
-      {item.after.date ? (
-        <div className="date-sep" aria-hidden="true">
-          <span>
-            {separatorLabel(
-              item.after.date,
-              context.now,
-              context.locale,
-              { yesterday: m.time_yesterday() },
-              context.timeZone,
-            )}
-          </span>
-        </div>
-      ) : null}
-    </>
+    // Two boxes, so that what hangs under a row can open like a row when it comes with a new message (chat.css).
+    <div className="t-after" aria-hidden="true">
+      <div>
+        {item.after.unread ? <div className="unread-div">{m.timeline_new_messages()}</div> : null}
+        {item.after.date ? (
+          <div className="date-sep">
+            <span>
+              {separatorLabel(
+                item.after.date,
+                context.now,
+                context.locale,
+                { yesterday: m.time_yesterday() },
+                context.timeZone,
+              )}
+            </span>
+          </div>
+        ) : null}
+      </div>
+    </div>
   )
 }
 
@@ -210,14 +212,7 @@ function MessageRow({ item, context }: { item: MessageItem; context: RowContext 
           {user?.isBot === true ? <Badge tone="role">{m.user_bot()}</Badge> : null}
         </div>
       ) : null}
-      <div
-        className={cx(
-          'msg',
-          context.flashId === message.id && 'msg--flash',
-          context.freshIds.has(message.id) && 'msg--new',
-        )}
-        data-who={who}
-      >
+      <div className={cx('msg', context.flashId === message.id && 'msg--flash')} data-who={who}>
         {who === 'in' && context.conversationKind !== 'dm' ? (
           <div className="msg__avatar">
             {item.showAvatar ? (
@@ -466,8 +461,19 @@ function StartRow({ item, context }: { item: StartItem; context: RowContext }) {
 
 /** One virtualized row of the timeline: the row itself and the separators that hang under it. */
 export function TimelineRow({ item, context }: { item: TimelineItem; context: RowContext }) {
+  const arrival = context.arrivals.get(item.key)
   return (
-    <div className="t-row" data-key={item.key}>
+    <div
+      className="t-row"
+      data-key={item.key}
+      data-arrival={arrival?.entering ? 'new' : undefined}
+      data-after={arrival?.after ? 'new' : undefined}
+      style={
+        arrival?.entering && arrival.delay < 0
+          ? ({ '--arrival-delay': `${arrival.delay}ms` } as CSSProperties)
+          : undefined
+      }
+    >
       {item.type === 'start' ? (
         <StartRow item={item} context={context} />
       ) : item.type === 'message' ? (

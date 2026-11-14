@@ -379,7 +379,7 @@
   overflow-wrap: anywhere;
   transition:
     background-color 0.15s,
-    scale var(--dur-snappy) var(--spring-snappy);
+    scale var(--press-dur) var(--press-ease);
 }
 .agent-chip:hover {
   background: color-mix(in srgb, var(--accent-solid) 16%, transparent);

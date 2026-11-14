@@ -98,6 +98,7 @@ export function PasswordField({ showLabel, hideLabelText, ...rest }: PasswordFie
         <IconButton
           label={shown ? hideLabelText : showLabel}
           icon={shown ? EyeOff : Eye}
+          className="icon-swap"
           aria-pressed={shown}
           tooltip={false}
           onClick={() => setShown((value) => !value)}

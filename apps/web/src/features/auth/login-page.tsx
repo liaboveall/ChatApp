@@ -2,7 +2,7 @@ import { deletionOperationSchema, emailSchema } from '@chatapp/contracts'
 import { useQueryClient } from '@tanstack/react-query'
 import { Link, useNavigate } from '@tanstack/react-router'
 import { Fingerprint } from 'lucide-react'
-import { type FormEvent, useEffect, useState } from 'react'
+import { type FormEvent, useEffect, useRef, useState } from 'react'
 import { Button } from '@/components/ui/button.tsx'
 import { Banner } from '@/components/ui/feedback.tsx'
 import { PasswordField, TextField } from '@/components/ui/fields.tsx'
@@ -13,6 +13,7 @@ import {
 } from '@/lib/account-deletion.ts'
 import { ApiError, api } from '@/lib/api.ts'
 import { describeError } from '@/lib/error-messages.ts'
+import { shake } from '@/lib/motion.ts'
 import { PRODUCT_NAME } from '@/lib/product.ts'
 import { meQuery, queryKeys } from '@/lib/queries.ts'
 import { currentGeneration, type SessionEnd, sessionStarted } from '@/lib/session.ts'
@@ -64,6 +65,7 @@ export function LoginPage({ redirectTo, reason, services = defaultServices }: Lo
   const [notice, setNotice] = useState<Notice | null>(null)
   const [busy, setBusy] = useState<'password' | 'passkey' | null>(null)
   const [accountDeleted, setAccountDeleted] = useState(false)
+  const form = useRef<HTMLFormElement>(null)
   const hint = accountDeleted ? m.settings_account_deleted() : reasonText(reason)
   useEffect(() => {
     if (reason !== 'account-deletion-pending') return
@@ -122,6 +124,8 @@ export function LoginPage({ redirectTo, reason, services = defaultServices }: Lo
       await finish()
     } catch (error) {
       setNotice(explain(error))
+      // Refused: the form shakes its head, as well as saying why above the fields.
+      if (error instanceof ApiError) shake(form.current)
     } finally {
       setBusy(null)
     }
@@ -150,7 +154,7 @@ export function LoginPage({ redirectTo, reason, services = defaultServices }: Lo
   return (
     <AuthCard>
       <AuthHead title={m.login_title({ product: PRODUCT_NAME })} text={m.login_lead()} />
-      <form className="auth-form" noValidate onSubmit={onSubmit}>
+      <form ref={form} className="auth-form" noValidate onSubmit={onSubmit}>
         {hint ? <Banner tone="info">{hint}</Banner> : null}
         {notice ? (
           <Banner tone={notice.tone}>

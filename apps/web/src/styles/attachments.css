@@ -308,7 +308,8 @@
   gap: 2px;
   padding: 6px;
   border-bottom: 1px solid var(--separator);
-  animation: rise-in var(--dur-snappy) var(--spring-snappy) both;
+  /* There at once (it follows the keyboard), only not as a hard cut. */
+  animation: appear 0.12s var(--ease-soft);
 }
 .mention-picker button {
   display: flex;
@@ -355,7 +356,6 @@
   border-bottom: 1px solid var(--separator);
   overflow-y: auto;
   overscroll-behavior: contain;
-  animation: rise-in var(--dur-snappy) var(--spring-snappy) both;
 }
 /* A group's name stays in sight while its rows pass under it. It carries text over the emoji scrolling behind, so it
    stands on a strip of the capsule's own fill. */
@@ -387,7 +387,7 @@
   cursor: pointer;
   transition:
     background-color 0.12s,
-    scale var(--dur-snappy) var(--spring-snappy);
+    scale var(--press-dur) var(--press-ease);
 }
 .emoji-picker button:hover {
   background: var(--fill-hover);
@@ -449,11 +449,4 @@
   position: absolute;
   max-width: none;
   pointer-events: none;
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .mention-picker,
-  .emoji-picker {
-    animation: none;
-  }
 }

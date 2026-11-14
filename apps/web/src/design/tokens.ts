@@ -285,6 +285,19 @@ export const springs = {
 export type SpringKey = keyof typeof springs
 
 /**
+ * What is not a spring (spec 4.5), in milliseconds. `press`: how fast a control gives under the pointer (it springs back
+ * on release). `swap`: one thing taking the place of another in the same spot (an icon, a count, a line of text).
+ * `fade`: tooltips, scrims, things that only change opacity. `soft` is the curve of whatever fades, blurs or leaves:
+ * fast at first, so the answer to an action is seen at once.
+ */
+export const timing = {
+  press: 90,
+  swap: 180,
+  fade: 200,
+  soft: 'cubic-bezier(0.22, 1, 0.36, 1)',
+} as const
+
+/**
  * Turns a spring into a CSS `linear()` easing. The curve is the exact unit-mass solution of x'' = -k x - c x', sampled
  * until it settles within 0.1%. `duration` is in ms.
  */

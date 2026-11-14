@@ -2,7 +2,7 @@ import type { DeletionOperation } from '@chatapp/contracts'
 import type { Page } from '@playwright/test'
 import { createVerifiedMember } from './support/api.ts'
 import { expect, test } from './support/fixtures.ts'
-import { openSettings, signIn } from './support/ui.ts'
+import { openSettings, pageAtRest, signIn } from './support/ui.ts'
 
 // Browser feedback only: offsite status responses are simulated. Real journal/application/restore evidence is separate.
 async function deletionStatus(page: Page) {
@@ -167,6 +167,7 @@ test('pending account deletion keeps keyboard focus in its modal and provides ac
   await signIn(page, person.email, person.password)
   await deletionStatus(page)
   const dialog = await requestDeletion(page, person.password)
+  await pageAtRest(page)
   const result = await new AxeBuilder({ page })
     .withTags(['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa', 'wcag22aa'])
     .analyze()

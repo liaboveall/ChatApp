@@ -14,6 +14,7 @@ import {
   type GlassLevelKey,
 } from '@/design/tokens.ts'
 import { type Theme, useAppearance } from '@/lib/appearance.ts'
+import { repaint } from '@/lib/motion.ts'
 import { showToast } from '@/lib/toast.ts'
 import { m } from '@/paraglide/messages.js'
 import { getLocale, type locales, setLocale } from '@/paraglide/runtime.js'
@@ -95,7 +96,7 @@ export function AppearanceSection() {
             <SegmentedControl<Theme>
               label={m.settings_theme_mode()}
               value={appearance.theme}
-              onValueChange={(value) => appearance.set('theme', value)}
+              onValueChange={(value) => repaint(() => appearance.set('theme', value))}
               items={[
                 { value: 'light', label: m.settings_theme_light(), icon: Sun },
                 { value: 'dark', label: m.settings_theme_dark(), icon: Moon },
@@ -111,7 +112,9 @@ export function AppearanceSection() {
             className="swatches"
             aria-label={m.settings_accent()}
             value={appearance.accent}
-            onValueChange={(value) => appearance.set('accent', value as typeof appearance.accent)}
+            onValueChange={(value) =>
+              repaint(() => appearance.set('accent', value as typeof appearance.accent))
+            }
           >
             {ACCENT_KEYS.map((key) => (
               <Radio.Root
@@ -145,7 +148,7 @@ export function AppearanceSection() {
               label={m.settings_glass_material()}
               value={reducedTransparency ? 'opaque' : appearance.glass}
               disabled={reducedTransparency}
-              onValueChange={(value) => appearance.set('glass', value)}
+              onValueChange={(value) => repaint(() => appearance.set('glass', value), 'fade')}
               items={glassItems}
             />
           </Row>

@@ -6,6 +6,7 @@ import { Avatar } from '@/components/ui/avatar.tsx'
 import { Badge } from '@/components/ui/badge.tsx'
 import { Icon } from '@/components/ui/icon.tsx'
 import { messageText } from '@/lib/message-text.ts'
+import { usePop, useTick } from '@/lib/motion.ts'
 import { draftOf, useDrafts } from '@/lib/sync/drafts.ts'
 import { displayName } from '@/lib/sync/selectors.ts'
 import type { UsersByid } from '@/lib/sync/types.ts'
@@ -61,6 +62,10 @@ export function SidebarItem({
   // Something written here and not sent: the row says so until it is sent or cleared, as a reminder to come back.
   const draft = useDrafts((state) => draftOf(state, conversation.id)).trim()
   const draftShown = draft !== '' && !current && !previewHidden
+  // Another message is the last one now: its line moves into the place of the old. The same message changing (an
+  // edit, an answer still being written) changes the words where they stand. The first unread count pops in.
+  const line = useTick<HTMLSpanElement>(draftShown ? 'draft' : conversation.lastSeq)
+  const badge = usePop<HTMLSpanElement>(unread > 0)
   const preview = previewHidden
     ? ''
     : previewLine(conversation, users, meId, {
@@ -133,14 +138,16 @@ export function SidebarItem({
           <span className="truncate">{name}</span>
         </span>
         <span className="s-item__preview">
-          {draftShown ? (
-            <>
-              <b className="s-item__draft">{m.sidebar_draft()}</b>
-              {messageText(draft, users)}
-            </>
-          ) : (
-            preview
-          )}
+          <span ref={line} className="s-item__line">
+            {draftShown ? (
+              <>
+                <b className="s-item__draft">{m.sidebar_draft()}</b>
+                {messageText(draft, users)}
+              </>
+            ) : (
+              preview
+            )}
+          </span>
         </span>
       </span>
       <span className="s-item__meta">
@@ -150,7 +157,9 @@ export function SidebarItem({
         </span>
         {unread > 0 ? (
           <span className="s-item__badges">
-            <Badge tone={muted ? 'muted' : 'accent'}>{unreadLabel(unread)}</Badge>
+            <Badge ref={badge} tone={muted ? 'muted' : 'accent'} tick>
+              {unreadLabel(unread)}
+            </Badge>
           </span>
         ) : null}
       </span>

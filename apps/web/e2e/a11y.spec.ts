@@ -14,7 +14,7 @@ import {
   signedIn,
 } from './support/chat.ts'
 import { expect, test } from './support/fixtures.ts'
-import { chooseTheme, openSettings, signIn } from './support/ui.ts'
+import { chooseTheme, openSettings, pageAtRest, signIn } from './support/ui.ts'
 
 /**
  * Automated accessibility checks (docs/08 section 2, AT-21): axe-core against WCAG 2.2 A and AA on the key screens, in
@@ -28,6 +28,8 @@ async function expectAccessible(
   label: string,
   options: { popup?: boolean } = {},
 ): Promise<void> {
+  // The page is judged as it stands once it has come to rest, not in a frame of a pane that is still fading in.
+  await pageAtRest(page)
   // A menu is drawn in a layer of its own, outside every landmark by nature: the rule about landmarks is not asked of it.
   const builder = new AxeBuilder({ page }).withTags(TAGS)
   if (options.popup) builder.disableRules(['region'])

@@ -1,0 +1,295 @@
+/* Motion (docs/02 section 4.5). What moves here answers something the person did, or shows what has just changed, and
+   starts from where it comes from: a control gives under the pointer and springs back, a pane grows out of the control
+   that opened it, a message leaves the composer. The rules of one component's motion live with that component; this
+   file holds what they share.
+
+   Three springs carry movement (--spring-snappy, --spring-smooth, --spring-bouncy, each with its --dur-*), and
+   --ease-soft carries what only fades, blurs or leaves. With reduced motion (the system's, or the setting) base.css
+   leaves a short fade of opacity and colour and drops everything else, so the rules here never need to say it again
+   for transitions; keyframe animations that move are switched off where they are declared. */
+
+:root {
+  /* A pressed control: it gives at once and springs back when it is let go. The pair is read by every `scale`
+     transition of a pressable; `:active` swaps it for the fast one below, so pressing is quick and releasing is the
+     spring. */
+  --press-dur: var(--dur-bouncy);
+  --press-ease: var(--spring-bouncy);
+}
+
+/* No `filter` is animated anywhere (docs/02 section 4.5). Panes used to come into focus as they opened (a blur that
+   cleared), and text that took another's place was blurred for a moment: in WebKit both made rendering stall, events
+   arrive late and, about one time in ten, the page crash. What moves here is `transform`, `opacity` and, in three
+   small places, a size. */
+
+:is(
+  .btn,
+  .icon-btn,
+  .s-item,
+  .toolbar__who,
+  .swatch,
+  .jump,
+  .msg__who,
+  .check__box,
+  .agent-chip,
+  .slider,
+  .emoji-picker button,
+  .md [data-streamdown="code-block-copy-button"]
+):active {
+  --press-dur: var(--dur-press);
+  --press-ease: var(--ease-soft);
+}
+
+/* ---- Shared keyframes ---- */
+
+/* One thing takes the place of another in the same spot: a count, a line of text, a name. Opacity and a short move
+   only. (It had a 2px blur as well, and that was what crashed WebKit: an animated `filter` on text that sits on a
+   backdrop-filtered pane, while other things on the page are moving. Found with a stress loop in Playwright's WebKit;
+   a tenth of the rounds crashed with it, none without.) */
+@keyframes tick-in {
+  from {
+    opacity: 0;
+    translate: 0 0.4em;
+  }
+}
+/* The same without movement, for reduced motion and for what must not shift. */
+@keyframes appear {
+  from {
+    opacity: 0;
+  }
+}
+/* A small thing that was not there: it grows from most of its size (never from nothing) and overshoots a little. */
+@keyframes pop {
+  from {
+    opacity: 0;
+    scale: 0.6;
+  }
+}
+
+/* ---- Reveal: a part of a pane that opens in place (reveal.tsx drives the height) ---- */
+
+.reveal {
+  /* Its own formatting context: the margins of what it holds are part of the height it opens to. */
+  display: flow-root;
+  overflow: clip;
+}
+
+/* ---- A button whose icon changes with what a press will do (preview / edit, show / hide): the new one turns in ---- */
+
+.icon-swap > .icon {
+  animation: icon-swap var(--dur-swap) var(--ease-soft);
+}
+@keyframes icon-swap {
+  from {
+    opacity: 0;
+    scale: 0.6;
+    rotate: -30deg;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .icon-swap > .icon {
+    animation: none;
+  }
+}
+
+/* ---- The whole window in a new look (theme, accent, glass level): repaint() in lib/motion.ts ----
+   One picture of the window gives way to the next. From a press, the new one spreads in a circle from that point;
+   from the keyboard, and with reduced motion, the two cross-fade. */
+
+:root[data-repaint]::view-transition-old(root),
+:root[data-repaint]::view-transition-new(root) {
+  mix-blend-mode: normal;
+}
+:root[data-repaint="fade"]::view-transition-old(root),
+:root[data-repaint="fade"]::view-transition-new(root) {
+  animation-duration: 0.2s;
+  animation-timing-function: var(--ease-soft);
+}
+:root[data-repaint="reveal"]::view-transition-old(root) {
+  animation: none;
+}
+:root[data-repaint="reveal"]::view-transition-new(root) {
+  /* A circle's area grows with the square of its radius: an even pace already looks like it is gathering speed, so
+     the curve only softens the two ends. */
+  animation: repaint-reveal 0.52s cubic-bezier(0.4, 0, 0.3, 1) both;
+}
+@keyframes repaint-reveal {
+  from {
+    clip-path: circle(0 at var(--repaint-x) var(--repaint-y));
+  }
+  to {
+    clip-path: circle(var(--repaint-r) at var(--repaint-x) var(--repaint-y));
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  :root[data-repaint]::view-transition-old(root),
+  :root[data-repaint]::view-transition-new(root) {
+    animation-duration: 0.12s;
+  }
+}
+
+/* ---- What opens under its own heading (<details>: the shortcuts of the welcome page, the steps of a tool run) ----
+   The content slides open to its own height and shut again. Where the browser cannot interpolate to an intrinsic
+   size, it opens at once, as it always did. */
+
+:is(.welcome__keys, .agent-run-card details)::details-content {
+  interpolate-size: allow-keywords;
+  overflow: clip;
+  /* Layout containment in both states: without it the toggle of content-visibility makes the height jitter. */
+  contain: layout;
+}
+:is(.welcome__keys, .agent-run-card details):not([open])::details-content {
+  block-size: 0;
+}
+@media (prefers-reduced-motion: no-preference) {
+  :is(.welcome__keys, .agent-run-card details)::details-content {
+    transition: block-size, content-visibility;
+    transition-duration: var(--dur-smooth);
+    transition-timing-function: var(--spring-smooth);
+    transition-behavior: allow-discrete;
+  }
+}
+
+/* ---- A notice that was not there (a banner above a form, an error under a field): it settles into its place ---- */
+
+:is(.banner, .field__error) {
+  transition:
+    opacity var(--dur-fade) var(--ease-soft),
+    translate var(--dur-snappy) var(--spring-snappy);
+}
+@starting-style {
+  :is(.banner, .field__error) {
+    opacity: 0;
+    translate: 0 -4px;
+  }
+}
+
+/* ---- A tick that has just been set (a checkbox, the chosen accent, a file that is ready) is drawn, as with a pen ---- */
+
+:is(.check__box, .swatch[data-checked], .upload-draft small[data-status="ready"])
+  :is(.icon, svg)
+  path {
+  stroke-dasharray: 24;
+  animation: draw var(--dur-swap) var(--ease-soft);
+}
+@keyframes draw {
+  from {
+    stroke-dashoffset: 24;
+  }
+}
+/* The ring around the chosen accent closes in on it. */
+.swatch[data-checked]::before {
+  animation: ring-in var(--dur-snappy) var(--spring-snappy);
+}
+@keyframes ring-in {
+  from {
+    opacity: 0;
+    scale: 1.3;
+  }
+}
+
+/* ---- A section of the settings takes the place of another: its groups come in one after the other ---- */
+
+/* (`backwards`: hidden while it waits its turn, and nothing left on it once it has arrived. An animation that kept
+   filling forwards would leave every group a stacking context of its own for good.) */
+.sheet__body > * {
+  animation: section-in 0.26s var(--ease-soft) backwards;
+}
+.sheet__body > :nth-child(2) {
+  animation-delay: 30ms;
+}
+.sheet__body > :nth-child(3) {
+  animation-delay: 60ms;
+}
+.sheet__body > :nth-child(n + 4) {
+  animation-delay: 90ms;
+}
+@keyframes section-in {
+  from {
+    opacity: 0;
+    translate: 0 8px;
+  }
+}
+
+/* ---- The first look of a page that is the whole window: sign-in, and the welcome page ----
+   One sequence, once: the icon lands, then the words and the actions follow it up. */
+
+.welcome > :is(h1, p, .welcome__actions, .welcome__keys),
+.auth-card > * {
+  animation: section-in 0.42s var(--ease-soft) backwards;
+}
+.welcome > .tilt,
+.auth-head > .tilt {
+  animation: pop var(--dur-bouncy) var(--spring-bouncy);
+}
+.welcome > h1 {
+  animation-delay: 60ms;
+}
+.welcome > p {
+  animation-delay: 110ms;
+}
+.welcome > .welcome__actions {
+  animation-delay: 160ms;
+}
+.welcome > .welcome__keys {
+  animation-delay: 210ms;
+}
+.auth-card > :nth-child(2) {
+  animation-delay: 70ms;
+}
+.auth-card > :nth-child(n + 3) {
+  animation-delay: 130ms;
+}
+
+/* ---- The application icon as a pane one can tip: it leans towards the pointer and catches the light there ----
+   (tilt.tsx sets --tilt-x and --tilt-y, each from -1 to 1, while the pointer is over it.) */
+
+.tilt {
+  position: relative;
+  display: inline-grid;
+  /* The icon's own corner: 30 of 128. */
+  border-radius: 23.5%;
+  /* Let go, it swings back and settles. At rest it has no transform at all: a pane tipped by nothing is still a layer
+     of its own, and the glass card it sits on is drawn a hair differently around it. */
+  transition: transform var(--dur-bouncy) var(--spring-bouncy);
+}
+.tilt[data-tilting] {
+  transform: perspective(480px) rotateX(calc(var(--tilt-y, 0) * -14deg))
+    rotateY(calc(var(--tilt-x, 0) * 14deg));
+  transition: transform 0.1s linear;
+}
+.tilt::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  background: radial-gradient(
+    circle at calc(50% + var(--tilt-x, 0) * 46%) calc(50% + var(--tilt-y, 0) * 46%),
+    rgb(255 255 255 / 0.36),
+    rgb(255 255 255 / 0) 62%
+  );
+  opacity: 0;
+  transition: opacity var(--dur-fade) var(--ease-soft);
+  pointer-events: none;
+}
+.tilt[data-tilting]::after {
+  opacity: 1;
+}
+
+/* ---- The bell rings when a notification comes (notification-bell.tsx): it swings from where it hangs ---- */
+
+.notice-bell > .icon {
+  transform-origin: 50% 8%;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  :is(.check__box, .swatch[data-checked], .upload-draft small[data-status="ready"])
+    :is(.icon, svg)
+    path,
+  .swatch[data-checked]::before,
+  .sheet__body > *,
+  .welcome > *,
+  .auth-card > *,
+  .auth-head > .tilt {
+    animation: none;
+  }
+}

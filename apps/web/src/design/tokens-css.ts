@@ -23,6 +23,7 @@ import {
   springEasing,
   springs,
   status,
+  timing,
   type,
   typeScale,
   wallpaper,
@@ -82,7 +83,10 @@ function runtimeCss(): string {
     add(`spring-${key}`, easing)
     add(`dur-${key}`, `${duration}ms`)
   }
-  add('dur-fade', '200ms')
+  add('dur-press', `${timing.press}ms`)
+  add('dur-swap', `${timing.swap}ms`)
+  add('dur-fade', `${timing.fade}ms`)
+  add('ease-soft', timing.soft)
 
   const out: string[] = [':root {', '  color-scheme: light;', ...root, '}']
   out.push(

@@ -144,6 +144,9 @@ test.describe('appearance', () => {
     await signIn(page, person.email, person.password)
     await openSettings(page, 'appearance')
     await page.getByRole('radio', { name: '跟随系统' }).click()
+    // The choice is applied inside a view transition (the window changes its look as one picture, docs/02 section
+    // 4.5), a frame after the press: wait until it has been, then change what the system prefers.
+    await expect(page.locator('html')).not.toHaveAttribute('data-theme')
     await page.emulateMedia({ colorScheme: 'dark' })
     const background = () => page.evaluate(() => getComputedStyle(document.body).backgroundColor)
     const dark = await background()

@@ -1,6 +1,7 @@
 import type { LucideIcon } from 'lucide-react'
 import type { ReactNode } from 'react'
 import { AppIcon } from '@/components/brand/app-icon.tsx'
+import { Tilt } from '@/components/brand/tilt.tsx'
 import { TitleBar } from '@/components/layout/title-bar.tsx'
 import { Wallpaper } from '@/components/layout/wallpaper.tsx'
 import { Icon } from '@/components/ui/icon.tsx'
@@ -51,7 +52,9 @@ export function AuthHead({ title, text, icon, tone = 'default' }: AuthHeadProps)
           <Icon icon={icon} size={24} />
         </div>
       ) : (
-        <AppIcon size={56} />
+        <Tilt>
+          <AppIcon size={56} />
+        </Tilt>
       )}
       <h1 className="text-title-1 text-balance">{title}</h1>
       {text ? <p className="text-body text-label-secondary text-pretty">{text}</p> : null}

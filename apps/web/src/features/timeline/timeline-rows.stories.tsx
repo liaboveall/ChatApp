@@ -47,7 +47,7 @@ const context = (kind: 'group' | 'dm'): RowContext => ({
   joinedAt: at('02', '01:30'),
   conversationKind: kind,
   currentId: null,
-  freshIds: new Set(),
+  arrivals: new Map(),
   onRetry: noop,
   onDiscard: noop,
   onJump: noop,

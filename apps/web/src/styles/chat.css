@@ -31,6 +31,11 @@
 .timeline:focus-visible {
   outline: none;
 }
+/* Another conversation takes the window: its messages are there at once, softly, while the title capsule above them
+   changes shape (no movement: this is what one does most often here). */
+.timeline {
+  animation: appear 0.18s var(--ease-soft);
+}
 .timeline__inner {
   max-width: 820px;
   margin: 0 auto;
@@ -199,7 +204,7 @@
 .msg__who {
   display: grid;
   border-radius: 999px;
-  transition: scale var(--dur-snappy) var(--spring-snappy);
+  transition: scale var(--press-dur) var(--press-ease);
 }
 .msg__who:hover {
   scale: 1.08;
@@ -510,7 +515,6 @@ button.bubble__quote:hover {
   border-radius: 999px;
   background: var(--glass-fill-text);
   box-shadow: var(--glass-ring), var(--elev-1);
-  animation: pop-in var(--dur-snappy) var(--spring-snappy) both;
 }
 .typing__dots {
   position: relative;
@@ -637,7 +641,6 @@ button.bubble__quote:hover {
   font-size: var(--fs-subheadline);
   line-height: var(--lh-subheadline);
   color: var(--label-secondary);
-  animation: rise-in var(--dur-snappy) var(--spring-snappy) both;
 }
 .composer__ctx b {
   color: var(--accent-text);
@@ -704,15 +707,30 @@ button.bubble__quote:hover {
 .composer__input:focus-visible {
   outline: none;
 }
+/* The send button. Its arrow leaves through the top of the disc when a message goes (composer.tsx), so the disc clips
+   it; and the button comes alive with a small spring at the moment there is something to send. */
 .composer__row .composer__send {
   width: 32px;
   height: 32px;
   margin: 2px;
+  overflow: clip;
   transition:
     background-color 0.16s,
     color 0.16s,
     box-shadow 0.16s,
-    scale var(--dur-snappy) var(--spring-snappy);
+    scale var(--press-dur) var(--press-ease);
+}
+.composer__row .composer__send:enabled {
+  animation: send-ready var(--dur-bouncy) var(--spring-bouncy);
+}
+@keyframes send-ready {
+  from {
+    scale: 0.78;
+  }
+}
+/* "Preview" is only there while there is something to preview: it grows into its place. */
+.composer__toggle {
+  animation: pop var(--dur-snappy) var(--spring-snappy);
 }
 .composer__hint {
   padding: 0 18px 8px;
@@ -749,18 +767,12 @@ button.bubble__quote:hover {
     0 0 0 7px color-mix(in srgb, var(--accent-solid) 18%, transparent),
     var(--glass-drop);
 }
-
-@keyframes pop-in {
-  from {
-    opacity: 0;
-    transform: scale(0.9);
-  }
+/* The "+" gives a quarter turn under the pointer and swings back. */
+.composer__attach > .icon {
+  transition: rotate var(--press-dur) var(--press-ease);
 }
-@keyframes rise-in {
-  from {
-    opacity: 0;
-    transform: translateY(6px);
-  }
+.composer__attach:active > .icon {
+  rotate: 90deg;
 }
 
 /* ---- Jump to latest ---- */
@@ -776,11 +788,17 @@ button.bubble__quote:hover {
   height: 40px;
   border-radius: 999px;
   color: var(--label);
-  animation: pop-in var(--dur-bouncy) var(--spring-bouncy) both;
-  transition: scale var(--dur-snappy) var(--spring-snappy);
+  transition: scale var(--press-dur) var(--press-ease);
 }
 .jump:hover {
   scale: 1.06;
+}
+/* The arrow leans the way a press will go. */
+.jump > .icon {
+  transition: translate var(--dur-snappy) var(--spring-snappy);
+}
+.jump:hover > .icon {
+  translate: 0 1.5px;
 }
 .jump:active {
   scale: 0.92;
@@ -793,21 +811,73 @@ button.bubble__quote:hover {
   box-shadow: 0 0 0 2px var(--bg-content);
 }
 
-/* New messages spring in. */
-.msg--new .bubble {
-  animation: msg-in var(--dur-bouncy) var(--spring-bouncy) both;
+/* ---- Arrivals (docs/02 section 4.5) ----
+   A message that comes while the reader is at the foot of the conversation makes room for itself: its row opens from
+   nothing to its height, and the list, which stays at its foot, carries everything above it up at the same pace. The
+   bubble keeps to the top of the opening row, so it rises out from behind the composer (mine has just left it; theirs
+   comes up from the same edge) and springs out of the corner its tail is on.
+
+   --arrival-delay is zero, or negative on a confirmed message that goes on with the entrance its pending bubble had
+   begun (use-arrivals.ts): the two are different elements, and the move must not start over between them. */
+.t-row[data-arrival="new"] {
+  display: grid;
+  grid-template-rows: 1fr;
+  animation: row-open var(--dur-smooth) var(--spring-smooth) var(--arrival-delay, 0s) both;
 }
-.msg--new[data-who="out"] .bubble {
-  transform-origin: bottom right;
+.t-row[data-arrival="new"] > * {
+  min-height: 0;
 }
-.msg--new[data-who="in"] .bubble {
-  transform-origin: bottom left;
+/* As the item of that grid, the article keeps its children's margins inside it. In the list as it otherwise stands,
+   the 2px above the first bubble of a group melts into the article's own margin: without this the row would be 2px
+   taller while it arrives, and give them back a moment later. */
+.t-row[data-arrival="new"] > .msg-article[data-first="true"] > .msg:first-child {
+  margin-top: 0;
 }
-@keyframes msg-in {
+@keyframes row-open {
   from {
-    opacity: 0;
-    transform: translateY(10px) scale(0.92);
+    grid-template-rows: 0fr;
   }
+}
+/* What hangs under the row above (the day, the "new messages" line) and came with the message opens the same way. (As
+   the one item of that grid, the inner box keeps the lines' margins inside it: the height it opens to is the height
+   the lines take in the list, where every row is laid out on its own.) */
+.t-row[data-after="new"] > .t-after {
+  display: grid;
+  grid-template-rows: 1fr;
+  animation:
+    row-open var(--dur-smooth) var(--spring-smooth) both,
+    appear var(--dur-fade) var(--ease-soft) both;
+}
+.t-row[data-after="new"] > .t-after > div {
+  min-height: 0;
+  overflow: clip;
+}
+.t-row[data-arrival="new"] .bubble {
+  animation:
+    bubble-in var(--dur-bouncy) var(--spring-bouncy) var(--arrival-delay, 0s) both,
+    appear 0.18s var(--ease-soft) var(--arrival-delay, 0s) both;
+}
+.t-row[data-arrival="new"] .msg[data-who="out"] .bubble {
+  transform-origin: 100% 100%;
+}
+.t-row[data-arrival="new"] .msg[data-who="in"] .bubble {
+  transform-origin: 0 100%;
+}
+@keyframes bubble-in {
+  from {
+    transform: scale(0.82);
+  }
+}
+/* The sender's picture moves down to the newest bubble of the group: there it pops in. */
+.t-row[data-arrival="new"] .msg__avatar > * {
+  animation: pop var(--dur-bouncy) var(--spring-bouncy) both;
+}
+/* The assistant's reply arrives while it is still being written: the band of light on its edge keeps turning. */
+.t-row[data-arrival="new"] .bubble--in.bubble--streaming {
+  animation:
+    bubble-in var(--dur-bouncy) var(--spring-bouncy) both,
+    appear 0.18s var(--ease-soft) both,
+    stream-turn 3s linear infinite;
 }
 
 /* Narrow windows: bubbles may use more of the width than on the desktop. */
@@ -860,10 +930,11 @@ button.bubble__quote:hover {
 
 /* The system's "reduce motion" and the setting turn every animation into a plain fade. */
 @media (prefers-reduced-motion: reduce) {
-  .msg--new .bubble,
-  .jump,
-  .typing__pill,
-  .composer__ctx {
+  .t-row[data-arrival] :is(.bubble, .msg__avatar > *),
+  .t-row[data-arrival],
+  .t-row[data-after] > .t-after,
+  .composer__toggle,
+  .composer__row .composer__send:enabled {
     animation: none;
   }
 }

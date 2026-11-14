@@ -29,10 +29,12 @@ import { engine, forScreen, outbox } from '@/app/sync.ts'
 import { MentionContext } from '@/components/markdown/mention-context.ts'
 import { MessageBody } from '@/components/markdown/message-body.tsx'
 import { IconButton } from '@/components/ui/button.tsx'
+import { Reveal } from '@/components/ui/reveal.tsx'
 import { useSiteLimits } from '@/features/settings/site-limits.ts'
 import { api } from '@/lib/api.ts'
 import { describeError } from '@/lib/error-messages.ts'
 import { messageBodyPreview } from '@/lib/message-text.ts'
+import { play, spring } from '@/lib/motion.ts'
 import { isApplePlatform } from '@/lib/platform.ts'
 import { meQuery } from '@/lib/queries.ts'
 import { serverNow } from '@/lib/realtime.ts'
@@ -72,6 +74,27 @@ import { useTypingSignal } from './use-typing-signal.ts'
 const SHOW_COUNT_AT = 4500
 
 const codePoints = (text: string): number => [...text].length
+
+/**
+ * The message has left: the arrow of the send button goes up and out of the disc, and the next one comes up from
+ * below, in time with the bubble that rises out of the composer.
+ */
+function launch(button: HTMLElement | null): void {
+  const arrive = spring('snappy')
+  const leave = 150
+  const total = leave + arrive.duration
+  // One animation, so there is no frame between the two halves in which the arrow is back in its place.
+  play(
+    button?.querySelector('svg'),
+    [
+      { translate: '0 0', offset: 0, easing: 'cubic-bezier(0.5, 0, 0.9, 0.4)' },
+      { translate: '0 -160%', offset: leave / total },
+      { translate: '0 160%', offset: leave / total, easing: arrive.easing },
+      { translate: '0 0', offset: 1 },
+    ],
+    { duration: total },
+  )
+}
 
 export function Composer({
   conversation,
@@ -124,6 +147,7 @@ export function Composer({
   )
   const field = useRef<HTMLTextAreaElement>(null)
   const root = useRef<HTMLDivElement>(null)
+  const sendButton = useRef<HTMLButtonElement>(null)
   const composition = useRef<CompositionState>(initialComposition())
   useTypingSignal(id, draft)
 
@@ -409,6 +433,7 @@ export function Composer({
     setDraft(id, '')
     if (mode?.type === 'reply') endCompose(id, me.membershipId, mode.serial)
     field.current?.focus()
+    launch(sendButton.current)
     void timeline.current?.toLatest()
   }
 
@@ -537,7 +562,7 @@ export function Composer({
         onClick={() => picker.current?.click()}
       />
       <div className="composer__field glass-text">
-        {uploads.length ? (
+        <Reveal show={uploads.length > 0}>
           <div className="upload-drafts">
             {uploads.map((entry) => (
               <div className="upload-draft" key={entry.id}>
@@ -579,8 +604,8 @@ export function Composer({
               </div>
             ))}
           </div>
-        ) : null}
-        {draft === '/' ? (
+        </Reveal>
+        <Reveal show={draft === '/'}>
           <div className="composer__commands">
             {[
               ['/summary', m.agent_summary()],
@@ -597,7 +622,9 @@ export function Composer({
               </button>
             ))}
           </div>
-        ) : null}
+        </Reveal>
+        {/* Not a part that folds away: the people to mention come and go with every key, from the keyboard, and take the
+            keys they need from the field while they are there. They are simply there, and simply gone. */}
         {!preview && mention && !insideMention && dismissedMention !== `${draft}:${caret}` ? (
           <MentionPicker
             conversationId={id}
@@ -616,7 +643,7 @@ export function Composer({
             }}
           />
         ) : null}
-        {emoji ? (
+        <Reveal show={emoji}>
           <EmojiPicker
             recent={recentEmoji}
             onPick={(value) => {
@@ -627,12 +654,12 @@ export function Composer({
               if (recentKey !== null) local.set(recentKey, JSON.stringify(next))
             }}
           />
-        ) : null}
-        {mode !== undefined ? (
+        </Reveal>
+        <Reveal show={mode !== undefined}>
           <div className="composer__ctx">
             <span className="composer__ctx-bar" aria-hidden="true" />
             <span className="composer__ctx-text">
-              {mode.type === 'edit' ? (
+              {mode?.type === 'edit' ? (
                 <b>{m.composer_editing()}</b>
               ) : (
                 <>
@@ -646,7 +673,7 @@ export function Composer({
             </span>
             <IconButton label={m.common_cancel()} icon={X} small onClick={leaveMode} />
           </div>
-        ) : null}
+        </Reveal>
         <div className="composer__row">
           <textarea
             ref={field}
@@ -705,7 +732,7 @@ export function Composer({
             <IconButton
               label={preview ? m.composer_edit_text() : m.composer_preview()}
               icon={preview ? Pencil : Eye}
-              className="composer__toggle"
+              className="composer__toggle icon-swap"
               onClick={() => {
                 setDraftPreview(id, !preview)
                 if (preview) requestAnimationFrame(() => field.current?.focus())
@@ -713,6 +740,7 @@ export function Composer({
             />
           ) : null}
           <IconButton
+            ref={sendButton}
             label={m.composer_send()}
             icon={ArrowUp}
             variant="filled"
@@ -722,11 +750,11 @@ export function Composer({
             onClick={() => void send()}
           />
         </div>
-        {length >= SHOW_COUNT_AT ? (
+        <Reveal show={length >= SHOW_COUNT_AT}>
           <div className="composer__hint" data-over={tooLong} role="status">
             {m.composer_count({ count: length, max: LIMITS.messageMaxCodePoints })}
           </div>
-        ) : null}
+        </Reveal>
       </div>
     </div>
   )

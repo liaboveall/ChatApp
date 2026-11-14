@@ -1,10 +1,13 @@
 import { ChevronDown, MessagesSquare } from 'lucide-react'
+import { motion } from 'motion/react'
 import { type KeyboardEvent, useMemo, useState } from 'react'
 import { usePresenceWatch } from '@/app/presence.ts'
 import { engine } from '@/app/sync.ts'
 import { Button } from '@/components/ui/button.tsx'
 import { EmptyState, Skeleton } from '@/components/ui/feedback.tsx'
 import { Icon } from '@/components/ui/icon.tsx'
+import { Reveal } from '@/components/ui/reveal.tsx'
+import { springs } from '@/design/tokens.ts'
 import { useShell } from '@/lib/shell-state.ts'
 import { useSidebarGroups, useUsers } from '@/lib/sync/hooks.ts'
 import { type SidebarGroupKey, sidebarOrder } from '@/lib/sync/selectors.ts'
@@ -134,10 +137,17 @@ export function SidebarList({ meId, currentId }: { meId: string; currentId: stri
                 <span>{groupTitle(group.key)}</span>
               </button>
             </div>
-            {open ? (
+            {/* A group folds and unfolds in place. Inside it, a conversation that moves (a new message carries it to the
+                top of its group) slides to its new place, and the ones it passes make way: where a row went is seen,
+                not worked out. */}
+            <Reveal show={open}>
               <ul className="s-list">
                 {group.items.map((item) => (
-                  <li key={item.conversation.id}>
+                  <motion.li
+                    key={item.conversation.id}
+                    layout="position"
+                    transition={{ type: 'spring', ...springs.smooth }}
+                  >
                     <SidebarItem
                       conversation={item.conversation}
                       unread={item.unread}
@@ -149,10 +159,10 @@ export function SidebarList({ meId, currentId }: { meId: string; currentId: stri
                       onFocus={() => setRoving(item.conversation.id)}
                       onMenu={setMenu}
                     />
-                  </li>
+                  </motion.li>
                 ))}
               </ul>
-            ) : null}
+            </Reveal>
           </section>
         )
       })}
