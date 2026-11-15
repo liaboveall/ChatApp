@@ -36,6 +36,8 @@ export const agent = makeUser(4, {
   isBot: true,
 })
 export const users = Object.fromEntries([me, bob, maya, agent].map((user) => [user.id, user]))
+/** A mention the way a message body stores it; the client draws the name of whoever that is today. */
+const at = (user: { id: string }) => `<@user:${user.id}>`
 const preview = (text: string, senderId = bob.id) => ({
   senderId,
   text,
@@ -78,6 +80,17 @@ export const assistant = makeConversation(502, {
   ),
   me: makeMe({ role: 'owner', lastReadSeq: 4 }),
 })
+export const design = makeConversation(504, {
+  kind: 'channel',
+  name: text('design', '设计交流'),
+  description: text('Mockups, tokens, and reviews.', '设计稿、令牌与评审。'),
+  memberCount: 8,
+  lastSeq: 11,
+  lastChangeSeq: 11,
+  lastMessageAt: NOW,
+  lastMessagePreview: preview('🎉', maya.id),
+  me: makeMe({ lastReadSeq: 9, unread: 2 }),
+})
 export const conversations = [
   launch,
   panel,
@@ -91,15 +104,7 @@ export const conversations = [
     me: makeMe({ lastReadSeq: 8 }),
     lastSeq: 8,
   }),
-  makeConversation(504, {
-    kind: 'channel',
-    name: text('design', '设计交流'),
-    memberCount: 8,
-    lastMessageAt: NOW,
-    lastMessagePreview: preview(text('New mockups are in.', '新版设计稿已经上传。')),
-    me: makeMe({ lastReadSeq: 9, unread: 2 }),
-    lastSeq: 11,
-  }),
+  design,
   makeConversation(505, {
     name: text('Weekend plans', '周末计划'),
     lastMessageAt: NOW,
@@ -150,6 +155,7 @@ function message(seq: number, body: string, senderId = me.id, patch: Partial<Mes
     ...patch,
   })
 }
+const minutesAgo = (minutes: number) => new Date(Date.parse(NOW) - minutes * 60000).toISOString()
 const meta = (runId: string) => ({
   agent: {
     runId,
@@ -173,9 +179,11 @@ export const messages: Record<string, Message[]> = {
     message(
       1,
       text(
-        "Let's aim for **Friday at 10:00 AM** for the launch. Can we confirm the remaining checks?",
-        '我们计划**周五上午 10 点**上线，剩余的检查工作大家确认一下？',
+        `Let's aim for **Friday at 10:00 AM** for the launch. ${at(maya)} ${at(bob)} can you confirm the remaining checks?`,
+        `我们计划**周五上午 10 点**上线。${at(maya)} ${at(bob)} 剩余的检查工作确认一下？`,
       ),
+      me.id,
+      { mentions: [maya.id, bob.id] },
     ),
     message(
       2,
@@ -201,6 +209,50 @@ export const messages: Record<string, Message[]> = {
       ),
     ),
     message(5, checklistReady, bob.id, { attachments: [file] }),
+  ],
+  [design.id]: [
+    message(
+      8,
+      text(
+        `The new welcome flow mockups are in. ${at(me)} could you take a look before Friday?`,
+        `新版欢迎流程的设计稿传上来了。${at(me)} 周五前能帮忙看一下吗？`,
+      ),
+      maya.id,
+      {
+        id: uuid(4008),
+        conversationId: design.id,
+        mentions: [me.id],
+        createdAt: minutesAgo(12),
+      },
+    ),
+    message(
+      9,
+      text('They look great. Which accent did we settle on?', '很好看。强调色最后定的是哪一个？'),
+      me.id,
+      {
+        id: uuid(4009),
+        conversationId: design.id,
+        createdAt: minutesAgo(9),
+        replyTo: {
+          id: uuid(4008),
+          seq: 8,
+          senderId: maya.id,
+          excerpt: text('The new welcome flow mockups are in.', '新版欢迎流程的设计稿传上来了。'),
+          state: 'ok',
+        },
+      },
+    ),
+    message(
+      10,
+      `${text('Ink blue. The tokens are in:', '墨水蓝，令牌已经更新：')}\n\n\`\`\`css\n:root {\n  --accent-solid: #3c61a7;\n  --radius-bubble: 20px;\n}\n\`\`\``,
+      bob.id,
+      { id: uuid(4010), conversationId: design.id, createdAt: minutesAgo(2) },
+    ),
+    message(11, '🎉', maya.id, {
+      id: uuid(4011),
+      conversationId: design.id,
+      createdAt: minutesAgo(1),
+    }),
   ],
   [panel.id]: [
     message(

@@ -19,10 +19,10 @@ bun run infra:bootstrap
 bun run doctor
 bun run db:migrate
 bun run db:seed
-bun run admin:create
+bun run admin:create --email <邮箱> --username <用户名> --name <显示名>
 ```
 
-`setup` 根据 `.env.example` 生成 `.env.local`、缺失的随机密钥和 Garage 配置，已有凭据保持不变。数据库已有数据卷时不要重新生成数据库密码。`db:migrate` 同时准备低权限应用角色；`db:seed` 只用于开发，会创建助手、演示成员和会话。管理员密码在自己的终端隐藏输入。
+`setup` 根据 `.env.example` 生成 `.env.local`、缺失的随机密钥和 Garage 配置，已有凭据保持不变。数据库已有数据卷时不要重新生成数据库密码。`db:migrate` 同时准备低权限应用角色；`db:seed` 只用于开发，会创建助手、演示成员和会话。`admin:create` 的三个参数都必须给出，管理员密码在自己的终端隐藏输入。
 
 首次使用 Playwright：
 
